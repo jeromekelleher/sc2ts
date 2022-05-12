@@ -1,7 +1,16 @@
 import pathlib
+import logging
 
+import sgkit.io.vcf
 import click
-import pandas as pd
+
+from . import convert
+
+@click.command()
+@click.argument("inpath")
+@click.argument("outpath")
+def convert_to_zarr(inpath, outpath):
+    sgkit.io.vcf.vcf_to_zarr(inpath, outpath)
 
 
 @click.command()
@@ -10,18 +19,15 @@ def import_usher_vcf(prefix):
     vcf_path = pathlib.Path(prefix + "all.masked.vcf.gz")
 
     metadata_path = pathlib.Path(prefix + "metadata.tsv.gz")
+
     # metadata_path = "metadata-subset.tsv"
-    df = pd.read_csv(metadata_path, sep="\t", dtype={"date": pd.StringDtype()})
 
-    date = df["date"]
-    complete_dates = date.str.len() == 10
-    df = df[complete_dates]
-
-    df = df.sort_values("date")
+    df = convert.load_usher_metadata(metadata_path)
+    df = convert.prepare_metadata(df)
 
     subset = df.head(100)
     subset = subset.reset_index(drop=True)
-    subset.to_csv("first_100.csv")
+    subset.to_csv("first_100.tsv", sep="\t")
 
 
 
@@ -32,3 +38,4 @@ def cli():
 
 
 cli.add_command(import_usher_vcf)
+cli.add_command(convert_to_zarr)
