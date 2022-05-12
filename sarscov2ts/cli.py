@@ -1,34 +1,30 @@
 import pathlib
 import logging
 
-import sgkit.io.vcf
 import click
+import daiquiri
 
 from . import convert
 
-@click.command()
-@click.argument("inpath")
-@click.argument("outpath")
-def convert_to_zarr(inpath, outpath):
-    sgkit.io.vcf.vcf_to_zarr(inpath, outpath)
+
+def setup_logging(verbosity):
+    log_level = "WARN"
+    if verbosity > 0:
+        log_level = "INFO"
+    if verbosity > 1:
+        log_level = "DEBUG"
+    daiquiri.setup(level=log_level)
 
 
 @click.command()
-@click.argument("prefix")
-def import_usher_vcf(prefix):
-    vcf_path = pathlib.Path(prefix + "all.masked.vcf.gz")
+@click.argument("vcf")
+@click.argument("metadata")
+@click.argument("output")
+def import_usher_vcf(vcf, metadata, output):
 
-    metadata_path = pathlib.Path(prefix + "metadata.tsv.gz")
-
-    # metadata_path = "metadata-subset.tsv"
-
-    df = convert.load_usher_metadata(metadata_path)
-    df = convert.prepare_metadata(df)
-
-    subset = df.head(100)
-    subset = subset.reset_index(drop=True)
-    subset.to_csv("first_100.tsv", sep="\t")
-
+    # TODO add verbosity arg
+    setup_logging(1)
+    sd = convert.to_samples(vcf, metadata, output, show_progress=True)
 
 
 
@@ -38,4 +34,3 @@ def cli():
 
 
 cli.add_command(import_usher_vcf)
-cli.add_command(convert_to_zarr)

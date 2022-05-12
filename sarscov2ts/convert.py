@@ -7,6 +7,8 @@ import cyvcf2
 import pandas as pd
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 
 def pad_date(s):
     """
@@ -57,7 +59,9 @@ def prepare_metadata(df):
 
 
 def add_sites(vcf, sample_data, index, show_progress=False):
-    pbar = tqdm.tqdm(total=sample_data.sequence_length, disable=not show_progress)
+    pbar = tqdm.tqdm(
+        total=sample_data.sequence_length, desc="sites", disable=not show_progress
+    )
     pos = 0
     for variant in vcf:
         pbar.update(variant.POS - pos)
@@ -80,22 +84,28 @@ def to_samples(vcf_path, metadata_path, sample_data_path, show_progress=False):
 
     vcf = cyvcf2.VCF(vcf_path)
     df_md = load_usher_metadata(metadata_path)
+    logger.info(f"Loaded metadata with {len(df_md)} rows")
     df_md = prepare_metadata(df_md)
+    logger.info(f"Metadata prepped")
     keep_samples = list(df_md["strain"])
     vcf_samples = list(vcf.samples)
+    logger.info(f"Creating map")
     index = np.zeros(len(keep_samples), dtype=int)
+    vcf_sample_index_map = {sample: j for j, sample in enumerate(vcf_samples)}
     for j, sample in enumerate(keep_samples):
-        index[j] = vcf_samples.index(sample)
+        index[j] = vcf_sample_index_map[sample]
         assert index[j] >= 0
-    # print(f"Keeping {len(keep_samples)} from VCF with {len(vcf_samples)}")
-    logging.info(f"Keeping {len(keep_samples)} from VCF with {len(vcf_samples)}")
+    logger.info(f"Keeping {len(keep_samples)} from VCF with {len(vcf_samples)}")
     with tsinfer.SampleData(path=sample_data_path, sequence_length=29904) as sd:
+        pbar = tqdm.tqdm(total=len(df_md), desc="samples", disable=not show_progress)
         for _, row in df_md.iterrows():
             md = row.to_dict()
             del md["completeness"]
             del md["Nextstrain_clade_usher"]
             del md["pango_lineage_usher"]
             sd.add_individual(metadata=md)
-        # print(sd)
+            pbar.update()
+        pbar.close()
         add_sites(vcf, sd, index, show_progress=show_progress)
+
     return sd
