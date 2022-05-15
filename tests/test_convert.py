@@ -118,3 +118,26 @@ class TestConvertedData:
     def test_individuals_sorted_by_date(self, sd_fixture):
         dates = [ind.metadata["date"] for ind in sd_fixture.individuals()]
         assert list(sorted(dates)) == dates
+
+    def test_some_variation_exists(self, sd_fixture):
+        all_zeros = True
+        for _, hap in sd_fixture.haplotypes():
+            all_zeros = all_zeros and np.all(hap == 0)
+        assert not all_zeros
+
+
+def test_split_samples(tmp_path, sd_fixture):
+    total = 0
+    # assumes that we split in order here.
+    all_haplotypes = sd_fixture.haplotypes()
+    for date, sub_sd in convert.split_samples(sd_fixture, prefix=tmp_path):
+        for ind in sub_sd.individuals():
+            assert ind.metadata["date"] == date
+        for _, sub_hap in sub_sd.haplotypes():
+            _, all_hap = next(all_haplotypes)
+            assert np.array_equal(sub_hap, all_hap)
+        total += sub_sd.num_individuals
+        assert date in str(sub_sd.path)
+    assert total == sd_fixture.num_individuals
+
+
