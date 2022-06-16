@@ -7,6 +7,7 @@ import click
 import daiquiri
 
 from . import convert
+from . import inference
 
 
 def setup_logging(verbosity):
@@ -43,6 +44,20 @@ def split_samples(samples_file, output_prefix):
                 logging.info(f"Wrote {sd_sub.num_individuals} samples to {sd_sub.path}")
 
 
+@click.command()
+@click.argument("samples-file")
+@click.argument("output-prefix")
+def infer(samples_file, output_prefix):
+    # TODO add verbosity arg
+    setup_logging(1)
+
+    pm = tsinfer.inference._get_progress_monitor(
+        True, generate_ancestors=True, match_ancestors=True, match_samples=True,
+    )
+    with tsinfer.load(samples_file) as sd:
+        inference.infer(sd, progress_monitor)
+
+
 @click.group()
 def cli():
     pass
@@ -50,3 +65,4 @@ def cli():
 
 cli.add_command(import_usher_vcf)
 cli.add_command(split_samples)
+cli.add_command(infer)
