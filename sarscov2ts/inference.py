@@ -16,8 +16,6 @@ def infer(sd, *, mismatch_ratio=None, file_pattern=None, **kwargs):
         logging.info(f"date={date} {len(samples)} samples")
         ts = extender.extend(
             samples, mismatch_ratio=mismatch_ratio, recombination_rate=1e-8, **kwargs)
-        if file_pattern is not None:
-            path = file_pattern.format(date=date)
-            ts.dump(path)
-    return ts
+        yield date, ts
+
 

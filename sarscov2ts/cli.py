@@ -55,7 +55,10 @@ def infer(samples_file, output_prefix):
         True, generate_ancestors=True, match_ancestors=True, match_samples=True,
     )
     with tsinfer.load(samples_file) as sd:
-        inference.infer(sd, progress_monitor)
+        iterator = inference.infer(sd, progress_monitor=pm, num_threads=20)
+        for date, ts in iterator:
+            path = f"{output_prefix}{date}.ts"
+            ts.dump(path)
 
 
 @click.group()

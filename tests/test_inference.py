@@ -20,7 +20,7 @@ def sd_fixture(tmp_path):
 
 @pytest.fixture
 def ts_fixture(sd_fixture):
-    return sc2ts.infer(sd_fixture)
+    return list(sc2ts.infer(sd_fixture))[-1][1]
 
 
 class TestSubsetInferenceDefaults:
