@@ -47,7 +47,9 @@ def split_samples(samples_file, output_prefix):
 @click.command()
 @click.argument("samples-file")
 @click.argument("output-prefix")
-def infer(samples_file, output_prefix):
+@click.option("--mismatch-ratio", default=None, help="Mismatch ratio")
+@click.option("--num-threads", default=0, type=int, help="Number of match threads")
+def infer(samples_file, output_prefix, mismatch_ratio, num_threads):
     # TODO add verbosity arg
     setup_logging(1)
 
@@ -55,7 +57,12 @@ def infer(samples_file, output_prefix):
         True, generate_ancestors=True, match_ancestors=True, match_samples=True,
     )
     with tsinfer.load(samples_file) as sd:
-        iterator = inference.infer(sd, progress_monitor=pm, num_threads=20)
+        iterator = inference.infer(
+            sd,
+            progress_monitor=pm,
+            num_threads=num_threads,
+            mismatch_ratio=mismatch_ratio,
+        )
         for date, ts in iterator:
             path = f"{output_prefix}{date}.ts"
             ts.dump(path)
