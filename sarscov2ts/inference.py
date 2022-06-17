@@ -16,8 +16,8 @@ def infer(sd, *, mismatch_ratio=None, **kwargs):
         samples = np.where(dates == date)[0]
         logging.info(f"date={date} {len(samples)} samples")
         ts = extender.extend(samples,
-                recombination_rate=1e-20,
-                mismatch_ratio=1e10,
+                recombination_rate=1e-8,
+                mismatch_ratio=mismatch_ratio,
                 **kwargs)
         yield date, ts
 
