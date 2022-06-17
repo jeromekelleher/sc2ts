@@ -47,7 +47,7 @@ def split_samples(samples_file, output_prefix):
 @click.command()
 @click.argument("samples-file")
 @click.argument("output-prefix")
-@click.option("--mismatch-ratio", default=None, help="Mismatch ratio")
+@click.option("--mismatch-ratio", default=None, type=float, help="Mismatch ratio")
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 def infer(samples_file, output_prefix, mismatch_ratio, num_threads):
     # TODO add verbosity arg

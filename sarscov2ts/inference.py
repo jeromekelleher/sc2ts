@@ -10,7 +10,7 @@ def infer(sd, *, mismatch_ratio=None, **kwargs):
 
     dates = np.array([ind.metadata["date"] for ind in sd.individuals()])
     unique_dates = np.unique(dates)
-
+    print("mismatch_ratio", mismatch_ratio)
     extender = tsinfer.SequentialExtender(sd)
     for date in unique_dates:
         samples = np.where(dates == date)[0]
