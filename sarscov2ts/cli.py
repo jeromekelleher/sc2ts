@@ -23,7 +23,7 @@ def setup_logging(verbosity):
 @click.argument("vcf")
 @click.argument("metadata")
 @click.argument("output")
-@click.option('-v', '--verbose', count=True)
+@click.option("-v", "--verbose", count=True)
 def import_usher_vcf(vcf, metadata, output, verbose):
     setup_logging(verbose)
     sd = convert.to_samples(vcf, metadata, output, show_progress=True)
@@ -46,21 +46,24 @@ def split_samples(samples_file, output_prefix):
 @click.command()
 @click.argument("samples-file")
 @click.argument("output-prefix")
-@click.option("--mismatch-ratio", default=None, type=float, help="Mismatch ratio")
+@click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
-@click.option('-v', '--verbose', count=True)
-def infer(samples_file, output_prefix, mismatch_ratio, num_threads, verbose):
+@click.option("-v", "--verbose", count=True)
+def infer(samples_file, output_prefix, num_mismatches, num_threads, verbose):
     setup_logging(verbose)
 
     pm = tsinfer.inference._get_progress_monitor(
-        True, generate_ancestors=True, match_ancestors=True, match_samples=True,
+        True,
+        generate_ancestors=True,
+        match_ancestors=True,
+        match_samples=True,
     )
     with tsinfer.load(samples_file) as sd:
         iterator = inference.infer(
             sd,
             progress_monitor=pm,
             num_threads=num_threads,
-            mismatch_ratio=mismatch_ratio,
+            num_mismatches=num_mismatches,
         )
         for date, ts in iterator:
             path = f"{output_prefix}{date}.ts"

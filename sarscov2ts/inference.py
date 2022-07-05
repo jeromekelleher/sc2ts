@@ -3,10 +3,11 @@ import logging
 import tsinfer
 import numpy as np
 
-def infer(sd, *, mismatch_ratio=None, **kwargs):
-    if mismatch_ratio is None:
+
+def infer(sd, *, num_mismatches=None, **kwargs):
+    if num_mismatches is None:
         # Default to no recombination
-        mismatch_ratio = 1e10
+        num_mismatches = 1000
 
     dates = np.array([ind.metadata["date"] for ind in sd.individuals()])
     unique_dates = np.unique(dates)
@@ -17,10 +18,5 @@ def infer(sd, *, mismatch_ratio=None, **kwargs):
     for date in unique_dates:
         samples = np.where(dates == date)[0]
         logging.info(f"date={date} {len(samples)} samples")
-        ts = extender.extend(samples,
-                recombination=ls_recomb,
-                mismatch=ls_mismatch,
-                **kwargs)
+        ts = extender.extend(samples, num_mismatches=num_mismatches, **kwargs)
         yield date, ts
-
-
