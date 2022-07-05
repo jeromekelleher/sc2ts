@@ -76,6 +76,8 @@ def add_sites(vcf, sample_data, index, show_progress=False):
         # Assume REF is the ancestral state.
         alleles = [variant.REF] + variant.ALT
         genotypes = np.array(variant.genotypes).T[0]
+        missing_fraction = np.sum(genotypes == -1) / genotypes.shape[0]
+        logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
         sample_data.add_site(pos, genotypes=genotypes[index], alleles=alleles)
     pbar.close()
 
