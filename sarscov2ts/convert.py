@@ -87,23 +87,31 @@ def to_samples(vcf_path, metadata_path, sample_data_path, show_progress=False):
     logger.info(f"Loaded metadata with {len(df_md)} rows")
     df_md = prepare_metadata(df_md)
     logger.info(f"Metadata prepped")
-    keep_samples = list(df_md["strain"])
+    md_samples = list(df_md["strain"])
     vcf_samples = list(vcf.samples)
     logger.info(f"Creating map")
-    index = np.zeros(len(keep_samples), dtype=int)
+    index = np.zeros(len(md_samples), dtype=int)
     vcf_sample_index_map = {sample: j for j, sample in enumerate(vcf_samples)}
-    for j, sample in enumerate(keep_samples):
-        index[j] = vcf_sample_index_map[sample]
-        assert index[j] >= 0
-    logger.info(f"Keeping {len(keep_samples)} from VCF with {len(vcf_samples)}")
+    keep_samples = set()
+    j = 0
+    for sample in md_samples:
+        try:
+            index[j] = vcf_sample_index_map[sample]
+            assert index[j] >= 0
+            j += 1
+            keep_samples.add(sample)
+        except KeyError:
+            logger.warning(f"Sample {sample} missing from VCF")
+
+    index = index[:j]
+    assert len(index) == len(keep_samples)
+    logger.info(f"Keeping {len(index)} from VCF with {len(vcf_samples)}")
     with tsinfer.SampleData(path=sample_data_path, sequence_length=29904) as sd:
         pbar = tqdm.tqdm(total=len(df_md), desc="samples", disable=not show_progress)
         for _, row in df_md.iterrows():
             md = row.to_dict()
-            del md["completeness"]
-            del md["Nextstrain_clade_usher"]
-            del md["pango_lineage_usher"]
-            sd.add_individual(metadata=md)
+            if md["strain"] in keep_samples:
+                sd.add_individual(metadata=md)
             pbar.update()
         pbar.close()
         add_sites(vcf, sd, index, show_progress=show_progress)
