@@ -33,7 +33,8 @@ def test_prepare_metadata():
     assert sorted(values) == values
 
 
-def test_to_samples(tmp_path):
+def test_to_samples(tmp_path, caplog):
+
     sd = convert.to_samples(
         "tests/data/100-samplesx100-sites.vcf",
         "tests/data/100-samplesx100-sites.metadata.tsv",
@@ -43,6 +44,8 @@ def test_to_samples(tmp_path):
     assert sd.num_samples == 98
     assert sd.num_individuals == sd.num_samples
     assert sd.num_sites == 98
+    # We should have dropped one sample from the metadata
+    assert "MADE_UP_IGNORE" in caplog.text
 
     # Check the variant data is converted correctly.
     vcf = cyvcf2.VCF("tests/data/100-samplesx100-sites.vcf")
@@ -92,6 +95,9 @@ class TestConvertedData:
                 "length",
                 "pangolin_lineage",
                 "strain",
+                "completeness",
+                "Nextstrain_clade_usher",
+                "pango_lineage_usher",
             }
 
     def test_individual_metadata_value_types(self, sd_fixture):

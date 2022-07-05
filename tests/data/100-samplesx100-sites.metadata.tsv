@@ -1,4 +1,5 @@
 strain	genbank_accession	date	country	host	completeness	length	Nextstrain_clade	pangolin_lineage	Nextstrain_clade_usher	pango_lineage_usher
+MADE_UP_IGNORExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	MT291826.1	2019-12-01	China	Homo sapiens		29807.0	19B	A	19B	A
 CHN/Wuhan_IME-WH01/2019|MT291826.1|2019-12-30	MT291826.1	2019-12-30	China	Homo sapiens		29807.0	19B	A	19B	A
 CHN/Wuhan_IME-WH03/2019|MT291828.1|2019-12-30	MT291828.1	2019-12-30	China	Homo sapiens		29858.0	19A	B	19A	B
 CHN/Wuhan_IME-WH04/2019|MT291829.1|2019-12-30	MT291829.1	2019-12-30	China	Homo sapiens		29774.0	19A	B	19A	B
