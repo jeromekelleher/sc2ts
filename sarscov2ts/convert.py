@@ -58,13 +58,20 @@ def prepare_metadata(df):
     return df.astype(object).where(pd.notnull(df), None)
 
 
-def add_sites(vcf, sample_data, index, show_progress=False):
+def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=True):
     pbar = tqdm.tqdm(
         total=sample_data.sequence_length, desc="sites", disable=not show_progress
     )
+    # Load the problematic sites
+    problematic_sites = set()
+    if filter_problematic:
+        problematic_sites = set(np.loadtxt("problematic_sites.txt", dtype=np.int64))
     pos = 0
     for variant in vcf:
         pbar.update(variant.POS - pos)
+        if variant.POS in problematic_sites:
+            logger.debug(f"Skipping site {variant.POS}")
+            continue
         if pos == variant.POS:
             raise ValueError("Duplicate positions for variant at position", pos)
         else:
@@ -82,7 +89,13 @@ def add_sites(vcf, sample_data, index, show_progress=False):
     pbar.close()
 
 
-def to_samples(vcf_path, metadata_path, sample_data_path, show_progress=False):
+def to_samples(
+    vcf_path,
+    metadata_path,
+    sample_data_path,
+    show_progress=False,
+    filter_problematic=False,
+):
 
     vcf = cyvcf2.VCF(vcf_path)
     df_md = load_usher_metadata(metadata_path)
@@ -103,7 +116,7 @@ def to_samples(vcf_path, metadata_path, sample_data_path, show_progress=False):
             j += 1
             keep_samples.add(sample)
         except KeyError:
-            logger.warning(f"Sample {sample} missing from VCF")
+            logger.debug(f"Sample {sample} missing from VCF")
 
     index = index[:j]
     assert len(index) == len(keep_samples)
@@ -116,7 +129,13 @@ def to_samples(vcf_path, metadata_path, sample_data_path, show_progress=False):
                 sd.add_individual(metadata=md)
             pbar.update()
         pbar.close()
-        add_sites(vcf, sd, index, show_progress=show_progress)
+        add_sites(
+            vcf,
+            sd,
+            index,
+            show_progress=show_progress,
+            filter_problematic=filter_problematic,
+        )
 
     return sd
 
