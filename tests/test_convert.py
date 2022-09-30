@@ -69,6 +69,7 @@ def test_to_samples(tmp_path):
     for var in sd.variants():
         for strain, gt in zip(strains, var.genotypes):
             sd_haplotypes[strain] += var.alleles[gt]
+    assert set(sd_haplotypes.keys()) == set(vcf_haplotypes.keys())
     assert sd_haplotypes == vcf_haplotypes
 
 
@@ -146,3 +147,18 @@ def test_split_samples(tmp_path, sd_fixture):
     assert total == sd_fixture.num_individuals
 
 
+@pytest.mark.parametrize(
+    ["alleles_in", "genotypes_in", "alleles_out", "genotypes_out"],
+    [
+        (["A", "*"], [0, 0, 1], ["A"], [0, 0, -1]),
+        (["A", "*"], [1, 1, 1], ["A"], [-1, -1, -1]),
+        (["A", "*", "T"], [0, 1, 2], ["A", "T"], [0, -1, 1]),
+        (["A", "T", "*"], [0, 1, 2], ["A", "T"], [0, 1, -1]),
+    ],
+)
+def test_recode_snp_sites_missing_data(
+    alleles_in, genotypes_in, alleles_out, genotypes_out
+):
+    result = convert.recode_snp_sites_missing_data(alleles_in, genotypes_in)
+    assert alleles_out == result[0]
+    np.testing.assert_array_equal(genotypes_out, result[1])

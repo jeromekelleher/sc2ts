@@ -58,6 +58,15 @@ def prepare_metadata(df):
     return df.astype(object).where(pd.notnull(df), None)
 
 
+def recode_snp_sites_missing_data(alleles, genotypes):
+    missing_data_index = alleles.index("*")
+    assert missing_data_index >= 0
+    genotypes = np.array(genotypes, copy=True)
+    genotypes[genotypes == missing_data_index] = -1
+    genotypes[genotypes > missing_data_index] -= 1
+    return [a for a in alleles if a != "*"], genotypes
+
+
 def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=True):
     pbar = tqdm.tqdm(
         total=sample_data.sequence_length, desc="sites", disable=not show_progress
@@ -83,6 +92,10 @@ def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=T
         # Assume REF is the ancestral state.
         alleles = [variant.REF] + variant.ALT
         genotypes = np.array(variant.genotypes).T[0]
+        # snp-sites doesn't use the standard way of encoding missing data ".", but
+        # instead has an allele value of *
+        if "*" in alleles:
+            alleles, genotypes = recode_snp_sites_missing_data(alleles, genotypes)
         missing_fraction = np.sum(genotypes == -1) / genotypes.shape[0]
         logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
         sample_data.add_site(pos, genotypes=genotypes[index], alleles=alleles)
@@ -94,7 +107,7 @@ def to_samples(
     metadata_path,
     sample_data_path,
     show_progress=False,
-    filter_problematic=False,
+    filter_problematic=True,
 ):
 
     vcf = cyvcf2.VCF(vcf_path)
@@ -107,14 +120,14 @@ def to_samples(
     logger.info(f"Creating map")
     index = np.zeros(len(md_samples), dtype=int)
     vcf_sample_index_map = {sample: j for j, sample in enumerate(vcf_samples)}
-    keep_samples = set()
+    keep_samples = []
     j = 0
-    for sample in md_samples:
+    for iloc, sample in enumerate(md_samples):
         try:
             index[j] = vcf_sample_index_map[sample]
             assert index[j] >= 0
             j += 1
-            keep_samples.add(sample)
+            keep_samples.append((sample, iloc))
         except KeyError:
             logger.debug(f"Sample {sample} missing from VCF")
 
@@ -122,13 +135,10 @@ def to_samples(
     assert len(index) == len(keep_samples)
     logger.info(f"Keeping {len(index)} from VCF with {len(vcf_samples)}")
     with tsinfer.SampleData(path=sample_data_path, sequence_length=29904) as sd:
-        pbar = tqdm.tqdm(total=len(df_md), desc="samples", disable=not show_progress)
-        for _, row in df_md.iterrows():
-            md = row.to_dict()
-            if md["strain"] in keep_samples:
-                sd.add_individual(metadata=md)
-            pbar.update()
-        pbar.close()
+        for sample, iloc in keep_samples:
+            md = df_md.iloc[iloc].to_dict()
+            assert md["strain"] == sample
+            sd.add_individual(metadata=md)
         add_sites(
             vcf,
             sd,
@@ -136,7 +146,6 @@ def to_samples(
             show_progress=show_progress,
             filter_problematic=filter_problematic,
         )
-
     return sd
 
 
