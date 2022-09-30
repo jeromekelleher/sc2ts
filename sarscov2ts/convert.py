@@ -57,6 +57,14 @@ def prepare_metadata(df):
     # Replace NAs with None for conversion to JSON
     return df.astype(object).where(pd.notnull(df), None)
 
+def recode_snp_sites_missing_data(alleles, genotypes):
+    missing_data_index = alleles.index("*")
+    assert missing_data_index >= 0
+    genotypes = np.array(genotypes, copy=True)
+    genotypes[genotypes == missing_data_index] = -1
+    genotypes[genotypes > missing_data_index] -= 1
+    return [a for a in alleles if a != "*"], genotypes
+
 
 def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=True):
     pbar = tqdm.tqdm(
@@ -83,6 +91,10 @@ def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=T
         # Assume REF is the ancestral state.
         alleles = [variant.REF] + variant.ALT
         genotypes = np.array(variant.genotypes).T[0]
+        # snp-sites doesn't use the standard way of encoding missing data ".", but
+        # instead has an allele value of *
+        if "*" in alleles:
+            alleles, genotypes = recode_snp_sites_missing_data(alleles, genotypes)
         missing_fraction = np.sum(genotypes == -1) / genotypes.shape[0]
         logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
         sample_data.add_site(pos, genotypes=genotypes[index], alleles=alleles)
@@ -94,7 +106,7 @@ def to_samples(
     metadata_path,
     sample_data_path,
     show_progress=False,
-    filter_problematic=False,
+    filter_problematic=True,
 ):
 
     vcf = cyvcf2.VCF(vcf_path)
@@ -134,10 +146,7 @@ def to_samples(
             sd,
             index,
             show_progress=show_progress,
-            filter_problematic=filter_problematic,
-        )
-
-    return sd
+            filter_problematic=filter_problematic)
 
 
 def split_samples(sd, prefix, show_progress=False):
