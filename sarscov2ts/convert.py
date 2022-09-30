@@ -113,7 +113,7 @@ def add_sites(
             continue
         # Assume REF is the ancestral state.
         alleles = [variant.REF] + variant.ALT
-        genotypes = np.array(variant.genotypes).T[0]
+        genotypes = np.array([g[0] for g in variant.genotypes])
         # snp-sites doesn't use the standard way of encoding missing data ".", but
         # instead has an allele value of *
         if "*" in alleles:
@@ -121,7 +121,7 @@ def add_sites(
         if force_four_alleles:
             alleles, genotypes = recode_acgt_alleles(alleles, genotypes)
         missing_fraction = np.sum(genotypes == -1) / genotypes.shape[0]
-        # logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
+        logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
         sample_data.add_site(pos, genotypes=genotypes[index], alleles=alleles)
     pbar.close()
 
