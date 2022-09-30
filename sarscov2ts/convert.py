@@ -101,9 +101,6 @@ def add_sites(
     pos = 0
     for variant in vcf:
         pbar.update(variant.POS - pos)
-        if variant.POS in problematic_sites:
-            logger.debug(f"Skipping site {variant.POS}")
-            continue
         if pos == variant.POS:
             raise ValueError("Duplicate positions for variant at position", pos)
         else:
@@ -111,7 +108,9 @@ def add_sites(
         if pos >= sample_data.sequence_length:
             print("EXITING at pos, skipping remaining variants!!")
             break
-        # print(pos, samples.sequence_length)
+        if variant.POS in problematic_sites:
+            logger.debug(f"Skipping site {variant.POS}")
+            continue
         # Assume REF is the ancestral state.
         alleles = [variant.REF] + variant.ALT
         genotypes = np.array(variant.genotypes).T[0]
@@ -122,7 +121,7 @@ def add_sites(
         if force_four_alleles:
             alleles, genotypes = recode_acgt_alleles(alleles, genotypes)
         missing_fraction = np.sum(genotypes == -1) / genotypes.shape[0]
-        logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
+        # logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
         sample_data.add_site(pos, genotypes=genotypes[index], alleles=alleles)
     pbar.close()
 
