@@ -67,7 +67,30 @@ def recode_snp_sites_missing_data(alleles, genotypes):
     return [a for a in alleles if a != "*"], genotypes
 
 
-def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=True):
+def recode_acgt_alleles(alleles, genotypes):
+    """
+    Recode the specified set of alleles so that the first alleles is
+    maintained, but the remainder are sorted subset of ACGT, and
+    remap the genotypes accordingly.
+    """
+    remainder = set("ACGT") - set(alleles[0])
+    new_alleles = alleles[:1] + list(sorted(remainder))
+    genotypes = np.array(genotypes)
+    new_genotypes = genotypes.copy()
+    for old_index, allele in enumerate(alleles[1:], 1):
+        new_index = new_alleles.index(allele)
+        new_genotypes[genotypes == old_index] = new_index
+    return new_alleles, new_genotypes
+
+
+def add_sites(
+    vcf,
+    sample_data,
+    index,
+    show_progress=False,
+    filter_problematic=True,
+    force_four_alleles=True,
+):
     pbar = tqdm.tqdm(
         total=sample_data.sequence_length, desc="sites", disable=not show_progress
     )
@@ -96,6 +119,8 @@ def add_sites(vcf, sample_data, index, show_progress=False, filter_problematic=T
         # instead has an allele value of *
         if "*" in alleles:
             alleles, genotypes = recode_snp_sites_missing_data(alleles, genotypes)
+        if force_four_alleles:
+            alleles, genotypes = recode_acgt_alleles(alleles, genotypes)
         missing_fraction = np.sum(genotypes == -1) / genotypes.shape[0]
         logging.debug(f"Site {pos} added {missing_fraction * 100:.2f}% missing data")
         sample_data.add_site(pos, genotypes=genotypes[index], alleles=alleles)
@@ -108,6 +133,7 @@ def to_samples(
     sample_data_path,
     show_progress=False,
     filter_problematic=True,
+    force_four_alleles=True,
 ):
 
     vcf = cyvcf2.VCF(vcf_path)
@@ -145,6 +171,7 @@ def to_samples(
             index,
             show_progress=show_progress,
             filter_problematic=filter_problematic,
+            force_four_alleles=force_four_alleles,
         )
     return sd
 

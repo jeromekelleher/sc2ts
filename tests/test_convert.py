@@ -33,13 +33,15 @@ def test_prepare_metadata():
     assert sorted(values) == values
 
 
-def test_to_samples(tmp_path):
+@pytest.mark.parametrize("force_four_alleles", [True, False])
+def test_to_samples(force_four_alleles, tmp_path):
 
     sd = convert.to_samples(
         "tests/data/100-samplesx100-sites.vcf",
         "tests/data/100-samplesx100-sites.metadata.tsv",
         str(tmp_path / "tmp.samples"),
         filter_problematic=False,
+        force_four_alleles=force_four_alleles,
     )
     n = 98  # We drop 2 samples
     assert sd.num_samples == 98
@@ -54,7 +56,11 @@ def test_to_samples(tmp_path):
     for vcf_var, sd_var in zip(vcf_variants, sd.variants()):
         assert vcf_var.POS == sd_var.site.position
         assert vcf_var.REF == sd_var.alleles[0]
-        assert vcf_var.ALT == list(sd_var.alleles[1:])
+        if force_four_alleles:
+            assert len(sd_var.alleles) == 4
+            assert set(sd_var.alleles) == set("ACGT")
+        else:
+            assert vcf_var.ALT == list(sd_var.alleles[1:])
 
     strains = [ind.metadata["strain"] for ind in sd.individuals()]
 
@@ -160,5 +166,22 @@ def test_recode_snp_sites_missing_data(
     alleles_in, genotypes_in, alleles_out, genotypes_out
 ):
     result = convert.recode_snp_sites_missing_data(alleles_in, genotypes_in)
+    assert alleles_out == result[0]
+    np.testing.assert_array_equal(genotypes_out, result[1])
+
+
+@pytest.mark.parametrize(
+    ["alleles_in", "genotypes_in", "alleles_out", "genotypes_out"],
+    [
+        (["A", "C"], [0, 1, -1], ["A", "C", "G", "T"], [0, 1, -1]),
+        (["A", "T"], [0, 1, -1], ["A", "C", "G", "T"], [0, 3, -1]),
+        (["T", "A"], [0, 1], ["T", "A", "C", "G"], [0, 1]),
+        (["T", "A"], [1, 0], ["T", "A", "C", "G"], [1, 0]),
+        (["T"], [0], ["T", "A", "C", "G"], [0]),
+        (["C", "G", "A"], [2, 1, 0], ["C", "A", "G", "T"], [1, 2, 0]),
+    ],
+)
+def test_recode_acgt_alleles(alleles_in, genotypes_in, alleles_out, genotypes_out):
+    result = convert.recode_acgt_alleles(alleles_in, genotypes_in)
     assert alleles_out == result[0]
     np.testing.assert_array_equal(genotypes_out, result[1])
