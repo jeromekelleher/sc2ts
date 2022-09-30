@@ -2,6 +2,7 @@ import pathlib
 import tempfile
 import logging
 
+import tskit
 import tsinfer
 import click
 import daiquiri
@@ -46,11 +47,17 @@ def split_samples(samples_file, output_prefix):
 @click.command()
 @click.argument("samples-file")
 @click.argument("output-prefix")
+@click.option("--ancestors-ts", "-A", default=None, help="Path base to match against")
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-v", "--verbose", count=True)
-def infer(samples_file, output_prefix, num_mismatches, num_threads, verbose):
+def infer(samples_file, output_prefix, ancestors_ts, num_mismatches, num_threads, verbose):
     setup_logging(verbose)
+
+    if ancestors_ts is not None:
+        ancestors_ts = tskit.load(ancestors_ts)
+        logging.info(f"Loaded ancestors ts with {ancestors_ts.num_sites} sites")
+
 
     pm = tsinfer.inference._get_progress_monitor(
         True,
@@ -61,6 +68,7 @@ def infer(samples_file, output_prefix, num_mismatches, num_threads, verbose):
     with tsinfer.load(samples_file) as sd:
         iterator = inference.infer(
             sd,
+            ancestors_ts = ancestors_ts,
             progress_monitor=pm,
             num_threads=num_threads,
             num_mismatches=num_mismatches,

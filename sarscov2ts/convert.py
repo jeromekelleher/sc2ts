@@ -154,7 +154,7 @@ def to_samples(
             j += 1
             keep_samples.append((sample, iloc))
         except KeyError:
-            logger.debug(f"Sample {sample} missing from VCF")
+            pass
 
     index = index[:j]
     assert len(index) == len(keep_samples)
