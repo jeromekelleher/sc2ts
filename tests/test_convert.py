@@ -69,6 +69,7 @@ def test_to_samples(tmp_path):
     for var in sd.variants():
         for strain, gt in zip(strains, var.genotypes):
             sd_haplotypes[strain] += var.alleles[gt]
+    assert set(sd_haplotypes.keys()) == set(vcf_haplotypes.keys())
     assert sd_haplotypes == vcf_haplotypes
 
 
