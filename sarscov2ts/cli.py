@@ -6,6 +6,7 @@ import tskit
 import tsinfer
 import click
 import daiquiri
+import numpy as np
 
 from . import convert
 from . import inference
@@ -78,6 +79,41 @@ def infer(samples_file, output_prefix, ancestors_ts, num_mismatches, num_threads
             ts.dump(path)
 
 
+@click.command()
+@click.argument("samples-file")
+@click.argument("ts-file")
+@click.option("-v", "--verbose", count=True)
+def validate(samples_file, ts_file, verbose):
+    setup_logging(verbose)
+
+    ts = tskit.load(ts_file)
+    name_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
+    with tsinfer.load(samples_file) as sd:
+        assert ts.num_sites == sd.num_sites
+        ts_samples = np.zeros(sd.num_individuals, dtype=np.int32)
+        for j, ind in enumerate(sd.individuals()):
+            strain = ind.metadata["strain"]
+            if strain not in name_map:
+                raise ValueError(f"Strain {strain} not in ts nodes")
+            ts_samples[j] = name_map[strain]
+            # print(ind.metadata["strain"])
+        ts_vars = ts.variants(samples=ts_samples)
+        vars_iter = zip(ts_vars, sd.variants())
+        with click.progressbar(vars_iter, length=ts.num_sites) as bar:
+            for ts_var, sd_var in bar:
+                ts_a = np.array(ts_var.alleles)
+                sd_a = np.array(sd_var.alleles)
+                non_missing = sd_var.genotypes != -1
+                # Convert to actual allelic observations here because
+                # allele encoding isn't stable
+                ts_chars = ts_a[ts_var.genotypes[non_missing]]
+                sd_chars = sd_a[sd_var.genotypes[non_missing]]
+                if not np.all(ts_chars == sd_chars):
+                    print(ts_chars)
+                    print(sd_chars)
+                    raise ValueError("Data mismatch")
+
+
 @click.group()
 def cli():
     pass
@@ -86,3 +122,4 @@ def cli():
 cli.add_command(import_usher_vcf)
 cli.add_command(split_samples)
 cli.add_command(infer)
+cli.add_command(validate)
