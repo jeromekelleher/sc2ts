@@ -37,6 +37,7 @@ def import_usher_vcf(vcf, metadata, output, verbose):
 @click.option("--ancestors-ts", "-A", default=None, help="Path base to match against")
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
+@click.option("-p", "--precision", default=None, type=int, help="Match precision")
 @click.option(
     "-d", "--daily-prefix", default=None, help="Prefix to output daily result files"
 )
@@ -47,6 +48,7 @@ def infer(
     ancestors_ts,
     num_mismatches,
     num_threads,
+    precision,
     daily_prefix,
     verbose,
 ):
@@ -71,6 +73,7 @@ def infer(
             num_threads=num_threads,
             num_mismatches=num_mismatches,
             daily_prefix=daily_prefix,
+            precision=precision,
             show_progress=True,
         )
         ts.dump(output_file)
