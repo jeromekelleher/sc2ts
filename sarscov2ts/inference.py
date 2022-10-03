@@ -25,20 +25,36 @@ def infer(
 
     dates = np.array([ind.metadata["date"] for ind in sd.individuals()])
     unique_dates = np.unique(dates)
-    extender = tsinfer.SequentialExtender(sd, ancestors_ts=ancestors_ts)
+    extender = tsinfer.SequentialExtender(
+        sd, ancestors_ts=ancestors_ts, time_units="days_ago"
+    )
     base_proba = 1e-3
     ls_recomb = np.zeros(sd.num_sites - 1) + base_proba
     ls_mismatch = np.zeros(sd.num_sites) + base_proba * 10
-    ts = None
+    ts = ancestors_ts
+
+    previous_date = None
+    if ancestors_ts is not None:
+        previous_date = _parse_date(ts.node(ts.samples()[-1]).metadata["date"])
+
     for date in unique_dates:
-        print(date, _parse_date(date))
+        current = _parse_date(date)
+        if previous_date is None:
+            increment = 1
+        else:
+            diff = current - previous_date
+            increment = diff.days
+
         samples = np.where(dates == date)[0]
         logging.info(f"date={date} {len(samples)} samples")
-        ts = extender.extend(samples, num_mismatches=num_mismatches, **kwargs)
+        ts = extender.extend(
+            samples, num_mismatches=num_mismatches, time_increment=increment, **kwargs
+        )
         if daily_prefix is not None:
             filename = f"{daily_prefix}{date}.ts"
             ts.dump(filename)
             logging.info(f"Storing daily result to {filename}")
+        previous_date = current
     return ts
 
 
@@ -55,15 +71,13 @@ def _validate_dates(ts):
         diff = today - date
         assert diff.seconds == 0
         assert diff.microseconds == 0
-        # print(date)
-        # print(node.time, diff.days)
-        # assert node.time == diff.days
 
 
 def validate(sd, ts, show_progress=False):
     """
     Check that the ts contains all the data in the sample data.
     """
+    assert ts.time_units == "days_ago"
     assert ts.num_sites == sd.num_sites
     name_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
     ts_samples = np.zeros(sd.num_individuals, dtype=np.int32)
