@@ -138,20 +138,6 @@ class TestConvertedData:
         assert not all_zeros
 
 
-def test_split_samples(tmp_path, sd_fixture):
-    total = 0
-    # assumes that we split in order here.
-    all_haplotypes = sd_fixture.haplotypes()
-    for date, sub_sd in convert.split_samples(sd_fixture, prefix=tmp_path):
-        for ind in sub_sd.individuals():
-            assert ind.metadata["date"] == date
-        for _, sub_hap in sub_sd.haplotypes():
-            _, all_hap = next(all_haplotypes)
-            assert np.array_equal(sub_hap, all_hap)
-        total += sub_sd.num_individuals
-        assert date in str(sub_sd.path)
-    assert total == sd_fixture.num_individuals
-
 
 @pytest.mark.parametrize(
     ["alleles_in", "genotypes_in", "alleles_out", "genotypes_out"],

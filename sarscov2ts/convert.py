@@ -173,16 +173,3 @@ def to_samples(
             force_four_alleles=force_four_alleles,
         )
     return sd
-
-
-def split_samples(sd, prefix, show_progress=False):
-    """
-    Returns an iterator over the dates and the Sample data subsets
-    for individuals at those sampling dates.
-    """
-    individual_dates = np.array([ind.metadata["date"] for ind in sd.individuals()])
-    unique = np.unique(individual_dates)
-    for date in tqdm.tqdm(unique, disable=not show_progress):
-        path = f"{prefix}{date}.samples"
-        subset = np.where(individual_dates == date)[0]
-        yield date, sd.subset(individuals=subset, path=path)
