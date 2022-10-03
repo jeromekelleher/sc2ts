@@ -33,18 +33,28 @@ def import_usher_vcf(vcf, metadata, output, verbose):
 
 @click.command()
 @click.argument("samples-file")
-@click.argument("output-prefix")
+@click.argument("output-file")
 @click.option("--ancestors-ts", "-A", default=None, help="Path base to match against")
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
+@click.option(
+    "-d", "--daily-prefix", default=None, help="Prefix to output daily result files"
+)
 @click.option("-v", "--verbose", count=True)
-def infer(samples_file, output_prefix, ancestors_ts, num_mismatches, num_threads, verbose):
+def infer(
+    samples_file,
+    output_file,
+    ancestors_ts,
+    num_mismatches,
+    num_threads,
+    daily_prefix,
+    verbose,
+):
     setup_logging(verbose)
 
     if ancestors_ts is not None:
         ancestors_ts = tskit.load(ancestors_ts)
         logging.info(f"Loaded ancestors ts with {ancestors_ts.num_sites} sites")
-
 
     pm = tsinfer.inference._get_progress_monitor(
         True,
@@ -52,17 +62,18 @@ def infer(samples_file, output_prefix, ancestors_ts, num_mismatches, num_threads
         match_ancestors=True,
         match_samples=True,
     )
+
     with tsinfer.load(samples_file) as sd:
-        iterator = inference.infer(
+        ts = inference.infer(
             sd,
-            ancestors_ts = ancestors_ts,
+            ancestors_ts=ancestors_ts,
             progress_monitor=pm,
             num_threads=num_threads,
             num_mismatches=num_mismatches,
+            daily_prefix=daily_prefix,
+            show_progress=True,
         )
-        for date, ts in iterator:
-            path = f"{output_prefix}{date}.ts"
-            ts.dump(path)
+        ts.dump(output_file)
 
 
 @click.command()
@@ -73,31 +84,8 @@ def validate(samples_file, ts_file, verbose):
     setup_logging(verbose)
 
     ts = tskit.load(ts_file)
-    name_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
     with tsinfer.load(samples_file) as sd:
-        assert ts.num_sites == sd.num_sites
-        ts_samples = np.zeros(sd.num_individuals, dtype=np.int32)
-        for j, ind in enumerate(sd.individuals()):
-            strain = ind.metadata["strain"]
-            if strain not in name_map:
-                raise ValueError(f"Strain {strain} not in ts nodes")
-            ts_samples[j] = name_map[strain]
-            # print(ind.metadata["strain"])
-        ts_vars = ts.variants(samples=ts_samples)
-        vars_iter = zip(ts_vars, sd.variants())
-        with click.progressbar(vars_iter, length=ts.num_sites) as bar:
-            for ts_var, sd_var in bar:
-                ts_a = np.array(ts_var.alleles)
-                sd_a = np.array(sd_var.alleles)
-                non_missing = sd_var.genotypes != -1
-                # Convert to actual allelic observations here because
-                # allele encoding isn't stable
-                ts_chars = ts_a[ts_var.genotypes[non_missing]]
-                sd_chars = sd_a[sd_var.genotypes[non_missing]]
-                if not np.all(ts_chars == sd_chars):
-                    print(ts_chars)
-                    print(sd_chars)
-                    raise ValueError("Data mismatch")
+        inference.validate(sd, ts, show_progress=True)
 
 
 @click.group()

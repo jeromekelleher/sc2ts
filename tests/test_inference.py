@@ -7,6 +7,7 @@ import tskit
 
 import sarscov2ts as sc2ts
 import sarscov2ts.convert as convert
+import sarscov2ts.inference as inference
 
 
 @pytest.fixture
@@ -20,7 +21,23 @@ def sd_fixture(tmp_path):
 
 @pytest.fixture
 def ts_fixture(sd_fixture):
-    return list(sc2ts.infer(sd_fixture))[-1][1]
+    return sc2ts.infer(sd_fixture)
+
+
+class TestInference:
+    def test_daily_prefix(self, tmp_path, sd_fixture):
+        prefix = str(tmp_path) + "/x"
+        ts = sc2ts.infer(sd_fixture, daily_prefix=prefix)
+        paths = sorted(list(tmp_path.glob("x*")))
+        dailies = [tskit.load(x) for x in paths]
+        assert len(dailies) > 0
+        ts.tables.assert_equals(dailies[-1].tables)
+
+    @pytest.mark.parametrize("num_mismatches", [1, 2, 4, 1000])
+    def test_integrity(self, sd_fixture, num_mismatches):
+        ts = sc2ts.infer(sd_fixture, num_mismatches=num_mismatches)
+        assert ts.sequence_length == 29904
+        inference.validate(sd_fixture, ts)
 
 
 class TestSubsetInferenceDefaults:
@@ -34,13 +51,5 @@ class TestSubsetInferenceDefaults:
                 assert node.flags == tsinfer.NODE_IS_IDENTICAL_SAMPLE_ANCESTOR
                 assert node.metadata == {}
 
-    # def test_stuff(self, ts_fixture):
-    #     print(ts_fixture.draw_text())
-
-    #     # for haplotype in ts_fixture.haplotypes():
-    #     #     print(haplotype)
-    #     # print(ts_fixture.genotype_matrix())
-    #     for var in ts_fixture.variants():
-    #         print(var)
-
-    #     print(ts_fixture.tables.mutations)
+    def test_integrity(sd_fixture):
+        inference.validate(sd_fixture, ts_fixture)
