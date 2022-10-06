@@ -1,6 +1,9 @@
-import pathlib
-import tempfile
+import json
 import logging
+import pathlib
+import platform
+import sys
+import tempfile
 
 import tskit
 import tsinfer
@@ -10,6 +13,45 @@ import numpy as np
 
 from . import convert
 from . import inference
+
+
+def get_environment():
+    """
+    Returns a dictionary describing the environment in which sarscov2ts
+    is currently running.
+    """
+    env = {
+        "os": {
+            "system": platform.system(),
+            "node": platform.node(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+        },
+        "python": {
+            "implementation": platform.python_implementation(),
+            "version": platform.python_version(),
+        },
+        "libraries": {
+            "tsinfer": {"version": tsinfer.__version__},
+            "tskit": {"version": tskit.__version__},
+        },
+    }
+    return env
+
+
+def get_provenance_dict():
+    """
+    Returns a dictionary encoding an execution of stdpopsim conforming to the
+    tskit provenance schema.
+    """
+    document = {
+        "schema_version": "1.0.0",
+        "software": {"name": "sarscov2ts", "version": "dev"},
+        "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
+        "environment": get_environment(),
+    }
+    return document
 
 
 def setup_logging(verbosity):
@@ -60,11 +102,11 @@ def infer(
 
     pm = tsinfer.inference._get_progress_monitor(
         True,
-        generate_ancestors=True,
-        match_ancestors=True,
-        match_samples=True,
+        generate_ancestors=False,
+        match_ancestors=False,
+        match_samples=False,
     )
-
+    provenance = get_provenance_dict()
     with tsinfer.load(samples_file) as sd:
         ts = inference.infer(
             sd,
@@ -76,6 +118,9 @@ def infer(
             precision=precision,
             show_progress=True,
         )
+        tables = ts.dump_tables()
+        tables.provenances.add_row(json.dumps(provenance))
+        ts = tables.tree_sequence()
         ts.dump(output_file)
 
 
