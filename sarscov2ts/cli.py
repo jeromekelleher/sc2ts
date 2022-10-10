@@ -68,7 +68,7 @@ def setup_logging(verbosity):
 @click.argument("metadata")
 @click.argument("output")
 @click.option("-v", "--verbose", count=True)
-def import_usher_vcf(vcf, metadata, output, verbose):
+def import_vcf(vcf, metadata, output, verbose):
     setup_logging(verbose)
     sd = convert.to_samples(vcf, metadata, output, show_progress=True)
 
@@ -141,6 +141,6 @@ def cli():
     pass
 
 
-cli.add_command(import_usher_vcf)
+cli.add_command(import_vcf)
 cli.add_command(infer)
 cli.add_command(validate)
