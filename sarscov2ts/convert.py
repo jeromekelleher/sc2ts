@@ -54,6 +54,9 @@ def prepare_metadata(df):
     df.loc[:, "date"] = df.date.apply(pad_date)
     # Sort by padded date
     df = df.sort_values("date")
+    # Hack to get tests working. We rely on this so we should require it.
+    if "date_submitted" not in df:
+        df["date_submitted"] = df["date"]
     # Replace NAs with None for conversion to JSON
     return df.astype(object).where(pd.notnull(df), None)
 
