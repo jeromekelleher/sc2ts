@@ -22,11 +22,41 @@ def sd_fixture(tmp_path):
 @pytest.fixture
 def small_sd_fixture():
     with tsinfer.SampleData(sequence_length=29904) as sd:
-        sd.add_individual(metadata={"strain": "A", "date": "2019-12-30"})
-        sd.add_individual(metadata={"strain": "B", "date": "2020-01-01"})
-        sd.add_individual(metadata={"strain": "C", "date": "2020-01-01"})
-        sd.add_individual(metadata={"strain": "D", "date": "2020-01-02"})
-        sd.add_individual(metadata={"strain": "E", "date": "2020-01-06"})
+        sd.add_individual(
+            metadata={
+                "strain": "A",
+                "date": "2019-12-30",
+                "date_submitted": "2020-01-02",
+            }
+        )
+        sd.add_individual(
+            metadata={
+                "strain": "B",
+                "date": "2020-01-01",
+                "date_submitted": "2020-02-02",
+            }
+        )
+        sd.add_individual(
+            metadata={
+                "strain": "C",
+                "date": "2020-01-01",
+                "date_submitted": "2020-02-02",
+            }
+        )
+        sd.add_individual(
+            metadata={
+                "strain": "D",
+                "date": "2020-01-02",
+                "date_submitted": "2022-02-02",
+            }
+        )
+        sd.add_individual(
+            metadata={
+                "strain": "E",
+                "date": "2020-01-06",
+                "date_submitted": "2020-02-02",
+            }
+        )
         sd.add_site(1, alleles=["A", "C", "G", "T"], genotypes=[0, 0, 1, 1, 1])
     return sd
 
@@ -43,6 +73,15 @@ class TestInference:
         # Day 0 is Jan 6, and ultimate ancestor is one day older than the
         # real root (reference)
         np.testing.assert_array_equal(ts.nodes_time, [9, 8, 7, 5, 5, 4, 0])
+
+    def test_small_sd_submission_delay(self, small_sd_fixture):
+        ts = sc2ts.infer(small_sd_fixture, max_submission_delay=100)
+        strains = [ts.node(u).metadata["strain"] for u in ts.samples()]
+        # Strain D should be filtered out.
+        assert strains == ["A", "B", "C", "E"]
+        with pytest.raises(ValueError):
+            inference.validate(small_sd_fixture, ts)
+        inference.validate(small_sd_fixture, ts, max_submission_delay=100)
 
     def test_daily_prefix(self, tmp_path, sd_fixture):
         prefix = str(tmp_path) + "/x"

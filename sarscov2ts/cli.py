@@ -78,6 +78,15 @@ def import_vcf(vcf, metadata, output, verbose):
 @click.argument("output-file")
 @click.option("--ancestors-ts", "-A", default=None, help="Path base to match against")
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
+@click.option(
+    "--max-submission-delay",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of days between the sample and its submission date "
+        "for it to be included in the inference"
+    ),
+)
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
 @click.option(
@@ -89,6 +98,7 @@ def infer(
     output_file,
     ancestors_ts,
     num_mismatches,
+    max_submission_delay,
     num_threads,
     precision,
     daily_prefix,
@@ -114,6 +124,7 @@ def infer(
             progress_monitor=pm,
             num_threads=num_threads,
             num_mismatches=num_mismatches,
+            max_submission_delay=max_submission_delay,
             daily_prefix=daily_prefix,
             precision=precision,
             show_progress=True,
@@ -128,12 +139,23 @@ def infer(
 @click.argument("samples-file")
 @click.argument("ts-file")
 @click.option("-v", "--verbose", count=True)
-def validate(samples_file, ts_file, verbose):
+@click.option(
+    "--max-submission-delay",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of days between the sample and its submission date "
+        "for it to be included in the inference"
+    ),
+)
+def validate(samples_file, ts_file, verbose, max_submission_delay):
     setup_logging(verbose)
 
     ts = tskit.load(ts_file)
     with tsinfer.load(samples_file) as sd:
-        inference.validate(sd, ts, show_progress=True)
+        inference.validate(
+            sd, ts, max_submission_delay=max_submission_delay, show_progress=True
+        )
 
 
 @click.group()
