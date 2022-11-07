@@ -44,7 +44,7 @@ def convert_nextstrain(document):
         node, pid = stack.pop()
         for child in node.get("children", []):
             cid = add_node(nodes, child, pid)
-            edges.add_row(0, 1, pid, cid)
+            edges.add_row(0, tables.sequence_length, pid, cid)
             for mut in child["branch_attrs"]["mutations"].get("nuc", []):
                 before = mut[0]
                 after = mut[-1]
@@ -64,4 +64,4 @@ def convert_nextstrain(document):
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
-    return tables
+    return tables.tree_sequence()
