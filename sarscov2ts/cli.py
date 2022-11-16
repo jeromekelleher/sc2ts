@@ -1,15 +1,12 @@
 import json
 import logging
-import pathlib
 import platform
 import sys
-import tempfile
 
 import tskit
 import tsinfer
 import click
 import daiquiri
-import numpy as np
 
 from . import convert
 from . import inference
@@ -64,13 +61,13 @@ def setup_logging(verbosity):
 
 
 @click.command()
-@click.argument("vcf")
+@click.argument("fasta")
 @click.argument("metadata")
 @click.argument("output")
 @click.option("-v", "--verbose", count=True)
-def import_vcf(vcf, metadata, output, verbose):
+def import_fasta(fasta, metadata, output, verbose):
     setup_logging(verbose)
-    sd = convert.to_samples(vcf, metadata, output, show_progress=True)
+    convert.alignments_to_samples(fasta, metadata, output, show_progress=True)
 
 
 @click.command()
@@ -82,7 +79,7 @@ def import_metadata(metadata, db, verbose):
     Convert a CSV formatted metadata file to a database for later use.
     """
     setup_logging(verbose)
-    SD = convert.metadata_to_db(metadata, db)
+    convert.metadata_to_db(metadata, db)
 
 
 @click.command()
@@ -175,7 +172,7 @@ def cli():
     pass
 
 
-cli.add_command(import_vcf)
+cli.add_command(import_fasta)
 cli.add_command(import_metadata)
 cli.add_command(infer)
 cli.add_command(validate)
