@@ -1,5 +1,7 @@
 import calendar
 import logging
+import sqlite3
+import pathlib
 
 import tqdm
 import tsinfer
@@ -176,3 +178,19 @@ def to_samples(
             force_four_alleles=force_four_alleles,
         )
     return sd
+
+
+def metadata_to_db(csv_path, db_path):
+
+    df = pd.read_csv(
+        csv_path,
+        sep="\t",
+        parse_dates=["date", "date_submitted"],
+    )
+    db_path = pathlib.Path(db_path)
+    if db_path.exists():
+        db_path.unlink()
+    with sqlite3.connect(db_path) as conn:
+        df.to_sql("samples", conn, index=False)
+        conn.execute("CREATE INDEX [ix_samples_strain] on 'samples' ([strain]);")
+        conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")

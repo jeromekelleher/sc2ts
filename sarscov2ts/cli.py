@@ -74,6 +74,18 @@ def import_vcf(vcf, metadata, output, verbose):
 
 
 @click.command()
+@click.argument("metadata")
+@click.argument("db")
+@click.option("-v", "--verbose", count=True)
+def import_metadata(metadata, db, verbose):
+    """
+    Convert a CSV formatted metadata file to a database for later use.
+    """
+    setup_logging(verbose)
+    SD = convert.metadata_to_db(metadata, db)
+
+
+@click.command()
 @click.argument("samples-file")
 @click.argument("output-file")
 @click.option("--ancestors-ts", "-A", default=None, help="Path base to match against")
@@ -164,5 +176,6 @@ def cli():
 
 
 cli.add_command(import_vcf)
+cli.add_command(import_metadata)
 cli.add_command(infer)
 cli.add_command(validate)
