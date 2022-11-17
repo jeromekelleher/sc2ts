@@ -51,13 +51,16 @@ def get_provenance_dict():
     return document
 
 
-def setup_logging(verbosity):
+def setup_logging(verbosity, log_file=None):
     log_level = "WARN"
     if verbosity > 0:
         log_level = "INFO"
     if verbosity > 1:
         log_level = "DEBUG"
-    daiquiri.setup(level=log_level)
+    outputs = ["stderr"]
+    if log_file is not None:
+        outputs = [daiquiri.output.File(log_file)]
+    daiquiri.setup(level=log_level, outputs=outputs)
 
 
 @click.command()
@@ -83,9 +86,15 @@ def import_metadata(metadata, db, verbose):
 
 
 @click.command()
-@click.argument("samples-file")
-@click.argument("output-file")
-@click.option("--ancestors-ts", "-A", default=None, help="Path base to match against")
+@click.argument("samples-file", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output-file", type=click.Path(dir_okay=False))
+@click.option(
+    "--ancestors-ts",
+    "-A",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path base to match against",
+)
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option(
     "--max-submission-delay",
@@ -98,7 +107,9 @@ def import_metadata(metadata, db, verbose):
 )
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
+@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def infer(
     samples_file,
     output_file,
@@ -107,36 +118,31 @@ def infer(
     max_submission_delay,
     num_threads,
     precision,
+    no_progress,
     verbose,
+    log_file,
 ):
-    setup_logging(verbose)
+    setup_logging(verbose, log_file)
 
     if ancestors_ts is not None:
         ancestors_ts = tskit.load(ancestors_ts)
         logging.info(f"Loaded ancestors ts with {ancestors_ts.num_samples} samples")
 
-    pm = tsinfer.inference._get_progress_monitor(
-        True,
-        generate_ancestors=False,
-        match_ancestors=False,
-        match_samples=False,
-    )
-    provenance = get_provenance_dict()
     with tsinfer.load(samples_file) as sd:
         ts = inference.infer(
             sd,
             ancestors_ts=ancestors_ts,
-            progress_monitor=pm,
             num_threads=num_threads,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
             precision=precision,
-            show_progress=True,
+            show_progress=not no_progress,
         )
+        # Record provenance here because this is where the arguments are provided.
+        provenance = get_provenance_dict()
         tables = ts.dump_tables()
         tables.provenances.add_row(json.dumps(provenance))
-        ts = tables.tree_sequence()
-        ts.dump(output_file)
+        tables.dump(output_file)
 
 
 @click.command()

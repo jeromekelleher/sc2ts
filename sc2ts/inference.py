@@ -64,11 +64,14 @@ def infer(
     )
     logger.info(f"Extending for {current_date} with {len(samples)} samples")
 
-    extender = SequentialExtender(sd, ancestors_ts=ancestors_ts, time_units="days_ago")
-    ts = extender.extend(
-        samples, num_mismatches=num_mismatches, time_increment=increment, **kwargs
+    return extend(
+        sd,
+        ancestors_ts=ancestors_ts,
+        samples=samples,
+        num_mismatches=num_mismatches,
+        time_increment=increment,
+        show_progress=show_progress,
     )
-    return ts
 
 
 def solve_num_mismatches(ts, k):
@@ -94,141 +97,76 @@ def solve_num_mismatches(ts, k):
     return ls_recomb, ls_mismatch
 
 
-class Matcher(tsinfer.SampleMatcher):
-    """
-    NOTE: this is using undocumented internal APIs as a way of accessing
-    tsinfer's Li and Stephens matching engine. There are some awkward
-    workaround involved in dealing with tsinfer's internal representation
-    of the data, which are tightly coupled to implementation details within
-    tsinfer.
+def make_initial_tables(sample_data):
+    tables = tskit.TableCollection(sample_data.sequence_length)
+    tables.time_units = constants.TIME_UNITS
+    for site in sample_data.sites():
+        # TODO add site metadata annotations
+        tables.sites.add_row(site.position, site.ancestral_state)
+    tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+    # TODO should probably make the ultimate ancestor time something less
+    # plausible or at least configurable.
+    # NOTE: adding the ultimate ancestor is an artefact of using
+    # tsinfer's matching engine. This shouldn't be necessary when
+    # we move over the tskit.
+    for t in [1, 0]:
+        tables.nodes.add_row(time=t)
+    # TODO node 1 should be given metadata as the reference.
+    tables.edges.add_row(0, sample_data.sequence_length, 0, 1)
+    return tables
 
-    This implementation will be swapped out for tskit's LS engine in the
-    near future, using fully documented and supported APIs.
-    """
 
-    def extend(self, samples, node_metadata):
-        """
-        Runs the "extend" operation matching a set of samples in the existing
-        tree, returning a new tree sequence.
-
-        NOTE: this is not part of the public API is likely to be removed
-        once sc2ts moves over to using the tskit haplotype matching LS engine.
-        """
-        builder = self.tree_sequence_builder
-        # Allocate nodes in the tree sequence consecutively for the input samples
-        for sd_id in samples:
-            self.sample_id_map[sd_id] = builder.add_node(0)
-
-        self._match_samples(samples)
-
-        tsb = self.tree_sequence_builder
-        tables = self.ancestors_ts_tables.copy()
-        tables.edges.clear()
-
-        logger.debug("Adding tree sequence nodes")
-        flags, node_time = tsb.dump_nodes()
-
-        # First add the sample nodes for *all* the input samples
-        for sd_id in samples:
-            tables.nodes.add_row(
-                flags=tskit.NODE_IS_SAMPLE, time=0, metadata=node_metadata[sd_id]
+def get_ancestors_ts(sample_data, ancestors_ts, time_increment):
+    if ancestors_ts is None:
+        tables = make_initial_tables(sample_data)
+    else:
+        # Should do more checks here for suitability.
+        if ancestors_ts.time_units != constants.TIME_UNITS:
+            raise ValueError(
+                f"Mismatched time_units: {ancestors_ts.time_units}",
             )
-        for u in range(len(tables.nodes), tsb.num_nodes):
-            tables.nodes.add_row(flags=flags[u], time=node_time[u])
+        tables = ancestors_ts.dump_tables()
 
-        logger.debug("Adding tree sequence edges")
-        left, right, parent, child = tsb.dump_edges()
-        tables.edges.append_columns(
-            left=self.position_map[left],
-            right=self.position_map[right],
-            parent=parent,
-            child=child,
-        )
+    tables.nodes.time += time_increment
+    tables.mutations.time += time_increment
 
-        logger.debug("Sorting and building intermediate tree sequence.")
-        tables.sites.clear()
-        old_num_mutations = len(tables.mutations)
-        tables.mutations.clear()
-        tables.sort()
-        tables.build_index()
-
-        mut_site, node, derived_state, _ = self.tree_sequence_builder.dump_mutations()
-        mutation_id = 0
-        num_mutations = len(mut_site)
-        for site in self.sample_data.sites(self.inference_site_id):
-            site_id = tables.sites.add_row(
-                site.position,
-                ancestral_state=site.alleles[0],
-            )
-            while mutation_id < num_mutations and mut_site[mutation_id] == site_id:
-                tables.mutations.add_row(
-                    site_id,
-                    node=node[mutation_id],
-                    derived_state=site.alleles[derived_state[mutation_id]],
-                    time=node_time[node[mutation_id]],
-                )
-                mutation_id += 1
-
-        tables.compute_mutation_parents()
-        new_mutations = num_mutations - old_num_mutations
-        logger.info(
-            f"Extended for {len(samples)} samples and "
-            f"{new_mutations} new mutations."
-        )
-        return tables.tree_sequence()
+    return tables.tree_sequence()
 
 
-class SequentialExtender:
-    def __init__(self, sample_data, ancestors_ts=None, time_units=None):
-        time_units = tskit.TIME_UNITS_UNCALIBRATED if time_units is None else time_units
-        self.sample_data = sample_data
-        if ancestors_ts is None:
-            tables = tskit.TableCollection(sample_data.sequence_length)
-            tables.time_units = time_units
-            for site in sample_data.sites():
-                tables.sites.add_row(site.position, site.ancestral_state)
-            tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
-            # TODO should probably make the ultimate ancestor time something less
-            # plausible or at least configurable.
-            for t in [1, 0]:
-                tables.nodes.add_row(time=t)
-            tables.edges.add_row(0, sample_data.sequence_length, 0, 1)
-            self.ancestors_ts = tables.tree_sequence()
-        else:
-            self.ancestors_ts = ancestors_ts
-            if time_units is not None and self.ancestors_ts.time_units != time_units:
-                raise ValueError(
-                    f"Mismatched time_units: {time_units} != ancestors_ts.time_units",
-                )
+def extend(
+    sample_data,
+    *,
+    ancestors_ts,
+    samples,
+    num_mismatches,
+    time_increment,
+    show_progress=False,
+):
+    ancestors_ts = get_ancestors_ts(sample_data, ancestors_ts, time_increment)
 
-        self.node_metadata = sample_data.individuals_metadata[:]
-        assert self.sample_data.num_individuals == self.sample_data.num_samples
+    node_metadata = sample_data.individuals_metadata[:]
+    assert sample_data.num_individuals == sample_data.num_samples
 
-    def _increment_ancestors_ts_time(self, increment):
-        tables = self.ancestors_ts.dump_tables()
-        tables.nodes.time += increment
-        tables.mutations.time += increment
-        self.ancestors_ts = tables.tree_sequence()
+    ls_recomb, ls_mismatch = solve_num_mismatches(ancestors_ts, num_mismatches)
 
-    def extend(self, samples, num_mismatches=None, time_increment=None, **kwargs):
-        num_mismatches = 0 if num_mismatches is None else num_mismatches
-        time_increment = 1 if time_increment is None else time_increment
-
-        ls_recomb, ls_mismatch = solve_num_mismatches(self.ancestors_ts, num_mismatches)
-        self._increment_ancestors_ts_time(time_increment)
-        manager = Matcher(
-            self.sample_data,
-            self.ancestors_ts,
-            allow_multiallele=True,
-            recombination=ls_recomb,
-            mismatch=ls_mismatch,
-            **kwargs,
-        )
-        ts = manager.extend(np.array(samples), self.node_metadata)
-        ts = coalesce_mutations(ts)
-        ts = push_up_reversions(ts)
-        self.ancestors_ts = ts
-        return ts
+    pm = tsinfer.inference._get_progress_monitor(
+        show_progress,
+        generate_ancestors=False,
+        match_ancestors=False,
+        match_samples=False,
+    )
+    manager = Matcher(
+        sample_data,
+        ancestors_ts,
+        allow_multiallele=True,
+        recombination=ls_recomb,
+        mismatch=ls_mismatch,
+        progress_monitor=pm,
+    )
+    ts = manager.extend(np.array(samples), node_metadata)
+    ts = coalesce_mutations(ts)
+    ts = push_up_reversions(ts)
+    return ts
 
 
 @dataclasses.dataclass(frozen=True)
@@ -580,3 +518,87 @@ def validate(sd, ts, max_submission_delay=None, show_progress=False):
             sd_chars = sd_a[sd_genotypes[non_missing]]
             if not np.all(ts_chars == sd_chars):
                 raise ValueError("Data mismatch")
+
+
+class Matcher(tsinfer.SampleMatcher):
+    """
+    NOTE: this is using undocumented internal APIs as a way of accessing
+    tsinfer's Li and Stephens matching engine. There are some awkward
+    workaround involved in dealing with tsinfer's internal representation
+    of the data, which are tightly coupled to implementation details within
+    tsinfer.
+
+    This implementation will be swapped out for tskit's LS engine in the
+    near future, using fully documented and supported APIs.
+    """
+
+    def extend(self, samples, node_metadata):
+        """
+        Runs the "extend" operation matching a set of samples in the existing
+        tree, returning a new tree sequence.
+
+        NOTE: this is not part of the public API is likely to be removed
+        once sc2ts moves over to using the tskit haplotype matching LS engine.
+        """
+        builder = self.tree_sequence_builder
+        # Allocate nodes in the tree sequence consecutively for the input samples
+        for sd_id in samples:
+            self.sample_id_map[sd_id] = builder.add_node(0)
+
+        self._match_samples(samples)
+
+        tsb = self.tree_sequence_builder
+        tables = self.ancestors_ts_tables.copy()
+        tables.edges.clear()
+
+        logger.debug("Adding tree sequence nodes")
+        flags, node_time = tsb.dump_nodes()
+
+        # First add the sample nodes for *all* the input samples
+        for sd_id in samples:
+            tables.nodes.add_row(
+                flags=tskit.NODE_IS_SAMPLE, time=0, metadata=node_metadata[sd_id]
+            )
+        for u in range(len(tables.nodes), tsb.num_nodes):
+            tables.nodes.add_row(flags=flags[u], time=node_time[u])
+
+        logger.debug("Adding tree sequence edges")
+        left, right, parent, child = tsb.dump_edges()
+        tables.edges.append_columns(
+            left=self.position_map[left],
+            right=self.position_map[right],
+            parent=parent,
+            child=child,
+        )
+
+        logger.debug("Sorting and building intermediate tree sequence.")
+        tables.sites.clear()
+        old_num_mutations = len(tables.mutations)
+        tables.mutations.clear()
+        tables.sort()
+        tables.build_index()
+
+        mut_site, node, derived_state, _ = self.tree_sequence_builder.dump_mutations()
+        mutation_id = 0
+        num_mutations = len(mut_site)
+        for site in self.sample_data.sites(self.inference_site_id):
+            site_id = tables.sites.add_row(
+                site.position,
+                ancestral_state=site.alleles[0],
+            )
+            while mutation_id < num_mutations and mut_site[mutation_id] == site_id:
+                tables.mutations.add_row(
+                    site_id,
+                    node=node[mutation_id],
+                    derived_state=site.alleles[derived_state[mutation_id]],
+                    time=node_time[node[mutation_id]],
+                )
+                mutation_id += 1
+
+        tables.compute_mutation_parents()
+        new_mutations = num_mutations - old_num_mutations
+        logger.info(
+            f"Extended for {len(samples)} samples and "
+            f"{new_mutations} new mutations."
+        )
+        return tables.tree_sequence()
