@@ -20,7 +20,8 @@ def infer(
     num_mismatches=None,
     show_progress=False,
     max_submission_delay=None,
-    **kwargs,
+    num_threads=None,
+    precision=None,
 ):
     if num_mismatches is None:
         # Default to no recombination
@@ -71,6 +72,8 @@ def infer(
         num_mismatches=num_mismatches,
         time_increment=increment,
         show_progress=show_progress,
+        num_threads=num_threads,
+        precision=precision,
     )
 
 
@@ -141,6 +144,8 @@ def extend(
     num_mismatches,
     time_increment,
     show_progress=False,
+    precision=None,
+    num_threads=None,
 ):
     ancestors_ts = get_ancestors_ts(sample_data, ancestors_ts, time_increment)
 
@@ -162,6 +167,8 @@ def extend(
         recombination=ls_recomb,
         mismatch=ls_mismatch,
         progress_monitor=pm,
+        num_threads=num_threads,
+        precision=precision,
     )
     ts = manager.extend(np.array(samples), node_metadata)
     ts = coalesce_mutations(ts)

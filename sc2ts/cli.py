@@ -132,10 +132,10 @@ def infer(
         ts = inference.infer(
             sd,
             ancestors_ts=ancestors_ts,
-            num_threads=num_threads,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
             precision=precision,
+            num_threads=num_threads,
             show_progress=not no_progress,
         )
         # Record provenance here because this is where the arguments are provided.
