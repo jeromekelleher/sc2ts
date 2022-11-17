@@ -14,7 +14,7 @@ from . import inference
 
 def get_environment():
     """
-    Returns a dictionary describing the environment in which sarscov2ts
+    Returns a dictionary describing the environment in which sc2ts
     is currently running.
     """
     env = {
@@ -44,7 +44,7 @@ def get_provenance_dict():
     """
     document = {
         "schema_version": "1.0.0",
-        "software": {"name": "sarscov2ts", "version": "dev"},
+        "software": {"name": "sc2ts", "version": "dev"},
         "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
         "environment": get_environment(),
     }

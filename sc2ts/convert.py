@@ -1,4 +1,3 @@
-import calendar
 import logging
 import sqlite3
 import pathlib
@@ -7,7 +6,6 @@ import collections
 import pyfasta
 import tqdm
 import tsinfer
-import cyvcf2
 import pandas as pd
 import numpy as np
 
@@ -33,6 +31,7 @@ def group_by_date(strains, conn):
 
 ALLELES = "ACGT-"
 # This is the length of the reference, i.e. the last coordinate in 1-based
+# TODO move to constants
 REFERENCE_LENGTH = 29903
 
 
@@ -49,7 +48,7 @@ def convert_alignments(reference, fasta, rows, sample_data):
 
     # TODO package data path
     L = REFERENCE_LENGTH
-    data_path = pathlib.Path("sarscov2ts/data")
+    data_path = pathlib.Path("sc2ts/data")
 
     problematic_sites = np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
     assert L in problematic_sites
@@ -74,7 +73,6 @@ def convert_alignments(reference, fasta, rows, sample_data):
         row["num_missing_sites"] = int(np.sum(h[keep_mask] == -1))
         sample_data.add_individual(metadata=row)
 
-    ref_fasta = pyfasta.Fasta(str(data_path / "reference.fasta"))
     bar = tqdm.tqdm(range(num_sites), desc="Writing", position=1, leave=False)
     for j in bar:
         pos = keep_sites[j]
@@ -92,7 +90,7 @@ def alignments_to_samples(fasta_path, metadata_path, output_dir, show_progress=F
     fasta = pyfasta.Fasta(fasta_path, record_class=pyfasta.MemoryRecord)
     output_dir = pathlib.Path(output_dir)
 
-    data_path = pathlib.Path("sarscov2ts/data")
+    data_path = pathlib.Path("sc2ts/data")
     ref_fasta = pyfasta.Fasta(
         str(data_path / "reference.fasta"), record_class=pyfasta.MemoryRecord
     )

@@ -3,8 +3,8 @@ import pytest
 import tskit
 
 import tsinfer
-import sarscov2ts as sc2ts
-from sarscov2ts.inference import SequentialExtender
+import sc2ts
+from sc2ts.inference import SequentialExtender
 
 
 def assert_variants_equal(vars1, vars2):
@@ -140,7 +140,7 @@ class TestExtend:
         for epoch in range(num_epochs):
             num_samples = num_generations * samples_per_generation
             epoch_start = epoch * num_samples
-            genotypes = G[epoch_start : epoch_start + num_samples]
+            genotypes = G[epoch_start: epoch_start + num_samples]
             with tsinfer.SampleData(sequence_length=num_sites) as sd:
                 # Store the genotypes with the individual metadata so
                 # we can compare later.
