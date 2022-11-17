@@ -64,11 +64,13 @@ def infer(
     )
     logger.info(f"Extending for {current_date} with {len(samples)} samples")
 
-    extender = SequentialExtender(sd, ancestors_ts=ancestors_ts, time_units="days_ago")
-    ts = extender.extend(
-        samples, num_mismatches=num_mismatches, time_increment=increment, **kwargs
+    return extend(
+        sd,
+        ancestors_ts=ancestors_ts,
+        samples=samples,
+        num_mismatches=num_mismatches,
+        time_increment=increment,
     )
-    return ts
 
 
 def solve_num_mismatches(ts, k):
@@ -178,57 +180,64 @@ class Matcher(tsinfer.SampleMatcher):
         return tables.tree_sequence()
 
 
-class SequentialExtender:
-    def __init__(self, sample_data, ancestors_ts=None, time_units=None):
-        time_units = tskit.TIME_UNITS_UNCALIBRATED if time_units is None else time_units
-        self.sample_data = sample_data
-        if ancestors_ts is None:
-            tables = tskit.TableCollection(sample_data.sequence_length)
-            tables.time_units = time_units
-            for site in sample_data.sites():
-                tables.sites.add_row(site.position, site.ancestral_state)
-            tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
-            # TODO should probably make the ultimate ancestor time something less
-            # plausible or at least configurable.
-            for t in [1, 0]:
-                tables.nodes.add_row(time=t)
-            tables.edges.add_row(0, sample_data.sequence_length, 0, 1)
-            self.ancestors_ts = tables.tree_sequence()
-        else:
-            self.ancestors_ts = ancestors_ts
-            if time_units is not None and self.ancestors_ts.time_units != time_units:
-                raise ValueError(
-                    f"Mismatched time_units: {time_units} != ancestors_ts.time_units",
-                )
+def make_initial_tables(sample_data):
+    tables = tskit.TableCollection(sample_data.sequence_length)
+    tables.time_units = constants.TIME_UNITS
+    for site in sample_data.sites():
+        # TODO add site metadata annotations
+        tables.sites.add_row(site.position, site.ancestral_state)
+    tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+    # TODO should probably make the ultimate ancestor time something less
+    # plausible or at least configurable.
+    # NOTE: adding the ultimate ancestor is an artefact of using
+    # tsinfer's matching engine. This shouldn't be necessary when
+    # we move over the tskit.
+    for t in [1, 0]:
+        tables.nodes.add_row(time=t)
+    # TODO node 1 should be given metadata as the reference.
+    tables.edges.add_row(0, sample_data.sequence_length, 0, 1)
+    return tables
 
-        self.node_metadata = sample_data.individuals_metadata[:]
-        assert self.sample_data.num_individuals == self.sample_data.num_samples
 
-    def _increment_ancestors_ts_time(self, increment):
-        tables = self.ancestors_ts.dump_tables()
-        tables.nodes.time += increment
-        tables.mutations.time += increment
-        self.ancestors_ts = tables.tree_sequence()
+def get_ancestors_ts(sample_data, ancestors_ts, time_increment):
+    if ancestors_ts is None:
+        tables = make_initial_tables(sample_data)
+    else:
+        # Should do more checks here for suitability.
+        if ancestors_ts.time_units != constants.TIME_UNITS:
+            raise ValueError(
+                f"Mismatched time_units: {ancestors_ts.time_units}",
+            )
+        tables = ancestors_ts.dump_tables()
 
-    def extend(self, samples, num_mismatches=None, time_increment=None, **kwargs):
-        num_mismatches = 0 if num_mismatches is None else num_mismatches
-        time_increment = 1 if time_increment is None else time_increment
+    tables.nodes.time += time_increment
+    tables.mutations.time += time_increment
 
-        ls_recomb, ls_mismatch = solve_num_mismatches(self.ancestors_ts, num_mismatches)
-        self._increment_ancestors_ts_time(time_increment)
-        manager = Matcher(
-            self.sample_data,
-            self.ancestors_ts,
-            allow_multiallele=True,
-            recombination=ls_recomb,
-            mismatch=ls_mismatch,
-            **kwargs,
-        )
-        ts = manager.extend(np.array(samples), self.node_metadata)
-        ts = coalesce_mutations(ts)
-        ts = push_up_reversions(ts)
-        self.ancestors_ts = ts
-        return ts
+    return tables.tree_sequence()
+
+
+def extend(
+    sample_data, *, ancestors_ts, samples, num_mismatches, time_increment, **kwargs
+):
+    ancestors_ts = get_ancestors_ts(sample_data, ancestors_ts, time_increment)
+
+    node_metadata = sample_data.individuals_metadata[:]
+    assert sample_data.num_individuals == sample_data.num_samples
+
+    ls_recomb, ls_mismatch = solve_num_mismatches(ancestors_ts, num_mismatches)
+
+    manager = Matcher(
+        sample_data,
+        ancestors_ts,
+        allow_multiallele=True,
+        recombination=ls_recomb,
+        mismatch=ls_mismatch,
+        **kwargs,
+    )
+    ts = manager.extend(np.array(samples), node_metadata)
+    ts = coalesce_mutations(ts)
+    ts = push_up_reversions(ts)
+    return ts
 
 
 @dataclasses.dataclass(frozen=True)
