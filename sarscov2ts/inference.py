@@ -12,7 +12,6 @@ def infer(
     ancestors_ts=None,
     num_mismatches=None,
     show_progress=False,
-    daily_prefix=None,
     max_submission_delay=None,
     **kwargs,
 ):
@@ -30,54 +29,40 @@ def infer(
         date.append(ind.metadata["date"])
         date_submitted.append(ind.metadata["date_submitted"])
     date = np.array(date, dtype=np.datetime64)
-    date_submitted = np.array(date_submitted, dtype=np.datetime64)
+    current_date = date[0]
+    if not np.all(date == current_date):
+        raise ValueError("Only one day of data can be added at a time")
 
+    date_submitted = np.array(date_submitted, dtype=np.datetime64)
     submission_delay = date_submitted - date
     submission_delay = submission_delay.astype("timedelta64[D]")
 
-    unique_dates = np.unique(date)
+    ts = ancestors_ts
+    previous_date = None
+    increment = 1
+    if ancestors_ts is not None:
+        previous_date = np.datetime64(ts.node(ts.samples()[-1]).metadata["date"])
+        diff = current_date - previous_date
+        increment = diff.astype("timedelta64[D]").astype("int")
+        assert increment > 0
+
+    samples = np.where(submission_delay <= max_submission_delay)[0]
+    num_samples = len(samples)
+    num_rejected = sd.num_samples - num_samples
+    fraction_rejected = num_rejected / sd.num_samples
+
+    logging.info(
+        f"Filtered {num_rejected} ({100 * fraction_rejected:.2f}%) samples "
+        f"with submission_delay > {max_submission_delay}"
+    )
+    logging.info(f"Extending for {current_date} with {len(samples)} samples")
+
     extender = tsinfer.SequentialExtender(
         sd, ancestors_ts=ancestors_ts, time_units="days_ago"
     )
-    base_proba = 1e-3
-    ls_recomb = np.zeros(sd.num_sites - 1) + base_proba
-    ls_mismatch = np.zeros(sd.num_sites) + base_proba * 10
-    ts = ancestors_ts
-
-    previous_date = None
-    if ancestors_ts is not None:
-        previous_date = np.datetime64(ts.node(ts.samples()[-1]).metadata["date"])
-
-    for current_date in unique_dates:
-        if previous_date is None:
-            increment = 1
-        else:
-            diff = current_date - previous_date
-            increment = diff.astype("timedelta64[D]").astype("int")
-            assert increment > 0
-
-        num_samples_for_date = np.sum(current_date == date)
-        condition = np.logical_and(
-            current_date == date, submission_delay <= max_submission_delay
-        )
-        samples = np.where(condition)[0]
-        num_samples = len(samples)
-        num_rejected = num_samples_for_date - num_samples
-        fraction_rejected = num_rejected / num_samples_for_date
-
-        logging.info(
-            f"Filtered {num_rejected} ({100 * fraction_rejected:.2f}%) samples "
-            f"with submission_delay > {max_submission_delay}"
-        )
-        logging.info(f"Extending for {current_date} with {len(samples)} samples")
-        ts = extender.extend(
-            samples, num_mismatches=num_mismatches, time_increment=increment, **kwargs
-        )
-        if daily_prefix is not None:
-            filename = f"{daily_prefix}{current_date}.ts"
-            ts.dump(filename)
-            logging.info(f"Storing daily result to {filename}")
-        previous_date = current_date
+    ts = extender.extend(
+        samples, num_mismatches=num_mismatches, time_increment=increment, **kwargs
+    )
     return ts
 
 
@@ -114,9 +99,9 @@ def validate(sd, ts, max_submission_delay=None, show_progress=False):
     sd_samples = []
     for j, ind in enumerate(sd.individuals()):
         strain = ind.metadata["strain"]
-        submission_delay = (
-            _parse_date(ind.metadata["date_submitted"]) -
-            _parse_date(ind.metadata["date"]))
+        submission_delay = _parse_date(ind.metadata["date_submitted"]) - _parse_date(
+            ind.metadata["date"]
+        )
         if submission_delay <= max_submission_delay:
             if strain not in name_map:
                 raise ValueError(f"Strain {strain} not in ts nodes")

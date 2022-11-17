@@ -98,9 +98,6 @@ def import_metadata(metadata, db, verbose):
 )
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
-@click.option(
-    "-d", "--daily-prefix", default=None, help="Prefix to output daily result files"
-)
 @click.option("-v", "--verbose", count=True)
 def infer(
     samples_file,
@@ -110,14 +107,13 @@ def infer(
     max_submission_delay,
     num_threads,
     precision,
-    daily_prefix,
     verbose,
 ):
     setup_logging(verbose)
 
     if ancestors_ts is not None:
         ancestors_ts = tskit.load(ancestors_ts)
-        logging.info(f"Loaded ancestors ts with {ancestors_ts.num_sites} sites")
+        logging.info(f"Loaded ancestors ts with {ancestors_ts.num_samples} samples")
 
     pm = tsinfer.inference._get_progress_monitor(
         True,
@@ -134,7 +130,6 @@ def infer(
             num_threads=num_threads,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
-            daily_prefix=daily_prefix,
             precision=precision,
             show_progress=True,
         )
