@@ -8,7 +8,9 @@ import tskit
 import tsinfer
 import numpy as np
 
+# TODO move constants into core
 from . import constants
+from . import core
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +103,12 @@ def solve_num_mismatches(ts, k):
 
 
 def make_initial_tables(sample_data):
+    reference = core.get_reference_sequence()
     tables = tskit.TableCollection(sample_data.sequence_length)
     tables.time_units = constants.TIME_UNITS
     for site in sample_data.sites():
         # TODO add site metadata annotations
+        assert site.ancestral_state == reference[int(site.position)]
         tables.sites.add_row(site.position, site.ancestral_state)
     tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
     # TODO should probably make the ultimate ancestor time something less
@@ -510,13 +514,17 @@ def validate(sd, ts, max_submission_delay=None, show_progress=False):
 
     _validate_dates(ts)
 
+    reference = core.get_reference_sequence()
+
     ts_vars = ts.variants(samples=ts_samples)
     vars_iter = zip(ts_vars, sd.variants())
     with tqdm.tqdm(vars_iter, total=ts.num_sites, disable=not show_progress) as bar:
         for ts_var, sd_var in bar:
+            pos = int(ts_var.site.position)
+            assert ts_var.site.ancestral_state == reference[pos]
+            assert sd_var.site.position == pos
             ts_a = np.array(ts_var.alleles)
             sd_a = np.array(sd_var.alleles)
-
             sd_genotypes = sd_var.genotypes[sd_samples]
             non_missing = sd_genotypes != -1
             # Convert to actual allelic observations here because
@@ -588,10 +596,11 @@ class Matcher(tsinfer.SampleMatcher):
         mut_site, node, derived_state, _ = self.tree_sequence_builder.dump_mutations()
         mutation_id = 0
         num_mutations = len(mut_site)
+        # TODO: Can make his simpler - always the same set of sites
         for site in self.sample_data.sites(self.inference_site_id):
             site_id = tables.sites.add_row(
                 site.position,
-                ancestral_state=site.alleles[0],
+                ancestral_state=site.ancestral_state,
             )
             while mutation_id < num_mutations and mut_site[mutation_id] == site_id:
                 tables.mutations.add_row(

@@ -9,6 +9,8 @@ import tsinfer
 import pandas as pd
 import numpy as np
 
+from . import core
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,14 +121,7 @@ def alignments_to_samples(fasta_path, metadata_path, output_dir, show_progress=F
     fasta = pyfasta.Fasta(fasta_path, record_class=pyfasta.MemoryRecord)
     output_dir = pathlib.Path(output_dir)
 
-    data_path = pathlib.Path("sc2ts/data")
-    ref_fasta = pyfasta.Fasta(
-        str(data_path / "reference.fasta"), record_class=pyfasta.MemoryRecord
-    )
-    a = np.array(ref_fasta["MN908947 (Wuhan-Hu-1/2019)"]).astype(str)
-    reference = np.append(["X"], a)
-    del ref_fasta
-
+    reference = core.get_reference_sequence()
     strains = list(fasta.keys())
     logger.info(f"Grouping {len(strains)} strains by date")
     with sqlite3.connect(metadata_path) as conn:
@@ -160,3 +155,34 @@ def metadata_to_db(csv_path, db_path):
         df.to_sql("samples", conn, index=False)
         conn.execute("CREATE INDEX [ix_samples_strain] on 'samples' ([strain]);")
         conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")
+
+
+def verify_sample_data(sample_data, fasta_path):
+    """
+    Verify that each sample in the specified samples file correcly encodes the
+    alignment in the specified file.
+    """
+    # Load the fasta in a 2D array
+
+    fasta = pyfasta.Fasta(fasta_path, record_class=pyfasta.MemoryRecord)
+    H = np.zeros(
+        (sample_data.num_samples, int(sample_data.sequence_length)), dtype="U1"
+    )
+    H[:, 0] = "X"
+    for ind in sample_data.individuals():
+        strain = ind.metadata["strain"]
+        H[ind.id, 1:] = fasta[strain]
+    del fasta
+
+    print("Num sequences:", H.shape[0])
+
+    identical = 0
+    for var in sample_data.variants():
+        g1 = np.array(list(var.alleles) + ["N"])[var.genotypes]
+        pos = int(var.site.position)
+        g2 = H[:, pos]
+        if np.all(g1 == g2):
+            identical += 1
+        # TODO check the different sites and verify they're not ACGT-
+
+    print("identical", identical, identical / sample_data.num_sites)
