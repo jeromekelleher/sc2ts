@@ -68,8 +68,9 @@ def setup_logging(verbosity, log_file=None):
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output", type=click.Path(exists=True, dir_okay=True, file_okay=False))
 @click.option("-v", "--verbose", count=True)
-def import_fasta(fasta, metadata, output, verbose):
-    setup_logging(verbose)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def import_fasta(fasta, metadata, output, verbose, log_file):
+    setup_logging(verbose, log_file)
     convert.alignments_to_samples(fasta, metadata, output, show_progress=True)
 
 

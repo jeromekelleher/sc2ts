@@ -21,7 +21,8 @@ def group_by_date(strains, conn):
 
     conn.row_factory = dict_factory
     for strain in strains:
-        res = conn.execute(f"SELECT * FROM samples where strain='{strain}'")
+        logger.debug(f"Getting metadata for {strain}")
+        res = conn.execute("SELECT * FROM samples WHERE strain=?", (strain,))
         row = res.fetchone()
         # We get a string back with the hours, split to just date
         if row is None:
@@ -38,13 +39,32 @@ ALLELES = "ACGT-"
 REFERENCE_LENGTH = 29903
 
 
+def mask_flank_deletions(a):
+    """
+    Update the to replace flanking deletions ("-") with missing data ("N").
+    """
+    n = a.shape[0]
+    j = 0
+    while j < n and a[j] == "-":
+        a[j] = "N"
+        j += 1
+    left = j
+    j = n - 1
+    while j >= 0 and a[j] == "-":
+        a[j] = "N"
+        j -= 1
+    right = n - j - 1
+    return left, right
+
+
 def get_haplotype(fasta, key):
     a = np.array(fasta[key]).astype(str)
+    left_mask, right_mask = mask_flank_deletions(a)
     # Map anything that's not ACGT- to N
     b = np.full(a.shape, -1, dtype=np.int8)
     for code, char in enumerate(ALLELES):
         b[a == char] = code
-    return np.append([-2], b)
+    return np.append([-2], b), left_mask, right_mask
 
 
 def convert_alignments(reference, fasta, rows, sample_data):
@@ -70,11 +90,17 @@ def convert_alignments(reference, fasta, rows, sample_data):
     )
     for j, row in bar:
         strain = row["strain"]
-        h = get_haplotype(fasta, strain)
+        h, left_mask, right_mask = get_haplotype(fasta, strain)
         assert h.shape[0] == L + 1
         G[:, j] = h[keep_mask]
-        row["num_missing_sites"] = int(np.sum(h[keep_mask] == -1))
+        num_missing = int(np.sum(h[keep_mask] == -1))
+        row["num_missing_sites"] = num_missing
+        row["masked_flanks"] = (left_mask, right_mask)
         sample_data.add_individual(metadata=row)
+        logger.info(
+            f"Add {strain} missing={num_missing} "
+            f"masked_flanks={(left_mask, right_mask)}"
+        )
 
     bar = tqdm.tqdm(range(num_sites), desc="Writing", position=1, leave=False)
     for j in bar:
