@@ -24,8 +24,11 @@ def group_by_date(strains, conn):
         res = conn.execute(f"SELECT * FROM samples where strain='{strain}'")
         row = res.fetchone()
         # We get a string back with the hours, split to just date
-        date = row["date"].split()[0]
-        by_date[date].append(row)
+        if row is None:
+            logger.warning(f"No metadata for {strain}; skipping")
+        else:
+            date = row["date"].split()[0]
+            by_date[date].append(row)
     return by_date
 
 
