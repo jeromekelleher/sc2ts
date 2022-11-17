@@ -98,6 +98,7 @@ def import_metadata(metadata, db, verbose):
 )
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
+@click.option("--no-progress", default=False, is_flag=True, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
 def infer(
     samples_file,
@@ -107,6 +108,7 @@ def infer(
     max_submission_delay,
     num_threads,
     precision,
+    no_progress,
     verbose,
 ):
     setup_logging(verbose)
@@ -115,23 +117,16 @@ def infer(
         ancestors_ts = tskit.load(ancestors_ts)
         logging.info(f"Loaded ancestors ts with {ancestors_ts.num_samples} samples")
 
-    pm = tsinfer.inference._get_progress_monitor(
-        True,
-        generate_ancestors=False,
-        match_ancestors=False,
-        match_samples=False,
-    )
     provenance = get_provenance_dict()
     with tsinfer.load(samples_file) as sd:
         ts = inference.infer(
             sd,
             ancestors_ts=ancestors_ts,
-            progress_monitor=pm,
             num_threads=num_threads,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
             precision=precision,
-            show_progress=True,
+            show_progress=not no_progress,
         )
         tables = ts.dump_tables()
         tables.provenances.add_row(json.dumps(provenance))
