@@ -4,49 +4,67 @@ import tsinfer
 import tskit
 
 import sc2ts
-import sc2ts.inference as inference
+from sc2ts import inference
+from sc2ts import core
+from sc2ts import convert
 
 
-@pytest.fixture
+
+# @pytest.fixture
 def small_sd_fixture():
-    with tsinfer.SampleData(sequence_length=29904) as sd:
-        sd.add_individual(
-            metadata={
-                "strain": "A",
-                "date": "2019-12-30",
-                "date_submitted": "2020-01-02",
-            }
-        )
-        sd.add_individual(
-            metadata={
-                "strain": "B",
-                "date": "2020-01-01",
-                "date_submitted": "2020-02-02",
-            }
-        )
-        sd.add_individual(
-            metadata={
-                "strain": "C",
-                "date": "2020-01-01",
-                "date_submitted": "2020-02-02",
-            }
-        )
-        sd.add_individual(
-            metadata={
-                "strain": "D",
-                "date": "2020-01-02",
-                "date_submitted": "2022-02-02",
-            }
-        )
-        sd.add_individual(
-            metadata={
-                "strain": "E",
-                "date": "2020-01-06",
-                "date_submitted": "2020-02-02",
-            }
-        )
-        sd.add_site(1, alleles=["A", "C", "G", "T"], genotypes=[0, 0, 1, 1, 1])
+    reference = core.get_reference_sequence()
+    print(reference)
+    fasta = {"REF": reference}
+    rows = [{"strain": "REF"}]
+    sd = convert.convert_alignments(rows, fasta)
+
     return sd
+
+    # ref = core.get_reference_sequence()
+    # with tsinfer.SampleData(sequence_length=len(ref)) as sd:
+    #     sd.add_individual(
+    #         metadata={
+    #             "strain": "A",
+    #             "date": "2019-12-30",
+    #             "date_submitted": "2020-01-02",
+    #         }
+    #     )
+    #     sd.add_individual(
+    #         metadata={
+    #             "strain": "B",
+    #             "date": "2020-01-01",
+    #             "date_submitted": "2020-02-02",
+    #         }
+    #     )
+    #     sd.add_individual(
+    #         metadata={
+    #             "strain": "C",
+    #             "date": "2020-01-01",
+    #             "date_submitted": "2020-02-02",
+    #         }
+    #     )
+    #     sd.add_individual(
+    #         metadata={
+    #             "strain": "D",
+    #             "date": "2020-01-02",
+    #             "date_submitted": "2022-02-02",
+    #         }
+    #     )
+    #     sd.add_individual(
+    #         metadata={
+    #             "strain": "E",
+    #             "date": "2020-01-06",
+    #             "date_submitted": "2020-02-02",
+    #         }
+    #     )
+    # for
+    # return sd
+
+class TestInitialTables:
+    def test_site_schema(self):
+        sd = small_sd_fixture()
+        pass
+
 
 
 @pytest.mark.skip()

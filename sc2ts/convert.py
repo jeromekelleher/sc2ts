@@ -2,8 +2,10 @@ import logging
 import sqlite3
 import pathlib
 import collections
+import datetime
+import hashlib
 
-import pyfasta
+import numba
 import tqdm
 import tsinfer
 import pandas as pd
@@ -40,105 +42,169 @@ ALLELES = "ACGT-"
 # TODO move to constants
 REFERENCE_LENGTH = 29903
 
+GAP = ALLELES.index("-")
+MISSING = -1
 
-def mask_flank_deletions(a):
+
+@numba.njit
+def mask_alignment(a, start=0, window_size=7):
     """
-    Update the to replace flanking deletions ("-") with missing data ("N").
+    Following the approach in fa2vcf, if any base is has two or more ambiguous
+    or gap characters with distance window_size of it, mark it as missing data.
     """
-    n = a.shape[0]
-    j = 0
-    while j < n and a[j] == "-":
-        a[j] = "N"
-        j += 1
-    left = j
-    j = n - 1
-    while j >= 0 and a[j] == "-":
-        a[j] = "N"
-        j -= 1
-    right = n - j - 1
-    return left, right
+    if window_size < 1:
+        raise ValueError("Window must be >= 1")
+    b = a.copy()
+    n = len(a)
+    masked = np.zeros(n, dtype=np.int32)
+    for j in range(start, n):
+        ambiguous = 0
+        k = j - 1
+        while k >= start and k >= j - window_size:
+            if b[k] == GAP or b[k] == MISSING:
+                ambiguous += 1
+            k -= 1
+        k = j + 1
+        while k < n and k <= j + window_size:
+            if b[k] == GAP or b[k] == MISSING:
+                ambiguous += 1
+            k += 1
+        if ambiguous > 1:
+            a[j] = MISSING
+            masked[j] = 1
+    return masked
 
 
-def get_haplotype(fasta, key):
-    a = np.array(fasta[key]).astype(str)
-    left_mask, right_mask = mask_flank_deletions(a)
+def encode_alignment(h):
     # Map anything that's not ACGT- to N
-    b = np.full(a.shape, -1, dtype=np.int8)
+    a = np.full(h.shape, -1, dtype=np.int8)
     for code, char in enumerate(ALLELES):
-        b[a == char] = code
-    return np.append([-2], b), left_mask, right_mask
+        a[h == char] = code
+    return a
 
 
-def convert_alignments(reference, fasta, rows, sample_data):
+def decode_alignment(a):
+    if np.any(a < -1) or np.any(a >= len(ALLELES)):
+        raise ValueError("Cannot decode alignment")
+    alleles = np.array(list(ALLELES + "N"), dtype="U1")
+    return alleles[a]
 
-    # TODO package data path
-    L = REFERENCE_LENGTH
-    data_path = pathlib.Path("sc2ts/data")
 
-    problematic_sites = np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
-    assert L in problematic_sites
-    keep_sites = np.array(list(set(np.arange(1, L + 1)) - set(problematic_sites)))
-    keep_sites.sort()
-    keep_mask = np.ones(L + 1, dtype=bool)
-    keep_mask[problematic_sites] = False
-    keep_mask[0] = False
+def base_composition(haplotype):
+    return collections.Counter(haplotype)
 
-    num_sites = L - len(problematic_sites)
-    assert num_sites == len(keep_sites)
-    G = np.zeros((num_sites, len(rows)), dtype=np.int8)
 
-    bar = tqdm.tqdm(
-        enumerate(rows), desc="Reading", total=len(rows), position=1, leave=False
-    )
-    for j, row in bar:
-        strain = row["strain"]
-        h, left_mask, right_mask = get_haplotype(fasta, strain)
-        assert h.shape[0] == L + 1
-        G[:, j] = h[keep_mask]
-        num_missing = int(np.sum(h[keep_mask] == -1))
-        row["num_missing_sites"] = num_missing
-        row["masked_flanks"] = (left_mask, right_mask)
-        sample_data.add_individual(metadata=row)
-        logger.info(
-            f"Add {strain} missing={num_missing} "
-            f"masked_flanks={(left_mask, right_mask)}"
+def convert_alignments(
+    samples, fasta, *, show_progress=False, provenance=None, **kwargs
+):
+    """
+    Convert the alignments for specified list of samples (a list of metadata
+    dictionaries) from the specified fasta and add them to a tsinfer SampleData
+    file created with the specified (additional) kwargs.
+    """
+    reference = core.get_reference_sequence()
+    problematic_sites = core.get_problematic_sites()
+
+    L = len(reference)
+    assert L - 1 in problematic_sites
+    keep_sites = np.ones(L, dtype=bool)
+    keep_sites[problematic_sites] = False
+    keep_sites[0] = False
+
+    num_sites = L - len(problematic_sites) - 1
+    num_samples = len(samples)
+    G = np.zeros((num_sites, num_samples), dtype=np.int8)
+
+    with tsinfer.SampleData(sequence_length=L, **kwargs) as sd:
+        # Sort sequences by strain so we have a well defined hash.
+        samples = sorted(samples, key=lambda x: x["strain"])
+        hasher = hashlib.sha256()
+        bar = tqdm.tqdm(
+            enumerate(samples),
+            desc="Reading",
+            total=num_samples,
+            position=1,
+            leave=False,
+            disable=not show_progress,
         )
+        masked_per_site = np.zeros(L, dtype=int)
+        for j, sample_info in bar:
+            # Take a copy so we're not modifying our parameters
+            md = dict(sample_info)
+            strain = md["strain"]
+            h = fasta[strain]
+            hasher.update(h)
 
-    bar = tqdm.tqdm(range(num_sites), desc="Writing", position=1, leave=False)
-    for j in bar:
-        pos = keep_sites[j]
-        ref_allele = reference[pos]
-        sample_data.add_site(
-            pos,
-            genotypes=G[j],
-            alleles=ALLELES,
-            ancestral_allele=ALLELES.index(ref_allele),
+            # We want the base composition of the original alignment pre-filtering
+            composition = base_composition(h[1:])
+            assert h.shape[0] == L
+            a = encode_alignment(h)
+            masked = mask_alignment(a, start=1, window_size=7)
+            masked_per_site += masked
+            b = a[keep_sites]
+            G[:, j] = b
+            total_masked = int(np.sum(masked))
+            masked_outside_problematic = int(np.sum(masked[keep_sites]))
+            num_missing = int(np.sum(b == -1))
+            md["base_composition"] = dict(composition)
+            md["masked_overall"] = total_masked
+            md["masked_within"] = masked_outside_problematic
+            md["missing_within"] = num_missing
+
+            sd.add_individual(metadata=md)
+            logger.info(f"Add {strain} metadata={md}")
+        assert masked_per_site[0] == 0
+
+        bar = tqdm.tqdm(
+            range(num_sites),
+            desc="Writing",
+            position=1,
+            leave=False,
+            disable=not show_progress,
         )
+        sites = np.where(keep_sites)[0]
+        for j in bar:
+            pos = sites[j]
+            ref_allele = reference[pos]
+            masked_samples = masked_per_site[pos]
+            sd.add_site(
+                pos,
+                genotypes=G[j],
+                alleles=ALLELES,
+                ancestral_allele=ALLELES.index(ref_allele),
+                metadata={"masked_samples": int(masked_samples)},
+            )
+        provenance["alignments_sha256"] = hasher.hexdigest()
+        sd.add_provenance(datetime.datetime.now().isoformat(), provenance)
+    return sd
 
 
-def alignments_to_samples(fasta_path, metadata_path, output_dir, show_progress=False):
+def alignments_to_samples(
+    fasta_path, metadata_path, output_dir, show_progress=False, provenance=None
+):
     logger.info(f"Loading fasta from {fasta_path}")
-    fasta = pyfasta.Fasta(fasta_path, record_class=pyfasta.MemoryRecord)
+    fasta = core.FastaReader(fasta_path)
     output_dir = pathlib.Path(output_dir)
 
-    reference = core.get_reference_sequence()
     strains = list(fasta.keys())
     logger.info(f"Grouping {len(strains)} strains by date")
     with sqlite3.connect(metadata_path) as conn:
         strains_by_date = group_by_date(strains, conn)
 
-    bar = tqdm.tqdm(sorted(strains_by_date.keys()))
+    bar = tqdm.tqdm(sorted(strains_by_date.keys()), disable=not show_progress)
     for date in bar:
         bar.set_description(date)
         rows = strains_by_date[date]
         logger.info(f"Converting for {len(rows)} strains for {date}")
         samples_path = output_dir / f"{date}.samples"
-        with tsinfer.SampleData(
-            path=str(samples_path),
-            sequence_length=REFERENCE_LENGTH + 1,
+        convert_alignments(
+            rows,
+            fasta,
+            show_progress=show_progress,
+            provenance=provenance,
             num_flush_threads=4,
-        ) as sd:
-            convert_alignments(reference, fasta, rows, sd)
+            path=str(samples_path),
+        )
 
 
 def metadata_to_db(csv_path, db_path):
@@ -163,7 +229,7 @@ def verify_sample_data(sample_data, fasta_path):
     alignment in the specified file.
     """
     # Load the fasta in a 2D array
-
+    # FIXME use the FastaReader
     fasta = pyfasta.Fasta(fasta_path, record_class=pyfasta.MemoryRecord)
     H = np.zeros(
         (sample_data.num_samples, int(sample_data.sequence_length)), dtype="U1"

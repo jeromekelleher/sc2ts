@@ -106,6 +106,10 @@ def make_initial_tables(sample_data):
     reference = core.get_reference_sequence()
     tables = tskit.TableCollection(sample_data.sequence_length)
     tables.time_units = constants.TIME_UNITS
+    base_schema = tskit.MetadataSchema.permissive_json().schema
+    print(base_schema)
+
+    tables.nodes.metadata_schema = tskit.MetadataSchema(base_schema)
     for site in sample_data.sites():
         # TODO add site metadata annotations
         assert site.ancestral_state == reference[int(site.position)]
