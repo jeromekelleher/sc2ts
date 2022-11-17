@@ -61,9 +61,9 @@ def setup_logging(verbosity):
 
 
 @click.command()
-@click.argument("fasta")
-@click.argument("metadata")
-@click.argument("output")
+@click.argument("fasta", type=click.Path(exists=True, dir_okay=False))
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output", type=click.Path(exists=True, dir_okay=True, file_okay=False))
 @click.option("-v", "--verbose", count=True)
 def import_fasta(fasta, metadata, output, verbose):
     setup_logging(verbose)
