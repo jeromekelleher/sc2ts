@@ -1,15 +1,12 @@
 import json
 import logging
-import pathlib
 import platform
 import sys
-import tempfile
 
 import tskit
 import tsinfer
 import click
 import daiquiri
-import numpy as np
 
 from . import convert
 from . import inference
@@ -17,7 +14,7 @@ from . import inference
 
 def get_environment():
     """
-    Returns a dictionary describing the environment in which sarscov2ts
+    Returns a dictionary describing the environment in which sc2ts
     is currently running.
     """
     env = {
@@ -47,7 +44,7 @@ def get_provenance_dict():
     """
     document = {
         "schema_version": "1.0.0",
-        "software": {"name": "sarscov2ts", "version": "dev"},
+        "software": {"name": "sc2ts", "version": "dev"},
         "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
         "environment": get_environment(),
     }
@@ -64,13 +61,25 @@ def setup_logging(verbosity):
 
 
 @click.command()
-@click.argument("vcf")
-@click.argument("metadata")
-@click.argument("output")
+@click.argument("fasta", type=click.Path(exists=True, dir_okay=False))
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output", type=click.Path(exists=True, dir_okay=True, file_okay=False))
 @click.option("-v", "--verbose", count=True)
-def import_vcf(vcf, metadata, output, verbose):
+def import_fasta(fasta, metadata, output, verbose):
     setup_logging(verbose)
-    sd = convert.to_samples(vcf, metadata, output, show_progress=True)
+    convert.alignments_to_samples(fasta, metadata, output, show_progress=True)
+
+
+@click.command()
+@click.argument("metadata")
+@click.argument("db")
+@click.option("-v", "--verbose", count=True)
+def import_metadata(metadata, db, verbose):
+    """
+    Convert a CSV formatted metadata file to a database for later use.
+    """
+    setup_logging(verbose)
+    convert.metadata_to_db(metadata, db)
 
 
 @click.command()
@@ -89,9 +98,6 @@ def import_vcf(vcf, metadata, output, verbose):
 )
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
-@click.option(
-    "-d", "--daily-prefix", default=None, help="Prefix to output daily result files"
-)
 @click.option("-v", "--verbose", count=True)
 def infer(
     samples_file,
@@ -101,14 +107,13 @@ def infer(
     max_submission_delay,
     num_threads,
     precision,
-    daily_prefix,
     verbose,
 ):
     setup_logging(verbose)
 
     if ancestors_ts is not None:
         ancestors_ts = tskit.load(ancestors_ts)
-        logging.info(f"Loaded ancestors ts with {ancestors_ts.num_sites} sites")
+        logging.info(f"Loaded ancestors ts with {ancestors_ts.num_samples} samples")
 
     pm = tsinfer.inference._get_progress_monitor(
         True,
@@ -125,7 +130,6 @@ def infer(
             num_threads=num_threads,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
-            daily_prefix=daily_prefix,
             precision=precision,
             show_progress=True,
         )
@@ -163,6 +167,7 @@ def cli():
     pass
 
 
-cli.add_command(import_vcf)
+cli.add_command(import_fasta)
+cli.add_command(import_metadata)
 cli.add_command(infer)
 cli.add_command(validate)
