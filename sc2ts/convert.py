@@ -38,8 +38,26 @@ ALLELES = "ACGT-"
 REFERENCE_LENGTH = 29903
 
 
+def mask_flank_deletions(a):
+    """
+    Update the to replace flanking deletions ("-") with missing data ("N").
+    """
+    n = a.shape[0]
+    j = 0
+    while j < n and a[j] == "-":
+        a[j] = "N"
+        j += 1
+    left = j
+    j = n - 1
+    while j >= 0 and a[j] == "-":
+        a[j] = "N"
+        j -= 1
+    right = n - j - 1
+    return left, right
+
 def get_haplotype(fasta, key):
     a = np.array(fasta[key]).astype(str)
+    left_mask, right_mask = mask_flank_deletions(a)
     # Map anything that's not ACGT- to N
     b = np.full(a.shape, -1, dtype=np.int8)
     for code, char in enumerate(ALLELES):
