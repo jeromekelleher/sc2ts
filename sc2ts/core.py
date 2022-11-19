@@ -9,6 +9,7 @@ ALLELES = "ACGT-"
 TIME_UNITS="days_ago"
 
 NODE_IS_MUTATION_OVERLAP = 1 << 21
+NODE_IS_REVERSION_PUSH = 1 << 22
 
 
 class FastaReader(collections.abc.Mapping):

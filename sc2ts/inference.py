@@ -8,8 +8,6 @@ import tskit
 import tsinfer
 import numpy as np
 
-# TODO move constants into core
-from . import constants
 from . import core
 
 logger = logging.getLogger(__name__)
@@ -105,7 +103,7 @@ def solve_num_mismatches(ts, k):
 def make_initial_tables(sample_data):
     reference = core.get_reference_sequence()
     tables = tskit.TableCollection(sample_data.sequence_length)
-    tables.time_units = constants.TIME_UNITS
+    tables.time_units = core.TIME_UNITS
     base_schema = tskit.MetadataSchema.permissive_json().schema
 
     tables.metadata_schema = tskit.MetadataSchema(base_schema)
@@ -137,7 +135,7 @@ def get_ancestors_ts(sample_data, ancestors_ts, time_increment):
         tables = make_initial_tables(sample_data)
     else:
         # Should do more checks here for suitability.
-        if ancestors_ts.time_units != constants.TIME_UNITS:
+        if ancestors_ts.time_units != core.TIME_UNITS:
             raise ValueError(
                 f"Mismatched time_units: {ancestors_ts.time_units}",
             )
@@ -406,9 +404,9 @@ def coalesce_mutations(ts):
         assert group_parent_time < parent_time
 
         tables.nodes.add_row(
-            flags=constants.NODE_IS_MUTATION_OVERLAP,
+            flags=core.NODE_IS_MUTATION_OVERLAP,
             time=group_parent_time,
-            metadata={"overlap": overlap, "num_sibs": len(sibs)}
+            metadata={"overlap": overlap, "num_sibs": len(sibs)},
         )
         for mut_desc in overlap:
             tables.mutations.add_row(
@@ -416,7 +414,7 @@ def coalesce_mutations(ts):
                 derived_state=mut_desc.derived_state,
                 node=group_parent,
                 time=group_parent_time,
-                metadata={"type": "overlap"}
+                metadata={"type": "overlap"},
             )
 
     num_del_mutations = len(mutations_to_delete)
@@ -441,7 +439,7 @@ def push_up_reversions(ts):
     for u in ts.samples(time=0):
         if mutations_per_node[u] == 0:
             u = tree.parent(u)
-            if ts.nodes_flags[u] == constants.NODE_IS_MUTATION_OVERLAP:
+            if ts.nodes_flags[u] == core.NODE_IS_MUTATION_OVERLAP:
                 # Not strictly a sample, but represents some time-0 samples
                 samples.add(u)
         else:
@@ -510,7 +508,11 @@ def push_up_reversions(ts):
         # make it proportional to the number of mutations or something.
         eps = tree.branch_length(parent) * 0.125
         w_time = tree.time(parent) + eps
-        w = tables.nodes.add_row(flags=1 << 22, time=w_time)
+        w = tables.nodes.add_row(
+            flags=core.NODE_IS_REVERSION_PUSH,
+            time=w_time,
+            metadata={"reversions": reversions},
+        )
         # Add new edges to join the sample and parent to w, and then
         # w to the grandparent.
         tables.edges.add_row(0, ts.sequence_length, parent=w, child=parent)
