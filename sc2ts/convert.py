@@ -115,7 +115,6 @@ def convert_alignments(
     G = np.zeros((num_sites, num_samples), dtype=np.int8)
 
     with tsinfer.SampleData(sequence_length=L, **kwargs) as sd:
-        # Sort sequences by strain so we have a well defined hash.
         samples = sorted(samples, key=lambda x: x["strain"])
         bar = tqdm.tqdm(
             enumerate(samples),
