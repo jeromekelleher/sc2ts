@@ -37,12 +37,11 @@ def group_by_date(strains, conn):
     return by_date
 
 
-ALLELES = "ACGT-"
 # This is the length of the reference, i.e. the last coordinate in 1-based
 # TODO move to constants
 REFERENCE_LENGTH = 29903
 
-GAP = ALLELES.index("-")
+GAP = core.ALLELES.index("-")
 MISSING = -1
 
 
@@ -78,15 +77,15 @@ def mask_alignment(a, start=0, window_size=7):
 def encode_alignment(h):
     # Map anything that's not ACGT- to N
     a = np.full(h.shape, -1, dtype=np.int8)
-    for code, char in enumerate(ALLELES):
+    for code, char in enumerate(core.ALLELES):
         a[h == char] = code
     return a
 
 
 def decode_alignment(a):
-    if np.any(a < -1) or np.any(a >= len(ALLELES)):
+    if np.any(a < -1) or np.any(a >= len(core.ALLELES)):
         raise ValueError("Cannot decode alignment")
-    alleles = np.array(list(ALLELES + "N"), dtype="U1")
+    alleles = np.array(list(core.ALLELES + "N"), dtype="U1")
     return alleles[a]
 
 
@@ -118,7 +117,6 @@ def convert_alignments(
     with tsinfer.SampleData(sequence_length=L, **kwargs) as sd:
         # Sort sequences by strain so we have a well defined hash.
         samples = sorted(samples, key=lambda x: x["strain"])
-        hasher = hashlib.sha256()
         bar = tqdm.tqdm(
             enumerate(samples),
             desc="Reading",
@@ -132,25 +130,29 @@ def convert_alignments(
             # Take a copy so we're not modifying our parameters
             md = dict(sample_info)
             strain = md["strain"]
-            h = fasta[strain]
-            hasher.update(h)
+            alignment = fasta[strain]
 
-            # We want the base composition of the original alignment pre-filtering
-            composition = base_composition(h[1:])
-            assert h.shape[0] == L
-            a = encode_alignment(h)
-            masked = mask_alignment(a, start=1, window_size=7)
+            assert alignment.shape[0] == L
+            encoded = encode_alignment(alignment)
+            # Update the encoded alignment to mask out regions with uncertainty
+            masked = mask_alignment(encoded, start=1, window_size=7)
             masked_per_site += masked
-            b = a[keep_sites]
-            G[:, j] = b
+            inference_subset = encoded[keep_sites]
+            G[:, j] = inference_subset
+            # Add some QC measures to the metadata.
             total_masked = int(np.sum(masked))
             masked_outside_problematic = int(np.sum(masked[keep_sites]))
-            num_missing = int(np.sum(b == -1))
-            md["base_composition"] = dict(composition)
-            md["masked_overall"] = total_masked
-            md["masked_within"] = masked_outside_problematic
-            md["missing_within"] = num_missing
-
+            num_missing = int(np.sum(inference_subset == -1))
+            # We want the base composition of the original alignment pre-filtering
+            composition = base_composition(alignment[1:])
+            alignment_md5 = hashlib.md5(alignment[1:]).hexdigest()
+            md["sc2ts_qc"] = {
+                "base_composition": dict(composition),
+                "masked_overall": total_masked,
+                "masked_within": masked_outside_problematic,
+                "missing_within": num_missing,
+                "alignment_md5": alignment_md5,
+            }
             sd.add_individual(metadata=md)
             logger.info(f"Add {strain} metadata={md}")
         assert masked_per_site[0] == 0
@@ -170,11 +172,10 @@ def convert_alignments(
             sd.add_site(
                 pos,
                 genotypes=G[j],
-                alleles=ALLELES,
-                ancestral_allele=ALLELES.index(ref_allele),
+                alleles=core.ALLELES,
+                ancestral_allele=core.ALLELES.index(ref_allele),
                 metadata={"masked_samples": int(masked_samples)},
             )
-        provenance["alignments_sha256"] = hasher.hexdigest()
         sd.add_provenance(datetime.datetime.now().isoformat(), provenance)
     return sd
 

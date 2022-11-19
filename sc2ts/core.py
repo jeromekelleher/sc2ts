@@ -4,6 +4,8 @@ import collections.abc
 import pyfasta
 import numpy as np
 
+ALLELES = "ACGT-"
+
 
 class FastaReader(collections.abc.Mapping):
     def __init__(self, path):
