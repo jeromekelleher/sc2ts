@@ -207,6 +207,14 @@ def extend(
     return add_matching_results(sample_data, samples, ancestors_ts, results)
 
 
+# Work around tsinfer's reshuffling of the allele indexes
+def unshuffle_allele_index(index, ancestral_state):
+    A = core.ALLELES
+    as_index = A.index(ancestral_state)
+    alleles = ancestral_state + A[:as_index] + A[as_index + 1 :]
+    return alleles[index]
+
+
 def add_matching_results(sample_data, samples, ts, results):
     """
     Adds the specified matching results to the specified tree sequence
@@ -220,6 +228,9 @@ def add_matching_results(sample_data, samples, ts, results):
     # useful locally, and do this coordinate translation there. Then
     # our dependence on tsinfer is quite well isolated.
     coord_map = np.append(tables.sites.position, [tables.sequence_length])
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+
     coord_map[0] = 0
     for sd_id in samples:
         node_id = tables.nodes.add_row(
@@ -237,7 +248,9 @@ def add_matching_results(sample_data, samples, ts, results):
                 site=site,
                 node=node_id,
                 time=0,
-                derived_state=core.ALLELES[derived_state],
+                derived_state=unshuffle_allele_index(
+                    derived_state, ancestral_state[site]
+                ),
                 metadata={"type": "mismatch"},
             )
     # Update the sites with metadata for these newly added samples.
@@ -250,8 +263,7 @@ def add_matching_results(sample_data, samples, ts, results):
     # Add the sample data provenance
     assert sample_data.num_provenances == 1
     timestamp, record = list(sample_data.provenances())[0]
-    tables.provenances.add_row(
-        timestamp=timestamp, record=json.dumps(record))
+    tables.provenances.add_row(timestamp=timestamp, record=json.dumps(record))
 
     tables.sort()
     tables.build_index()
@@ -288,6 +300,7 @@ def node_mutation_descriptors(ts, u):
             if parent_mut.node == u:
                 raise ValueError("Multiple mutations on same branch not supported")
             inherited_state = parent_mut.derived_state
+        assert inherited_state != mut.derived_state
         descriptors.add(
             MutationDescriptor(mut.site, mut.derived_state, inherited_state, mut.parent)
         )
@@ -604,6 +617,9 @@ def validate(sd, ts, max_submission_delay=None, show_progress=False):
     ts_samples = np.array(ts_samples)
 
     _validate_dates(ts)
+
+    if len(sd_samples) == 0:
+        return
 
     reference = core.get_reference_sequence()
 
