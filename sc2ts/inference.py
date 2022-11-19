@@ -2,6 +2,7 @@ import logging
 import datetime
 import dataclasses
 import collections
+import json
 
 import tqdm
 import tskit
@@ -242,6 +243,11 @@ def add_matching_results(sample_data, samples, ts, results):
         md = ts_site.metadata
         md["masked_samples"] += sd_site.metadata["masked_samples"]
         tables.sites.append(ts_site.replace(metadata=md))
+
+    # Add the sample data provenance
+    assert sample_data.num_provenances == 1
+    timestamp, record = list(sample_data.provenances())[0]
+    tables.provenances.add_row(timestamp, json.dumps(record))
 
     tables.sort()
     tables.build_index()
