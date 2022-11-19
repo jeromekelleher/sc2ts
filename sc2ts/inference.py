@@ -30,6 +30,9 @@ def infer(
     if max_submission_delay is None:
         max_submission_delay = 10**8  # Arbitrary large number of days.
 
+    if not sd.finalised:
+        raise ValueError("Input sample data file incomplete")
+
     max_submission_delay = np.timedelta64(max_submission_delay, "D")
 
     date = []
@@ -247,7 +250,8 @@ def add_matching_results(sample_data, samples, ts, results):
     # Add the sample data provenance
     assert sample_data.num_provenances == 1
     timestamp, record = list(sample_data.provenances())[0]
-    tables.provenances.add_row(timestamp, json.dumps(record))
+    tables.provenances.add_row(
+        timestamp=timestamp, record=json.dumps(record))
 
     tables.sort()
     tables.build_index()

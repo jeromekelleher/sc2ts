@@ -176,7 +176,9 @@ def convert_alignments(
                 ancestral_allele=core.ALLELES.index(ref_allele),
                 metadata={"masked_samples": int(masked_samples)},
             )
-        sd.add_provenance(datetime.datetime.now().isoformat(), provenance)
+        sd.add_provenance(
+            timestamp=datetime.datetime.now().isoformat(),
+            record=provenance)
     return sd
 
 
