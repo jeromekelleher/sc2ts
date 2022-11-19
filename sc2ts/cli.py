@@ -8,6 +8,7 @@ import tsinfer
 import click
 import daiquiri
 
+from . import core
 from . import convert
 from . import inference
 
@@ -44,7 +45,7 @@ def get_provenance_dict():
     """
     document = {
         "schema_version": "1.0.0",
-        "software": {"name": "sc2ts", "version": "dev"},
+        "software": {"name": "sc2ts", "version": core.__version__},
         "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
         "environment": get_environment(),
     }

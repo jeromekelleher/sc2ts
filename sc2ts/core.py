@@ -12,6 +12,15 @@ NODE_IS_MUTATION_OVERLAP = 1 << 21
 NODE_IS_REVERSION_PUSH = 1 << 22
 
 
+__version__ = "undefined"
+try:
+    from . import _version
+
+    __version__ = _version.version
+except ImportError:
+    pass
+
+
 class FastaReader(collections.abc.Mapping):
     def __init__(self, path):
         self.reader = pyfasta.Fasta(str(path), record_class=pyfasta.MemoryRecord)
