@@ -8,6 +8,7 @@ import tsinfer
 import click
 import daiquiri
 
+from . import core
 from . import convert
 from . import inference
 
@@ -44,7 +45,7 @@ def get_provenance_dict():
     """
     document = {
         "schema_version": "1.0.0",
-        "software": {"name": "sc2ts", "version": "dev"},
+        "software": {"name": "sc2ts", "version": core.__version__},
         "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
         "environment": get_environment(),
     }
@@ -67,11 +68,15 @@ def setup_logging(verbosity, log_file=None):
 @click.argument("fasta", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output", type=click.Path(exists=True, dir_okay=True, file_okay=False))
+@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def import_fasta(fasta, metadata, output, verbose, log_file):
+def import_fasta(fasta, metadata, output, no_progress, verbose, log_file):
     setup_logging(verbose, log_file)
-    convert.alignments_to_samples(fasta, metadata, output, show_progress=True)
+    provenance = get_provenance_dict()
+    convert.alignments_to_samples(
+        fasta, metadata, output, provenance=provenance,
+        show_progress=not no_progress)
 
 
 @click.command()
@@ -168,7 +173,7 @@ def validate(samples_file, ts_file, verbose, max_submission_delay):
             sd, ts, max_submission_delay=max_submission_delay, show_progress=True
         )
 
-
+@click.version_option(core.__version__)
 @click.group()
 def cli():
     pass

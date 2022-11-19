@@ -2,14 +2,13 @@ import logging
 import datetime
 import dataclasses
 import collections
+import json
 
 import tqdm
 import tskit
 import tsinfer
 import numpy as np
 
-# TODO move constants into core
-from . import constants
 from . import core
 
 logger = logging.getLogger(__name__)
@@ -30,6 +29,9 @@ def infer(
         num_mismatches = 1000
     if max_submission_delay is None:
         max_submission_delay = 10**8  # Arbitrary large number of days.
+
+    if not sd.finalised:
+        raise ValueError("Input sample data file incomplete")
 
     max_submission_delay = np.timedelta64(max_submission_delay, "D")
 
@@ -105,12 +107,21 @@ def solve_num_mismatches(ts, k):
 def make_initial_tables(sample_data):
     reference = core.get_reference_sequence()
     tables = tskit.TableCollection(sample_data.sequence_length)
-    tables.time_units = constants.TIME_UNITS
+    tables.time_units = core.TIME_UNITS
+    base_schema = tskit.MetadataSchema.permissive_json().schema
+
+    tables.metadata_schema = tskit.MetadataSchema(base_schema)
+    # TODO gene annotations to top level
+    # TODO add known fields to the schemas and document them.
+    tables.nodes.metadata_schema = tskit.MetadataSchema(base_schema)
+    tables.sites.metadata_schema = tskit.MetadataSchema(base_schema)
+    tables.mutations.metadata_schema = tskit.MetadataSchema(base_schema)
     for site in sample_data.sites():
-        # TODO add site metadata annotations
         assert site.ancestral_state == reference[int(site.position)]
-        tables.sites.add_row(site.position, site.ancestral_state)
-    tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+        tables.sites.add_row(
+            site.position, site.ancestral_state, metadata={"masked_samples": 0}
+        )
+
     # TODO should probably make the ultimate ancestor time something less
     # plausible or at least configurable.
     # NOTE: adding the ultimate ancestor is an artefact of using
@@ -128,7 +139,7 @@ def get_ancestors_ts(sample_data, ancestors_ts, time_increment):
         tables = make_initial_tables(sample_data)
     else:
         # Should do more checks here for suitability.
-        if ancestors_ts.time_units != constants.TIME_UNITS:
+        if ancestors_ts.time_units != core.TIME_UNITS:
             raise ValueError(
                 f"Mismatched time_units: {ancestors_ts.time_units}",
             )
@@ -140,24 +151,17 @@ def get_ancestors_ts(sample_data, ancestors_ts, time_increment):
     return tables.tree_sequence()
 
 
-def extend(
-    sample_data,
+def run_tsinfer_matching(
     *,
+    sample_data,
     ancestors_ts,
     samples,
     num_mismatches,
-    time_increment,
-    show_progress=False,
-    precision=None,
-    num_threads=None,
+    show_progress,
+    precision,
+    num_threads,
 ):
-    ancestors_ts = get_ancestors_ts(sample_data, ancestors_ts, time_increment)
-
-    node_metadata = sample_data.individuals_metadata[:]
-    assert sample_data.num_individuals == sample_data.num_samples
-
     ls_recomb, ls_mismatch = solve_num_mismatches(ancestors_ts, num_mismatches)
-
     pm = tsinfer.inference._get_progress_monitor(
         show_progress,
         generate_ancestors=False,
@@ -174,7 +178,98 @@ def extend(
         num_threads=num_threads,
         precision=precision,
     )
-    ts = manager.extend(np.array(samples), node_metadata)
+    return manager.run_match(np.array(samples))
+
+
+def extend(
+    sample_data,
+    *,
+    ancestors_ts,
+    samples,
+    num_mismatches,
+    time_increment,
+    show_progress=False,
+    precision=None,
+    num_threads=None,
+):
+    assert sample_data.num_individuals == sample_data.num_samples
+
+    ancestors_ts = get_ancestors_ts(sample_data, ancestors_ts, time_increment)
+    results = run_tsinfer_matching(
+        samples=samples,
+        sample_data=sample_data,
+        ancestors_ts=ancestors_ts,
+        num_mismatches=num_mismatches,
+        precision=precision,
+        show_progress=show_progress,
+        num_threads=num_threads,
+    )
+    return add_matching_results(sample_data, samples, ancestors_ts, results)
+
+
+# Work around tsinfer's reshuffling of the allele indexes
+def unshuffle_allele_index(index, ancestral_state):
+    A = core.ALLELES
+    as_index = A.index(ancestral_state)
+    alleles = ancestral_state + A[:as_index] + A[as_index + 1 :]
+    return alleles[index]
+
+
+def add_matching_results(sample_data, samples, ts, results):
+    """
+    Adds the specified matching results to the specified tree sequence
+    and returns the updated tree sequence.
+    """
+    assert sample_data.num_sites == ts.num_sites
+    tables = ts.dump_tables()
+    node_metadata = sample_data.individuals_metadata
+
+    # TODO factor out the tsinfer ResultBuffer here into something more
+    # useful locally, and do this coordinate translation there. Then
+    # our dependence on tsinfer is quite well isolated.
+    coord_map = np.append(tables.sites.position, [tables.sequence_length])
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+
+    coord_map[0] = 0
+    for sd_id in samples:
+        node_id = tables.nodes.add_row(
+            flags=tskit.NODE_IS_SAMPLE, time=0, metadata=node_metadata[sd_id]
+        )
+        # TODO path compression - what paths are identical? But be careful
+        # about the mutations.
+        for left, right, parent in zip(*results.get_path(node_id)):
+            tables.edges.add_row(
+                coord_map[left], coord_map[right], parent=parent, child=node_id
+            )
+
+        for site, derived_state in zip(*results.get_mutations(node_id)):
+            tables.mutations.add_row(
+                site=site,
+                node=node_id,
+                time=0,
+                derived_state=unshuffle_allele_index(
+                    derived_state, ancestral_state[site]
+                ),
+                metadata={"type": "mismatch"},
+            )
+    # Update the sites with metadata for these newly added samples.
+    tables.sites.clear()
+    for ts_site, sd_site in zip(ts.sites(), sample_data.sites()):
+        md = ts_site.metadata
+        md["masked_samples"] += sd_site.metadata["masked_samples"]
+        tables.sites.append(ts_site.replace(metadata=md))
+
+    # Add the sample data provenance
+    assert sample_data.num_provenances == 1
+    timestamp, record = list(sample_data.provenances())[0]
+    tables.provenances.add_row(timestamp=timestamp, record=json.dumps(record))
+
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    ts = tables.tree_sequence()
+
     ts = coalesce_mutations(ts)
     ts = push_up_reversions(ts)
     return ts
@@ -205,6 +300,7 @@ def node_mutation_descriptors(ts, u):
             if parent_mut.node == u:
                 raise ValueError("Multiple mutations on same branch not supported")
             inherited_state = parent_mut.derived_state
+        assert inherited_state != mut.derived_state
         descriptors.add(
             MutationDescriptor(mut.site, mut.derived_state, inherited_state, mut.parent)
         )
@@ -330,25 +426,26 @@ def coalesce_mutations(ts):
         group_parent_time = max_sib_time + diff / 2
         assert group_parent_time < parent_time
 
+        md_overlap = [(x.site, x.inherited_state, x.derived_state) for x in overlap]
+        md_sibs = [int(sib) for sib in sibs]
         tables.nodes.add_row(
-            flags=constants.NODE_IS_IDENTICAL_SAMPLE_ANCESTOR,
+            flags=core.NODE_IS_MUTATION_OVERLAP,
             time=group_parent_time,
+            metadata={"overlap": md_overlap, "sibs": md_sibs},
         )
-        # TODO would be good to store some provenance here about what
-        # motivated the creation of this node.
-        # metadata={"mutations": overlap})
         for mut_desc in overlap:
             tables.mutations.add_row(
                 site=mut_desc.site,
                 derived_state=mut_desc.derived_state,
                 node=group_parent,
                 time=group_parent_time,
+                metadata={"type": "overlap"},
             )
 
     num_del_mutations = len(mutations_to_delete)
     num_new_nodes = len(tables.nodes) - ts.num_nodes
     logger.info(
-        f"Coalescing mutation: delete {num_del_mutations} mutations; "
+        f"Coalescing mutations: delete {num_del_mutations} mutations; "
         f"add {num_new_nodes} new nodes"
     )
     return update_tables(tables, edges_to_delete, mutations_to_delete)
@@ -367,7 +464,7 @@ def push_up_reversions(ts):
     for u in ts.samples(time=0):
         if mutations_per_node[u] == 0:
             u = tree.parent(u)
-            if ts.nodes_flags[u] == constants.NODE_IS_IDENTICAL_SAMPLE_ANCESTOR:
+            if ts.nodes_flags[u] == core.NODE_IS_MUTATION_OVERLAP:
                 # Not strictly a sample, but represents some time-0 samples
                 samples.add(u)
         else:
@@ -436,7 +533,14 @@ def push_up_reversions(ts):
         # make it proportional to the number of mutations or something.
         eps = tree.branch_length(parent) * 0.125
         w_time = tree.time(parent) + eps
-        w = tables.nodes.add_row(flags=1 << 22, time=w_time)
+        w = tables.nodes.add_row(
+            flags=core.NODE_IS_REVERSION_PUSH,
+            time=w_time,
+            metadata={
+                "sample": int(sample),
+                "sites": [int(x) for x in sites],
+            },
+        )
         # Add new edges to join the sample and parent to w, and then
         # w to the grandparent.
         tables.edges.add_row(0, ts.sequence_length, parent=w, child=parent)
@@ -514,6 +618,9 @@ def validate(sd, ts, max_submission_delay=None, show_progress=False):
 
     _validate_dates(ts)
 
+    if len(sd_samples) == 0:
+        return
+
     reference = core.get_reference_sequence()
 
     ts_vars = ts.variants(samples=ts_samples)
@@ -547,74 +654,21 @@ class Matcher(tsinfer.SampleMatcher):
     near future, using fully documented and supported APIs.
     """
 
-    def extend(self, samples, node_metadata):
-        """
-        Runs the "extend" operation matching a set of samples in the existing
-        tree, returning a new tree sequence.
+    def _match_samples(self, sample_indexes):
+        # Some hacks here to work around the fact that tsinfer does a bunch
+        # of stuff we don't want here. All we want are the matched paths and
+        # mutations.
+        num_samples = len(sample_indexes)
+        self.match_progress = self.progress_monitor.get("ms_match", num_samples)
+        if self.num_threads <= 0:
+            self._SampleMatcher__match_samples_single_threaded(sample_indexes)
+        else:
+            self._SampleMatcher__match_samples_multi_threaded(sample_indexes)
+        self.match_progress.close()
 
-        NOTE: this is not part of the public API is likely to be removed
-        once sc2ts moves over to using the tskit haplotype matching LS engine.
-        """
+    def run_match(self, samples):
         builder = self.tree_sequence_builder
-        # Allocate nodes in the tree sequence consecutively for the input samples
         for sd_id in samples:
             self.sample_id_map[sd_id] = builder.add_node(0)
-
         self._match_samples(samples)
-
-        tsb = self.tree_sequence_builder
-        tables = self.ancestors_ts_tables.copy()
-        tables.edges.clear()
-
-        logger.debug("Adding tree sequence nodes")
-        flags, node_time = tsb.dump_nodes()
-
-        # First add the sample nodes for *all* the input samples
-        for sd_id in samples:
-            tables.nodes.add_row(
-                flags=tskit.NODE_IS_SAMPLE, time=0, metadata=node_metadata[sd_id]
-            )
-        for u in range(len(tables.nodes), tsb.num_nodes):
-            tables.nodes.add_row(flags=flags[u], time=node_time[u])
-
-        logger.debug("Adding tree sequence edges")
-        left, right, parent, child = tsb.dump_edges()
-        tables.edges.append_columns(
-            left=self.position_map[left],
-            right=self.position_map[right],
-            parent=parent,
-            child=child,
-        )
-
-        logger.debug("Sorting and building intermediate tree sequence.")
-        tables.sites.clear()
-        old_num_mutations = len(tables.mutations)
-        tables.mutations.clear()
-        tables.sort()
-        tables.build_index()
-
-        mut_site, node, derived_state, _ = self.tree_sequence_builder.dump_mutations()
-        mutation_id = 0
-        num_mutations = len(mut_site)
-        # TODO: Can make his simpler - always the same set of sites
-        for site in self.sample_data.sites(self.inference_site_id):
-            site_id = tables.sites.add_row(
-                site.position,
-                ancestral_state=site.ancestral_state,
-            )
-            while mutation_id < num_mutations and mut_site[mutation_id] == site_id:
-                tables.mutations.add_row(
-                    site_id,
-                    node=node[mutation_id],
-                    derived_state=site.alleles[derived_state[mutation_id]],
-                    time=node_time[node[mutation_id]],
-                )
-                mutation_id += 1
-
-        tables.compute_mutation_parents()
-        new_mutations = num_mutations - old_num_mutations
-        logger.info(
-            f"Extended for {len(samples)} samples and "
-            f"{new_mutations} new mutations."
-        )
-        return tables.tree_sequence()
+        return self.results
