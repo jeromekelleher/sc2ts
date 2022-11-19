@@ -409,10 +409,12 @@ def coalesce_mutations(ts):
         group_parent_time = max_sib_time + diff / 2
         assert group_parent_time < parent_time
 
+        md_overlap = [(x.site, x.inherited_state, x.derived_state) for x in overlap]
+        md_sibs = [int(sib) for sib in sibs]
         tables.nodes.add_row(
             flags=core.NODE_IS_MUTATION_OVERLAP,
             time=group_parent_time,
-            metadata={"overlap": overlap, "num_sibs": len(sibs)},
+            metadata={"overlap": md_overlap, "sibs": md_sibs},
         )
         for mut_desc in overlap:
             tables.mutations.add_row(
@@ -517,7 +519,10 @@ def push_up_reversions(ts):
         w = tables.nodes.add_row(
             flags=core.NODE_IS_REVERSION_PUSH,
             time=w_time,
-            metadata={"reversions": reversions},
+            metadata={
+                "sample": int(sample),
+                "sites": [int(x) for x in sites],
+            },
         )
         # Add new edges to join the sample and parent to w, and then
         # w to the grandparent.
