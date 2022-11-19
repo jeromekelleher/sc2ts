@@ -6,6 +6,10 @@ import numpy as np
 
 ALLELES = "ACGT-"
 
+TIME_UNITS="days_ago"
+
+NODE_IS_MUTATION_OVERLAP = 1 << 21
+
 
 class FastaReader(collections.abc.Mapping):
     def __init__(self, path):

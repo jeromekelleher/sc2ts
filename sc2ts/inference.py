@@ -110,13 +110,16 @@ def make_initial_tables(sample_data):
 
     tables.metadata_schema = tskit.MetadataSchema(base_schema)
     # TODO gene annotations to top level
+    # TODO add known fields to the schemas and document them.
     tables.nodes.metadata_schema = tskit.MetadataSchema(base_schema)
     tables.sites.metadata_schema = tskit.MetadataSchema(base_schema)
+    tables.mutations.metadata_schema = tskit.MetadataSchema(base_schema)
     for site in sample_data.sites():
         assert site.ancestral_state == reference[int(site.position)]
         tables.sites.add_row(
             site.position, site.ancestral_state, metadata={"masked_samples": 0}
         )
+
     # TODO should probably make the ultimate ancestor time something less
     # plausible or at least configurable.
     # NOTE: adding the ultimate ancestor is an artefact of using
@@ -233,6 +236,7 @@ def add_matching_results(sample_data, samples, ts, results):
                 node=node_id,
                 time=0,
                 derived_state=core.ALLELES[derived_state],
+                metadata={"type": "mismatch"},
             )
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
@@ -402,24 +406,23 @@ def coalesce_mutations(ts):
         assert group_parent_time < parent_time
 
         tables.nodes.add_row(
-            flags=constants.NODE_IS_IDENTICAL_SAMPLE_ANCESTOR,
+            flags=constants.NODE_IS_MUTATION_OVERLAP,
             time=group_parent_time,
+            metadata={"overlap": overlap, "num_sibs": len(sibs)}
         )
-        # TODO would be good to store some provenance here about what
-        # motivated the creation of this node.
-        # metadata={"mutations": overlap})
         for mut_desc in overlap:
             tables.mutations.add_row(
                 site=mut_desc.site,
                 derived_state=mut_desc.derived_state,
                 node=group_parent,
                 time=group_parent_time,
+                metadata={"type": "overlap"}
             )
 
     num_del_mutations = len(mutations_to_delete)
     num_new_nodes = len(tables.nodes) - ts.num_nodes
     logger.info(
-        f"Coalescing mutation: delete {num_del_mutations} mutations; "
+        f"Coalescing mutations: delete {num_del_mutations} mutations; "
         f"add {num_new_nodes} new nodes"
     )
     return update_tables(tables, edges_to_delete, mutations_to_delete)
@@ -438,7 +441,7 @@ def push_up_reversions(ts):
     for u in ts.samples(time=0):
         if mutations_per_node[u] == 0:
             u = tree.parent(u)
-            if ts.nodes_flags[u] == constants.NODE_IS_IDENTICAL_SAMPLE_ANCESTOR:
+            if ts.nodes_flags[u] == constants.NODE_IS_MUTATION_OVERLAP:
                 # Not strictly a sample, but represents some time-0 samples
                 samples.add(u)
         else:
