@@ -173,7 +173,7 @@ def validate(samples_file, ts_file, verbose, max_submission_delay):
             sd, ts, max_submission_delay=max_submission_delay, show_progress=True
         )
 
-
+@click.version_option(core.__version__)
 @click.group()
 def cli():
     pass
