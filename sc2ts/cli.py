@@ -61,7 +61,12 @@ def setup_logging(verbosity, log_file=None):
     outputs = ["stderr"]
     if log_file is not None:
         outputs = [daiquiri.output.File(log_file)]
-    daiquiri.setup(level=log_level, outputs=outputs)
+    # Note using set_excepthook=False means that we don't write errors
+    # to the log, so if something happens we'll only see it if we look
+    # at the console output. For development this is better than having
+    # to go to the log to see the traceback, but for production it may
+    # be better to let daiquiri record the errors as well.
+    daiquiri.setup(level=log_level, outputs=outputs, set_excepthook=False)
 
 
 @click.command()
@@ -75,8 +80,8 @@ def import_fasta(fasta, metadata, output, no_progress, verbose, log_file):
     setup_logging(verbose, log_file)
     provenance = get_provenance_dict()
     convert.alignments_to_samples(
-        fasta, metadata, output, provenance=provenance,
-        show_progress=not no_progress)
+        fasta, metadata, output, provenance=provenance, show_progress=not no_progress
+    )
 
 
 @click.command()
@@ -172,6 +177,7 @@ def validate(samples_file, ts_file, verbose, max_submission_delay):
         inference.validate(
             sd, ts, max_submission_delay=max_submission_delay, show_progress=True
         )
+
 
 @click.version_option(core.__version__)
 @click.group()
