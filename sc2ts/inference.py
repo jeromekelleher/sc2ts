@@ -256,7 +256,10 @@ def add_matching_results(sample_data, samples, ts, results):
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
     for ts_site, sd_site in zip(ts.sites(), sample_data.sites()):
+        assert ts_site.position == sd_site.position
         md = ts_site.metadata
+        # NOTE: this value is across the imported whole dataset on that day,
+        # not just those samples that we have filtered for inference.
         md["masked_samples"] += sd_site.metadata["masked_samples"]
         tables.sites.append(ts_site.replace(metadata=md))
 
