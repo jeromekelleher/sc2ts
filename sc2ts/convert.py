@@ -2,11 +2,15 @@ import logging
 import sqlite3
 import pathlib
 import collections
+import collections.abc
 import datetime
 import hashlib
+import bz2
 
+import lmdb
 import numba
 import tqdm
+import zarr
 import tsinfer
 import pandas as pd
 import numpy as np
@@ -176,8 +180,8 @@ def convert_alignments(
                 metadata={"masked_samples": int(masked_samples)},
             )
         sd.add_provenance(
-            timestamp=datetime.datetime.now().isoformat(),
-            record=provenance)
+            timestamp=datetime.datetime.now().isoformat(), record=provenance
+        )
     return sd
 
 
@@ -207,6 +211,220 @@ def alignments_to_samples(
             num_flush_threads=4,
             path=str(samples_path),
         )
+
+
+def compress_alignment(a):
+    return bz2.compress(a.astype("S"))
+
+
+def decompress_alignment(b):
+    # ref = core.get_reference_sequence()
+    # print(ref.dtype, ref.shape)
+    buff = bz2.decompress(b)
+    x = np.frombuffer(buff, dtype="S1")
+    # print(len(buff), type(buff))
+    # print(x.shape, x.dtype)
+    # return np.array(buff, shape=(len(buff),), dtype="U1")
+    return x.astype(str)
+
+
+class SqliteAlignmentStore(collections.abc.Mapping):
+    def __init__(self, path, mode="r"):
+        uri = f"file:{path}"
+        if mode == "r":
+            uri += "?mode=ro"
+        elif mode == "a":
+            uri += "?mode=rw"
+        else:
+            raise ValueError("unknown mode")
+        print("connect", uri)
+        self.conn = sqlite3.connect(uri, uri=True, timeout=10)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def close(self):
+        self.conn.close()
+
+    def __str__(self):
+        return str(self.conn)
+
+    @staticmethod
+    def initialise(path):
+        """
+        Create a new store at this path.
+        """
+        db_path = pathlib.Path(path)
+        if db_path.exists():
+            db_path.unlink()
+
+        reference = core.get_reference_sequence()
+        with sqlite3.connect(db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                CREATE TABLE alignments (
+                    strain VARCHAR PRIMARY KEY,
+                    alignment BLOB NOT NULL
+                )"""
+            )
+            c.execute(
+                "INSERT INTO alignments VALUES (?, ?)",
+                ("MN908947", compress_alignment(reference)),
+            )
+        return AlignmentStore(path, "a")
+
+    def _flush(self, chunk):
+        logger.debug(f"Flushing {len(chunk)} sequences")
+        with self.conn:
+            c = self.conn.cursor()
+            try:
+                c.executemany("INSERT INTO alignments VALUES (?, ?)", chunk)
+            except Exception as e:
+                # FIXME can't figure out why this fails when we have many
+                # read requests in another process
+                print("exception raised at ", datetime.datetime.now())
+                import sys
+                sys.stdout.flush()
+                raise e
+        logger.debug("Done")
+
+    def append(self, alignments, show_progress=False):
+        n = len(alignments)
+        chunk_size = 100
+        num_chunks = n // chunk_size
+        logger.info(f"Appending {n} alignments in {num_chunks} chunks")
+        bar = tqdm.tqdm(total=num_chunks, disable=not show_progress)
+        chunk = []
+        for k, v in alignments.items():
+            chunk.append((k, compress_alignment(v)))
+            if len(chunk) == chunk_size:
+                self._flush(chunk)
+                chunk = []
+                bar.update()
+        self._flush(chunk)
+        bar.close()
+
+    def all_alignments(self):
+        for row in self.conn.execute("SELECT * from alignments"):
+            yield row[0], decompress_alignment(row[1])
+
+    def __getitem__(self, key):
+        with self.conn:
+            c = self.conn.cursor()
+            c.execute(
+                "SELECT alignment from alignments WHERE strain = ?", [key])
+            row = c.fetchone()
+            if row is None:
+                raise KeyError("{key} not found")
+            return decompress_alignment(row[0])
+
+    def __iter__(self):
+        with self.conn:
+            c = self.conn.cursor()
+            c.execute("SELECT strain from alignments")
+            for row in c:
+                yield row[0]
+
+    def __len__(self):
+        with self.conn:
+            c = self.conn.cursor()
+            c.execute("SELECT COUNT(*) from alignments")
+            row = c.fetchone()
+            return row[0]
+
+
+    # bar = tqdm.tqdm(sorted(strains_by_date.keys()), disable=not show_progress)
+    # for date in bar:
+    #     bar.set_description(date)
+    #     rows = strains_by_date[date]
+    #     logger.info(f"Converting for {len(rows)} strains for {date}")
+    #     samples_path = output_dir / f"{date}.samples"
+    #     convert_alignments(
+    #         rows,
+    #         fasta,
+    #         show_progress=show_progress,
+    #         provenance=provenance,
+    #         num_flush_threads=4,
+    #         path=str(samples_path),
+    #     )
+
+class AlignmentStore(collections.abc.Mapping):
+    def __init__(self, path, mode="r"):
+        map_size = 1024**4
+        self.env = lmdb.Environment(
+            path, subdir=False, readonly=mode=="r", map_size=map_size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def close(self):
+        self.env.close()
+
+    def __str__(self):
+        return str(self.env)
+
+    @staticmethod
+    def initialise(path):
+        """
+        Create a new store at this path.
+        """
+        db_path = pathlib.Path(path)
+        if db_path.exists():
+            db_path.unlink()
+
+        reference = core.get_reference_sequence()
+        with lmdb.Environment(str(db_path), subdir=False) as env:
+            with env.begin(write=True) as txn:
+                txn.put("MN908947".encode(), compress_alignment(reference))
+        return AlignmentStore(path, "a")
+
+    def _flush(self, chunk):
+        logger.debug(f"Flushing {len(chunk)} sequences")
+        with self.env.begin(write=True) as txn:
+            for k, v in chunk:
+                txn.put(k.encode(), v)
+        logger.debug("Done")
+
+    def append(self, alignments, show_progress=False):
+        n = len(alignments)
+        chunk_size = 100
+        num_chunks = n // chunk_size
+        logger.info(f"Appending {n} alignments in {num_chunks} chunks")
+        bar = tqdm.tqdm(total=num_chunks, disable=not show_progress)
+        chunk = []
+        for k, v in alignments.items():
+            chunk.append((k, compress_alignment(v)))
+            if len(chunk) == chunk_size:
+                self._flush(chunk)
+                chunk = []
+                bar.update()
+        self._flush(chunk)
+        bar.close()
+
+    def __getitem__(self, key):
+        with self.env.begin() as txn:
+            val = txn.get(key.encode())
+            if val is None:
+                raise KeyError(f"{key} not found")
+            return decompress_alignment(val)
+
+    def __iter__(self):
+        with self.env.begin() as txn:
+            cursor = txn.cursor()
+            with txn.cursor() as cursor:
+                for key in cursor.iternext(keys=True, values=False):
+                    yield key.decode()
+
+    def __len__(self):
+        with self.env.begin() as txn:
+            return txn.stat()['entries']
 
 
 def metadata_to_db(csv_path, db_path):

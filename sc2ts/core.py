@@ -1,7 +1,7 @@
 import pathlib
 import collections.abc
 
-import pyfasta
+import pyfaidx
 import numpy as np
 
 ALLELES = "ACGT-"
@@ -23,7 +23,8 @@ except ImportError:
 
 class FastaReader(collections.abc.Mapping):
     def __init__(self, path):
-        self.reader = pyfasta.Fasta(str(path), record_class=pyfasta.MemoryRecord)
+        self.reader = pyfaidx.Fasta(str(path))
+        self.keys = list(self.reader.keys())
 
     def __getitem__(self, key):
         x = self.reader[key]
@@ -31,10 +32,10 @@ class FastaReader(collections.abc.Mapping):
         return np.append(["X"], h)
 
     def __iter__(self):
-        return iter(self.reader)
+        return iter(self.keys)
 
     def __len__(self):
-        return len(self.reader)
+        return len(self.keys)
 
 
 __cached_reference = None
@@ -46,7 +47,7 @@ def get_reference_sequence():
         # NEED packagedata etc.
         data_path = pathlib.Path("sc2ts/data")
         reader = FastaReader(data_path / "reference.fasta")
-        __cached_reference = reader["MN908947 (Wuhan-Hu-1/2019)"]
+        __cached_reference = reader["MN908947"]
     return __cached_reference
 
 

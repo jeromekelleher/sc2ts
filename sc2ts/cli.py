@@ -1,6 +1,7 @@
 import json
 import logging
 import platform
+import pathlib
 import sys
 
 import tskit
@@ -70,19 +71,38 @@ def setup_logging(verbosity, log_file=None):
 
 
 @click.command()
-@click.argument("fasta", type=click.Path(exists=True, dir_okay=False))
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.argument("output", type=click.Path(exists=True, dir_okay=True, file_okay=False))
+# FIXME this isn't checking for existing!
+@click.argument("store", type=click.Path(dir_okay=True, exists=False, file_okay=False))
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def init_alignment_store(store, verbose, log_file):
+    setup_logging(verbose, log_file)
+    # provenance = get_provenance_dict()
+    convert.AlignmentStore.initialise(store)
+
+
+@click.command()
+@click.argument("store", type=click.Path(dir_okay=False, file_okay=True))
+@click.argument("fastas", type=click.Path(exists=True, dir_okay=False), nargs=-1)
+@click.option("-i", "--initialise", default=False, type=bool, help="Initialise store")
 @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def import_fasta(fasta, metadata, output, no_progress, verbose, log_file):
+def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
     setup_logging(verbose, log_file)
-    provenance = get_provenance_dict()
-    convert.alignments_to_samples(
-        fasta, metadata, output, provenance=provenance, show_progress=not no_progress
-    )
-
+    if initialise:
+        a = convert.AlignmentStore.initialise(store)
+    else:
+        a = convert.AlignmentStore(store, "a")
+    for fasta_path in fastas:
+        logging.info(f"Reading fasta {fasta_path}")
+        fasta = core.FastaReader(fasta_path)
+        a.append(fasta, show_progress=True)
+    # print(a.storage_info())
+    # for strain, x in a.all_alignments():
+    #     print(strain, x)
+    #     # print(x)
+    a.close()
 
 @click.command()
 @click.argument("metadata")
@@ -185,7 +205,8 @@ def cli():
     pass
 
 
-cli.add_command(import_fasta)
+cli.add_command(init_alignment_store)
+cli.add_command(import_alignments)
 cli.add_command(import_metadata)
 cli.add_command(infer)
 cli.add_command(validate)
