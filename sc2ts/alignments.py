@@ -28,7 +28,7 @@ def mask_alignment(a, start=0, window_size=7):
         raise ValueError("Window must be >= 1")
     b = a.copy()
     n = len(a)
-    masked = np.zeros(n, dtype=np.int32)
+    masked_sites = []
     for j in range(start, n):
         ambiguous = 0
         k = j - 1
@@ -43,8 +43,8 @@ def mask_alignment(a, start=0, window_size=7):
             k += 1
         if ambiguous > 1:
             a[j] = MISSING
-            masked[j] = 1
-    return masked
+            masked_sites.append(j)
+    return masked_sites
 
 
 def encode_alignment(h):
@@ -173,39 +173,26 @@ class AlignmentStore(collections.abc.Mapping):
 
 @dataclasses.dataclass
 class MaskedAlignment:
-    strain: str
     alignment: np.ndarray
-    num_masked_sites: int
+    masked_sites: np.ndarray
     original_base_composition: dict
     original_md5: str
 
     def qc_summary(self):
         return {
-            "num_masked_sites": self.num_masked_sites,
+            "num_masked_sites": self.masked_sites.shape[0],
             "original_base_composition": self.original_base_composition,
             "original_md5": self.original_md5,
         }
 
 
-class AlignmentEncoder:
-    def __init__(self, store, sequence_length):
-        self.alignment_store = store
-        self.sequence_length = int(sequence_length)
-        self.site_masked_samples = np.zeros(self.sequence_length, dtype=int)
-
-    def encode_and_mask(self, strain):
-        logger.debug(f"Getting alignment for {strain}")
-        alignment = self.alignment_store[strain]
-        assert len(alignment) == self.sequence_length
-        a = encode_alignment(alignment)
-        # TODO make window_size param
-        masked = mask_alignment(a, start=1, window_size=7)
-        # NOTE will need to worry about updating this if we parallelise
-        self.site_masked_samples += masked
-        return MaskedAlignment(
-            strain=strain,
-            alignment=a,
-            num_masked_sites=int(np.sum(masked)),
-            original_base_composition=base_composition(alignment[1:]),
-            original_md5=hashlib.md5(alignment[1:]).hexdigest(),
-        )
+def encode_and_mask(alignment, window_size=7):
+    # TODO make window_size param
+    a = encode_alignment(alignment)
+    masked_sites = mask_alignment(a, start=1, window_size=window_size)
+    return MaskedAlignment(
+        alignment=a,
+        masked_sites=np.array(masked_sites, dtype=int),
+        original_base_composition=base_composition(alignment[1:]),
+        original_md5=hashlib.md5(alignment[1:]).hexdigest(),
+    )
