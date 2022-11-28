@@ -6,7 +6,7 @@ import numpy as np
 
 ALLELES = "ACGT-"
 
-TIME_UNITS="days_ago"
+TIME_UNITS="days"
 
 REFERENCE_STRAIN = "Wuhan/Hu-1/2019"
 REFERENCE_DATE = "2019-12-26"
