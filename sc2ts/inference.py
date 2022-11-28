@@ -3,6 +3,7 @@ import datetime
 import dataclasses
 import collections
 import json
+import hashlib
 
 import tqdm
 import tskit
@@ -10,8 +11,293 @@ import tsinfer
 import numpy as np
 
 from . import core
+from . import convert
 
 logger = logging.getLogger(__name__)
+
+
+def initial_ts():
+    reference = core.get_reference_sequence()
+    L = len(reference)
+    problematic_sites = set(core.get_problematic_sites())
+
+    tables = tskit.TableCollection(L)
+    tables.time_units = core.TIME_UNITS
+    base_schema = tskit.MetadataSchema.permissive_json().schema
+
+    tables.metadata_schema = tskit.MetadataSchema(base_schema)
+
+    # TODO gene annotations to top level
+    # TODO add known fields to the schemas and document them.
+    tables.nodes.metadata_schema = tskit.MetadataSchema(base_schema)
+    tables.sites.metadata_schema = tskit.MetadataSchema(base_schema)
+    tables.mutations.metadata_schema = tskit.MetadataSchema(base_schema)
+
+    # 1-based coordinates
+    for pos in range(1, L):
+        if pos not in problematic_sites:
+            tables.sites.add_row(pos, reference[pos], metadata={"masked_samples": 0})
+    # TODO should probably make the ultimate ancestor time something less
+    # plausible or at least configurable. However, this will be removed
+    # in later versions when we remove the dependence on tskit.
+    tables.nodes.add_row(time=1, metadata={"strain": "Vestigial_ignore"})
+    tables.nodes.add_row(
+        time=0, metadata={"strain": core.REFERENCE_STRAIN, "date": core.REFERENCE_DATE}
+    )
+    tables.edges.add_row(0, L, 0, 1)
+    return tables.tree_sequence()
+
+
+def parse_date(date):
+    return datetime.datetime.fromisoformat(date)
+
+
+def filter_samples(samples, max_submission_delay=None):
+    if max_submission_delay is None:
+        max_submission_delay = 10**8  # Arbitrary large number of days.
+    num_filtered = 0
+    ret = []
+    for sample in samples:
+        date = parse_date(sample["date"])
+        date_submitted = parse_date(sample["date_submitted"])
+        delay = date_submitted - date
+        if delay.days < max_submission_delay:
+            ret.append(sample)
+        else:
+            num_filtered += 1
+
+    logger.info(
+        f"Filtered {num_filtered} samples with "
+        f"max_submission_delay >= {max_submission_delay}"
+    )
+    return ret
+
+
+def increment_time(date, ts):
+    previous_date = None
+    if ts.num_samples == 0:
+        # Special case for the initial ts which contains the
+        # reference but not as a sample
+        u = ts.num_nodes - 1
+    else:
+        u = ts.samples()[-1]
+    previous_date = parse_date(ts.node(u).metadata["date"])
+    diff = parse_date(date) - previous_date
+    increment = diff.days
+    if increment <= 0:
+        raise ValueError(f"Bad date diff: {diff}")
+
+    tables = ts.dump_tables()
+    tables.nodes.time += increment
+    tables.mutations.time += increment
+    return tables.tree_sequence()
+
+
+@dataclasses.dataclass
+class MaskedAlignment:
+    strain: str
+    alignment: np.ndarray
+    num_masked_sites: int
+    original_base_composition: dict
+    original_md5: str
+
+    def qc_summary(self):
+        return {
+            "num_masked_sites": self.num_masked_sites,
+            "original_base_composition": self.original_base_composition,
+            "original_md5": self.original_md5,
+        }
+
+
+class AlignmentEncoder:
+    def __init__(self, store, sequence_length):
+        self.alignment_store = store
+        self.sequence_length = int(sequence_length)
+        self.site_masked_samples = np.zeros(self.sequence_length, dtype=int)
+
+    def encode_and_mask(self, strain):
+        logger.debug(f"Getting alignment for {strain}")
+        alignment = self.alignment_store[strain]
+        assert len(alignment) == self.sequence_length
+        a = convert.encode_alignment(alignment)
+        masked = convert.mask_alignment(a, start=1, window_size=7)
+        # NOTE will need to worry about updating this if we parallelise
+        self.site_masked_samples += masked
+        return MaskedAlignment(
+            strain=strain,
+            alignment=a,
+            num_masked_sites=int(np.sum(masked)),
+            original_base_composition=convert.base_composition(alignment[1:]),
+            original_md5=hashlib.md5(alignment[1:]).hexdigest(),
+        )
+
+
+def validate(ts, alignment_store, show_progress=False):
+    """
+    Check that all the samples in the specified tree sequence are correctly
+    representing the original alignments.
+    """
+    samples = ts.samples()
+    strains = [ts.node(u).metadata["strain"] for u in samples]
+    encoder = AlignmentEncoder(alignment_store, ts.sequence_length)
+    G = np.zeros((ts.num_sites, len(samples)), dtype=np.int8)
+    keep_sites = ts.sites_position.astype(int)
+    strains_iter = enumerate(strains)
+    with tqdm.tqdm(
+        strains_iter, desc="Read", total=len(strains), disable=not show_progress
+    ) as bar:
+        for j, strain in bar:
+            ma = encoder.encode_and_mask(strain)
+            G[:, j] = ma.alignment[keep_sites]
+
+    vars_iter = ts.variants(samples=samples, alleles=tuple(core.ALLELES))
+    with tqdm.tqdm(
+        vars_iter, desc="Check", total=ts.num_sites, disable=not show_progress
+    ) as bar:
+        for var in bar:
+            original = G[var.site.id]
+            non_missing = original != -1
+            if not np.all(var.genotypes[non_missing] == original[non_missing]):
+                raise ValueError("Data mismatch")
+
+
+def extend(
+    *,
+    alignment_store,
+    metadata_db,
+    date,
+    base_ts,
+    num_mismatches=None,
+    show_progress=False,
+    max_submission_delay=None,
+    num_threads=None,
+    precision=None,
+):
+
+    samples = filter_samples(metadata_db.get(date), max_submission_delay)
+    num_samples = len(samples)
+    if num_samples == 0:
+        logger.info("No samples for {date}")
+        return base_ts
+    logger.info(f"Extending for {len(samples)} samples")
+
+    G = np.zeros((base_ts.num_sites, len(samples)), dtype=np.int8)
+    keep_sites = base_ts.sites_position.astype(int)
+    encoder = AlignmentEncoder(alignment_store, base_ts.sequence_length)
+    for j, md in enumerate(samples):
+        strain = md["strain"]
+        logger.debug(f"Getting alignment for {strain}")
+        ma = encoder.encode_and_mask(strain)
+        G[:, j] = ma.alignment[keep_sites]
+        # Add some QC measures to the metadata.
+        md["sc2ts_qc"] = ma.qc_summary()
+
+    masked_per_sample = np.sum(encoder.site_masked_samples) / num_samples
+    logger.info(f"Masked average of {masked_per_sample:.2f} nucleotides per sample")
+
+    ts = increment_time(date, base_ts)
+    results = match_tsinfer(
+        ts,
+        G,
+        num_mismatches=num_mismatches,
+        precision=precision,
+        num_threads=num_threads,
+        show_progress=show_progress,
+    )
+
+    return add_matching_results(samples, results, ts, encoder.site_masked_samples)
+
+
+def add_matching_results(samples, results, ts, site_masked_samples):
+
+    tables = ts.dump_tables()
+
+    # TODO factor out the tsinfer ResultBuffer here into something more
+    # useful locally, and do this coordinate translation there. Then
+    # our dependence on tsinfer is quite well isolated.
+    coord_map = np.append(tables.sites.position, [tables.sequence_length])
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+
+    coord_map[0] = 0
+    for metadata in samples:
+        node_id = tables.nodes.add_row(
+            flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
+        )
+
+        # TODO path compression - what paths are identical? But be careful
+        # about the mutations.
+        for left, right, parent in zip(*results.get_path(node_id)):
+            tables.edges.add_row(
+                coord_map[left], coord_map[right], parent=parent, child=node_id
+            )
+
+        for site, derived_state in zip(*results.get_mutations(node_id)):
+            derived_state = unshuffle_allele_index(derived_state, ancestral_state[site])
+            tables.mutations.add_row(
+                site=site,
+                node=node_id,
+                time=0,
+                derived_state=derived_state,
+                metadata={"type": "mismatch"},
+            )
+
+    # Update the sites with metadata for these newly added samples.
+    tables.sites.clear()
+    for site in ts.sites():
+        md = site.metadata
+        md["masked_samples"] += int(site_masked_samples[int(site.position)])
+        tables.sites.append(site.replace(metadata=md))
+
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    ts = tables.tree_sequence()
+
+    ts = coalesce_mutations(ts)
+    ts = push_up_reversions(ts)
+    return ts
+
+
+def match_tsinfer(
+    ts, G, *, num_mismatches=None, precision=None, num_threads=None, show_progress=False
+):
+    if num_mismatches is None:
+        # Default to no recombination
+        num_mismatches = 1000
+
+    reference = core.get_reference_sequence()
+    with tsinfer.SampleData(sequence_length=ts.sequence_length) as sd:
+        alleles = tuple(core.ALLELES)
+        for pos, genotypes in zip(ts.sites_position.astype(int), G):
+            sd.add_site(
+                pos,
+                genotypes,
+                alleles=alleles,
+                ancestral_allele=alleles.index(reference[pos]),
+            )
+
+    logger.info(f"Built temporary sample data file")
+
+    ls_recomb, ls_mismatch = solve_num_mismatches(ts, num_mismatches)
+    pm = tsinfer.inference._get_progress_monitor(
+        show_progress,
+        generate_ancestors=False,
+        match_ancestors=False,
+        match_samples=False,
+    )
+    manager = Matcher(
+        sd,
+        ts,
+        allow_multiallele=True,
+        recombination=ls_recomb,
+        mismatch=ls_mismatch,
+        progress_monitor=pm,
+        num_threads=num_threads,
+        precision=precision,
+    )
+    results = manager.run_match(np.arange(sd.num_samples))
+    return results
 
 
 def infer(
@@ -69,7 +355,7 @@ def infer(
     )
     logger.info(f"Extending for {current_date} with {len(samples)} samples")
 
-    return extend(
+    return old_extend(
         sd,
         ancestors_ts=ancestors_ts,
         samples=samples,
@@ -181,7 +467,7 @@ def run_tsinfer_matching(
     return manager.run_match(np.array(samples))
 
 
-def extend(
+def old_extend(
     sample_data,
     *,
     ancestors_ts,
@@ -215,7 +501,7 @@ def unshuffle_allele_index(index, ancestral_state):
     return alleles[index]
 
 
-def add_matching_results(sample_data, samples, ts, results):
+def add_matching_results_old(sample_data, samples, ts, results):
     """
     Adds the specified matching results to the specified tree sequence
     and returns the updated tree sequence.
@@ -591,7 +877,7 @@ def _validate_dates(ts):
         assert diff.microseconds == 0
 
 
-def validate(sd, ts, max_submission_delay=None, show_progress=False):
+def old_validate(sd, ts, max_submission_delay=None, show_progress=False):
     """
     Check that the ts contains all the data in the sample data.
     """

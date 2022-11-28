@@ -228,130 +228,6 @@ def decompress_alignment(b):
     return x.astype(str)
 
 
-class SqliteAlignmentStore(collections.abc.Mapping):
-    def __init__(self, path, mode="r"):
-        uri = f"file:{path}"
-        if mode == "r":
-            uri += "?mode=ro"
-        elif mode == "a":
-            uri += "?mode=rw"
-        else:
-            raise ValueError("unknown mode")
-        print("connect", uri)
-        self.conn = sqlite3.connect(uri, uri=True, timeout=10)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self.close()
-
-    def close(self):
-        self.conn.close()
-
-    def __str__(self):
-        return str(self.conn)
-
-    @staticmethod
-    def initialise(path):
-        """
-        Create a new store at this path.
-        """
-        db_path = pathlib.Path(path)
-        if db_path.exists():
-            db_path.unlink()
-
-        reference = core.get_reference_sequence()
-        with sqlite3.connect(db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                CREATE TABLE alignments (
-                    strain VARCHAR PRIMARY KEY,
-                    alignment BLOB NOT NULL
-                )"""
-            )
-            c.execute(
-                "INSERT INTO alignments VALUES (?, ?)",
-                ("MN908947", compress_alignment(reference)),
-            )
-        return AlignmentStore(path, "a")
-
-    def _flush(self, chunk):
-        logger.debug(f"Flushing {len(chunk)} sequences")
-        with self.conn:
-            c = self.conn.cursor()
-            try:
-                c.executemany("INSERT INTO alignments VALUES (?, ?)", chunk)
-            except Exception as e:
-                # FIXME can't figure out why this fails when we have many
-                # read requests in another process
-                print("exception raised at ", datetime.datetime.now())
-                import sys
-                sys.stdout.flush()
-                raise e
-        logger.debug("Done")
-
-    def append(self, alignments, show_progress=False):
-        n = len(alignments)
-        chunk_size = 100
-        num_chunks = n // chunk_size
-        logger.info(f"Appending {n} alignments in {num_chunks} chunks")
-        bar = tqdm.tqdm(total=num_chunks, disable=not show_progress)
-        chunk = []
-        for k, v in alignments.items():
-            chunk.append((k, compress_alignment(v)))
-            if len(chunk) == chunk_size:
-                self._flush(chunk)
-                chunk = []
-                bar.update()
-        self._flush(chunk)
-        bar.close()
-
-    def all_alignments(self):
-        for row in self.conn.execute("SELECT * from alignments"):
-            yield row[0], decompress_alignment(row[1])
-
-    def __getitem__(self, key):
-        with self.conn:
-            c = self.conn.cursor()
-            c.execute(
-                "SELECT alignment from alignments WHERE strain = ?", [key])
-            row = c.fetchone()
-            if row is None:
-                raise KeyError("{key} not found")
-            return decompress_alignment(row[0])
-
-    def __iter__(self):
-        with self.conn:
-            c = self.conn.cursor()
-            c.execute("SELECT strain from alignments")
-            for row in c:
-                yield row[0]
-
-    def __len__(self):
-        with self.conn:
-            c = self.conn.cursor()
-            c.execute("SELECT COUNT(*) from alignments")
-            row = c.fetchone()
-            return row[0]
-
-
-    # bar = tqdm.tqdm(sorted(strains_by_date.keys()), disable=not show_progress)
-    # for date in bar:
-    #     bar.set_description(date)
-    #     rows = strains_by_date[date]
-    #     logger.info(f"Converting for {len(rows)} strains for {date}")
-    #     samples_path = output_dir / f"{date}.samples"
-    #     convert_alignments(
-    #         rows,
-    #         fasta,
-    #         show_progress=show_progress,
-    #         provenance=provenance,
-    #         num_flush_threads=4,
-    #         path=str(samples_path),
-    #     )
-
 class AlignmentStore(collections.abc.Mapping):
     def __init__(self, path, mode="r"):
         map_size = 1024**4
@@ -426,6 +302,19 @@ class AlignmentStore(collections.abc.Mapping):
         with self.env.begin() as txn:
             return txn.stat()['entries']
 
+    def get_all(self, strains, sequence_length):
+        A = np.zeros((len(strains), sequence_length), dtype=np.int8)
+        with self.env.begin() as txn:
+            for j, strain in enumerate(strains):
+                val = txn.get(strain.encode())
+                if val is None:
+                    raise KeyError(f"{key} not found")
+                a = decompress_alignment(val)
+                if len(a) != sequence_length:
+                    raise ValueError(
+                        f"Alignment for {strain} not of length {sequence_length}")
+        return A
+
 
 def metadata_to_db(csv_path, db_path):
 
@@ -441,6 +330,48 @@ def metadata_to_db(csv_path, db_path):
         df.to_sql("samples", conn, index=False)
         conn.execute("CREATE INDEX [ix_samples_strain] on 'samples' ([strain]);")
         conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")
+
+
+def dict_factory(cursor, row):
+    col_names = [col[0] for col in cursor.description]
+    return {key: value for key, value in zip(col_names, row)}
+
+
+class MetadataDb:
+    def __init__(self, path):
+        uri = f"file:{path}"
+        uri += "?mode=ro"
+        self.conn = sqlite3.connect(uri, uri=True)
+        self.conn.row_factory = dict_factory
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def close(self):
+        self.conn.close()
+
+    @staticmethod
+    def import_csv(csv_path, db_path):
+        df = pd.read_csv(
+            csv_path,
+            sep="\t",
+        )
+        db_path = pathlib.Path(db_path)
+        if db_path.exists():
+            db_path.unlink()
+        with sqlite3.connect(db_path) as conn:
+            df.to_sql("samples", conn, index=False)
+            conn.execute("CREATE INDEX [ix_samples_strain] on 'samples' ([strain]);")
+            conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")
+
+    def get(self, date):
+        sql = "SELECT * FROM samples WHERE date==?"
+        with self.conn:
+            for row in self.conn.execute(sql, [date]):
+                yield row
 
 
 def verify_sample_data(sample_data, fasta_path):

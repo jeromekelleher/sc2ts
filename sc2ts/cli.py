@@ -3,6 +3,7 @@ import logging
 import platform
 import pathlib
 import sys
+import contextlib
 
 import tskit
 import tsinfer
@@ -113,8 +114,84 @@ def import_metadata(metadata, db, verbose):
     Convert a CSV formatted metadata file to a database for later use.
     """
     setup_logging(verbose)
-    convert.metadata_to_db(metadata, db)
+    convert.MetadataDb.import_csv(metadata, db)
 
+
+def add_provenance(ts, output_file):
+    # Record provenance here because this is where the arguments are provided.
+    provenance = get_provenance_dict()
+    tables = ts.dump_tables()
+    tables.provenances.add_row(json.dumps(provenance))
+    tables.dump(output_file)
+
+
+@click.command()
+@click.argument("output")
+@click.option("-v", "--verbose", count=True)
+def init(output, verbose):
+    """
+    Creates the initial tree sequence containing the reference sequence.
+    """
+    setup_logging(verbose)
+    ts = inference.initial_ts()
+    add_provenance(ts, output)
+
+
+@click.command()
+@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("base", type=click.Path(dir_okay=False))
+@click.argument("output", type=click.Path(dir_okay=False))
+@click.argument("date")
+@click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
+@click.option(
+    "--max-submission-delay",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of days between the sample and its submission date "
+        "for it to be included in the inference"
+    ),
+)
+@click.option("--num-threads", default=0, type=int, help="Number of match threads")
+@click.option("-p", "--precision", default=None, type=int, help="Match precision")
+@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def extend(
+    alignments,
+    metadata,
+    base,
+    output,
+    date,
+    num_mismatches,
+    max_submission_delay,
+    num_threads,
+    precision,
+    no_progress,
+    verbose,
+    log_file,
+):
+    setup_logging(verbose, log_file)
+
+    with contextlib.ExitStack() as exit_stack:
+        alignment_store = exit_stack.enter_context(convert.AlignmentStore(alignments))
+
+        metadata_db = convert.MetadataDb(metadata)
+        # metadata_db = exists.enter_context(convert.MetadataDb(metadata))
+        base_ts = tskit.load(base)
+        ts = inference.extend(
+            alignment_store=alignment_store,
+            metadata_db=metadata_db,
+            date=date,
+            base_ts=base_ts,
+            num_mismatches=num_mismatches,
+            max_submission_delay=max_submission_delay,
+            precision=precision,
+            num_threads=num_threads,
+            show_progress=not no_progress,
+        )
+        add_provenance(ts, output)
 
 @click.command()
 @click.argument("samples-file", type=click.Path(exists=True, dir_okay=False))
@@ -169,34 +246,18 @@ def infer(
             num_threads=num_threads,
             show_progress=not no_progress,
         )
-        # Record provenance here because this is where the arguments are provided.
-        provenance = get_provenance_dict()
-        tables = ts.dump_tables()
-        tables.provenances.add_row(json.dumps(provenance))
-        tables.dump(output_file)
-
+        add_provenance(ts, output)
 
 @click.command()
-@click.argument("samples-file")
-@click.argument("ts-file")
+@click.argument("alignment_db")
+@click.argument("ts_file")
 @click.option("-v", "--verbose", count=True)
-@click.option(
-    "--max-submission-delay",
-    default=None,
-    type=int,
-    help=(
-        "The maximum number of days between the sample and its submission date "
-        "for it to be included in the inference"
-    ),
-)
-def validate(samples_file, ts_file, verbose, max_submission_delay):
+def validate(alignment_db, ts_file, verbose):
     setup_logging(verbose)
 
     ts = tskit.load(ts_file)
-    with tsinfer.load(samples_file) as sd:
-        inference.validate(
-            sd, ts, max_submission_delay=max_submission_delay, show_progress=True
-        )
+    with convert.AlignmentStore(alignment_db) as alignment_store:
+        inference.validate(ts, alignment_store, show_progress=True)
 
 
 @click.version_option(core.__version__)
@@ -209,4 +270,7 @@ cli.add_command(init_alignment_store)
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
 cli.add_command(infer)
+
+cli.add_command(init)
+cli.add_command(extend)
 cli.add_command(validate)

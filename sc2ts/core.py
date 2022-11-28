@@ -8,6 +8,10 @@ ALLELES = "ACGT-"
 
 TIME_UNITS="days_ago"
 
+REFERENCE_STRAIN = "Wuhan/Hu-1/2019"
+REFERENCE_DATE = "2019-12-26"
+REFERENCE_GENBANK = "MN908947"
+
 NODE_IS_MUTATION_OVERLAP = 1 << 21
 NODE_IS_REVERSION_PUSH = 1 << 22
 
@@ -47,7 +51,7 @@ def get_reference_sequence():
         # NEED packagedata etc.
         data_path = pathlib.Path("sc2ts/data")
         reader = FastaReader(data_path / "reference.fasta")
-        __cached_reference = reader["MN908947"]
+        __cached_reference = reader[REFERENCE_GENBANK]
     return __cached_reference
 
 
