@@ -1,6 +1,8 @@
 
 from . core import __version__
 
-from . import convert
+# FIXME
+from . alignments import *
+from . metadata import *
 from . inference import *
 
