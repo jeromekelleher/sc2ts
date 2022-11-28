@@ -10,8 +10,8 @@ import tsinfer
 import click
 import daiquiri
 
+import sc2ts
 from . import core
-from . import convert
 from . import inference
 
 
@@ -79,7 +79,7 @@ def setup_logging(verbosity, log_file=None):
 def init_alignment_store(store, verbose, log_file):
     setup_logging(verbose, log_file)
     # provenance = get_provenance_dict()
-    convert.AlignmentStore.initialise(store)
+    sc2ts.AlignmentStore.initialise(store)
 
 
 @click.command()
@@ -92,18 +92,15 @@ def init_alignment_store(store, verbose, log_file):
 def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
     setup_logging(verbose, log_file)
     if initialise:
-        a = convert.AlignmentStore.initialise(store)
+        a = sc2ts.AlignmentStore.initialise(store)
     else:
-        a = convert.AlignmentStore(store, "a")
+        a = sc2ts.AlignmentStore(store, "a")
     for fasta_path in fastas:
         logging.info(f"Reading fasta {fasta_path}")
         fasta = core.FastaReader(fasta_path)
         a.append(fasta, show_progress=True)
-    # print(a.storage_info())
-    # for strain, x in a.all_alignments():
-    #     print(strain, x)
-    #     # print(x)
     a.close()
+
 
 @click.command()
 @click.argument("metadata")
@@ -114,7 +111,7 @@ def import_metadata(metadata, db, verbose):
     Convert a CSV formatted metadata file to a database for later use.
     """
     setup_logging(verbose)
-    convert.MetadataDb.import_csv(metadata, db)
+    sc2ts.MetadataDb.import_csv(metadata, db)
 
 
 def add_provenance(ts, output_file):
@@ -175,10 +172,8 @@ def extend(
     setup_logging(verbose, log_file)
 
     with contextlib.ExitStack() as exit_stack:
-        alignment_store = exit_stack.enter_context(convert.AlignmentStore(alignments))
-
-        metadata_db = convert.MetadataDb(metadata)
-        # metadata_db = exists.enter_context(convert.MetadataDb(metadata))
+        alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
+        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
         base_ts = tskit.load(base)
         ts = inference.extend(
             alignment_store=alignment_store,
@@ -193,16 +188,12 @@ def extend(
         )
         add_provenance(ts, output)
 
+
 @click.command()
-@click.argument("samples-file", type=click.Path(exists=True, dir_okay=False))
-@click.argument("output-file", type=click.Path(dir_okay=False))
-@click.option(
-    "--ancestors-ts",
-    "-A",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Path base to match against",
-)
+@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("base", type=click.Path(dir_okay=False))
+@click.argument("output-prefix")
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option(
     "--max-submission-delay",
@@ -218,10 +209,11 @@ def extend(
 @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def infer(
-    samples_file,
-    output_file,
-    ancestors_ts,
+def daily_extend(
+    alignments,
+    metadata,
+    base,
+    output_prefix,
     num_mismatches,
     max_submission_delay,
     num_threads,
@@ -232,21 +224,24 @@ def infer(
 ):
     setup_logging(verbose, log_file)
 
-    if ancestors_ts is not None:
-        ancestors_ts = tskit.load(ancestors_ts)
-        logging.info(f"Loaded ancestors ts with {ancestors_ts.num_samples} samples")
-
-    with tsinfer.load(samples_file) as sd:
-        ts = inference.infer(
-            sd,
-            ancestors_ts=ancestors_ts,
+    with contextlib.ExitStack() as exit_stack:
+        alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
+        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
+        base_ts = tskit.load(base)
+        ts_iter = inference.daily_extend(
+            alignment_store=alignment_store,
+            metadata_db=metadata_db,
+            base_ts=base_ts,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
             precision=precision,
             num_threads=num_threads,
             show_progress=not no_progress,
         )
-        add_provenance(ts, output)
+        for ts, date in ts_iter:
+            output = output_prefix + date + ".ts"
+            add_provenance(ts, output)
+
 
 @click.command()
 @click.argument("alignment_db")
@@ -256,7 +251,7 @@ def validate(alignment_db, ts_file, verbose):
     setup_logging(verbose)
 
     ts = tskit.load(ts_file)
-    with convert.AlignmentStore(alignment_db) as alignment_store:
+    with sc2ts.AlignmentStore(alignment_db) as alignment_store:
         inference.validate(ts, alignment_store, show_progress=True)
 
 
@@ -269,8 +264,8 @@ def cli():
 cli.add_command(init_alignment_store)
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
-cli.add_command(infer)
 
 cli.add_command(init)
 cli.add_command(extend)
+cli.add_command(daily_extend)
 cli.add_command(validate)

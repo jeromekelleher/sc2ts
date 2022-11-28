@@ -11,7 +11,7 @@ import tsinfer
 import numpy as np
 
 from . import core
-from . import convert
+from . import alignments
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ def filter_samples(samples, max_submission_delay=None):
     return ret
 
 
-def increment_time(date, ts):
+def last_date(ts):
     previous_date = None
     if ts.num_samples == 0:
         # Special case for the initial ts which contains the
@@ -81,8 +81,13 @@ def increment_time(date, ts):
         u = ts.num_nodes - 1
     else:
         u = ts.samples()[-1]
-    previous_date = parse_date(ts.node(u).metadata["date"])
-    diff = parse_date(date) - previous_date
+    node = ts.node(u)
+    assert node.time == 0
+    return parse_date(node.metadata["date"])
+
+
+def increment_time(date, ts):
+    diff = parse_date(date) - last_date(ts)
     increment = diff.days
     if increment <= 0:
         raise ValueError(f"Bad date diff: {diff}")
@@ -93,44 +98,6 @@ def increment_time(date, ts):
     return tables.tree_sequence()
 
 
-@dataclasses.dataclass
-class MaskedAlignment:
-    strain: str
-    alignment: np.ndarray
-    num_masked_sites: int
-    original_base_composition: dict
-    original_md5: str
-
-    def qc_summary(self):
-        return {
-            "num_masked_sites": self.num_masked_sites,
-            "original_base_composition": self.original_base_composition,
-            "original_md5": self.original_md5,
-        }
-
-
-class AlignmentEncoder:
-    def __init__(self, store, sequence_length):
-        self.alignment_store = store
-        self.sequence_length = int(sequence_length)
-        self.site_masked_samples = np.zeros(self.sequence_length, dtype=int)
-
-    def encode_and_mask(self, strain):
-        logger.debug(f"Getting alignment for {strain}")
-        alignment = self.alignment_store[strain]
-        assert len(alignment) == self.sequence_length
-        a = convert.encode_alignment(alignment)
-        masked = convert.mask_alignment(a, start=1, window_size=7)
-        # NOTE will need to worry about updating this if we parallelise
-        self.site_masked_samples += masked
-        return MaskedAlignment(
-            strain=strain,
-            alignment=a,
-            num_masked_sites=int(np.sum(masked)),
-            original_base_composition=convert.base_composition(alignment[1:]),
-            original_md5=hashlib.md5(alignment[1:]).hexdigest(),
-        )
-
 
 def validate(ts, alignment_store, show_progress=False):
     """
@@ -139,7 +106,7 @@ def validate(ts, alignment_store, show_progress=False):
     """
     samples = ts.samples()
     strains = [ts.node(u).metadata["strain"] for u in samples]
-    encoder = AlignmentEncoder(alignment_store, ts.sequence_length)
+    encoder = alignments.AlignmentEncoder(alignment_store, ts.sequence_length)
     G = np.zeros((ts.num_sites, len(samples)), dtype=np.int8)
     keep_sites = ts.sites_position.astype(int)
     strains_iter = enumerate(strains)
@@ -161,6 +128,35 @@ def validate(ts, alignment_store, show_progress=False):
                 raise ValueError("Data mismatch")
 
 
+def daily_extend(
+    *,
+    alignment_store,
+    metadata_db,
+    base_ts,
+    num_mismatches=None,
+    show_progress=False,
+    max_submission_delay=None,
+    num_threads=None,
+    precision=None,
+):
+    start_day = last_date(base_ts)
+    last_ts = base_ts
+    for date in metadata_db.get_days(start_day):
+        ts = extend(
+            alignment_store=alignment_store,
+            metadata_db=metadata_db,
+            date=date,
+            base_ts=last_ts,
+            num_mismatches=num_mismatches,
+            show_progress=show_progress,
+            max_submission_delay=max_submission_delay,
+            num_threads=num_threads,
+            precision=precision,
+        )
+        yield ts, date
+        last_ts = ts
+
+
 def extend(
     *,
     alignment_store,
@@ -173,7 +169,7 @@ def extend(
     num_threads=None,
     precision=None,
 ):
-
+    logger.info(f"Start extending for {date}")
     samples = filter_samples(metadata_db.get(date), max_submission_delay)
     num_samples = len(samples)
     if num_samples == 0:
@@ -183,14 +179,22 @@ def extend(
 
     G = np.zeros((base_ts.num_sites, len(samples)), dtype=np.int8)
     keep_sites = base_ts.sites_position.astype(int)
-    encoder = AlignmentEncoder(alignment_store, base_ts.sequence_length)
-    for j, md in enumerate(samples):
-        strain = md["strain"]
-        logger.debug(f"Getting alignment for {strain}")
-        ma = encoder.encode_and_mask(strain)
-        G[:, j] = ma.alignment[keep_sites]
-        # Add some QC measures to the metadata.
-        md["sc2ts_qc"] = ma.qc_summary()
+    encoder = alignments.AlignmentEncoder(alignment_store, base_ts.sequence_length)
+
+    samples_iter = enumerate(samples)
+    with tqdm.tqdm(
+        samples_iter,
+        desc=f"Fetch {date}",
+        total=len(samples),
+        disable=not show_progress,
+    ) as bar:
+        for j, md in bar:
+            strain = md["strain"]
+            logger.debug(f"Getting alignment for {strain}")
+            ma = encoder.encode_and_mask(strain)
+            G[:, j] = ma.alignment[keep_sites]
+            # Add some QC measures to the metadata.
+            md["sc2ts_qc"] = ma.qc_summary()
 
     masked_per_sample = np.sum(encoder.site_masked_samples) / num_samples
     logger.info(f"Masked average of {masked_per_sample:.2f} nucleotides per sample")
@@ -204,7 +208,6 @@ def extend(
         num_threads=num_threads,
         show_progress=show_progress,
     )
-
     return add_matching_results(samples, results, ts, encoder.site_masked_samples)
 
 
@@ -300,73 +303,6 @@ def match_tsinfer(
     return results
 
 
-def infer(
-    sd,
-    *,
-    ancestors_ts=None,
-    num_mismatches=None,
-    show_progress=False,
-    max_submission_delay=None,
-    num_threads=None,
-    precision=None,
-):
-    if num_mismatches is None:
-        # Default to no recombination
-        num_mismatches = 1000
-    if max_submission_delay is None:
-        max_submission_delay = 10**8  # Arbitrary large number of days.
-
-    if not sd.finalised:
-        raise ValueError("Input sample data file incomplete")
-
-    max_submission_delay = np.timedelta64(max_submission_delay, "D")
-
-    date = []
-    date_submitted = []
-    for ind in sd.individuals():
-        date.append(ind.metadata["date"])
-        date_submitted.append(ind.metadata["date_submitted"])
-    date = np.array(date, dtype=np.datetime64)
-    current_date = date[0]
-    if not np.all(date == current_date):
-        raise ValueError("Only one day of data can be added at a time")
-
-    date_submitted = np.array(date_submitted, dtype=np.datetime64)
-    submission_delay = date_submitted - date
-    submission_delay = submission_delay.astype("timedelta64[D]")
-
-    ts = ancestors_ts
-    previous_date = None
-    increment = 1
-    if ancestors_ts is not None:
-        previous_date = np.datetime64(ts.node(ts.samples()[-1]).metadata["date"])
-        diff = current_date - previous_date
-        increment = diff.astype("timedelta64[D]").astype("int")
-        assert increment > 0
-
-    samples = np.where(submission_delay <= max_submission_delay)[0]
-    num_samples = len(samples)
-    num_rejected = sd.num_samples - num_samples
-    fraction_rejected = num_rejected / sd.num_samples
-
-    logger.info(
-        f"Filtered {num_rejected} ({100 * fraction_rejected:.2f}%) samples "
-        f"with submission_delay > {max_submission_delay}"
-    )
-    logger.info(f"Extending for {current_date} with {len(samples)} samples")
-
-    return old_extend(
-        sd,
-        ancestors_ts=ancestors_ts,
-        samples=samples,
-        num_mismatches=num_mismatches,
-        time_increment=increment,
-        show_progress=show_progress,
-        num_threads=num_threads,
-        precision=precision,
-    )
-
-
 def solve_num_mismatches(ts, k):
     """
     Return the low-level LS parameters corresponding to accepting
@@ -390,178 +326,12 @@ def solve_num_mismatches(ts, k):
     return ls_recomb, ls_mismatch
 
 
-def make_initial_tables(sample_data):
-    reference = core.get_reference_sequence()
-    tables = tskit.TableCollection(sample_data.sequence_length)
-    tables.time_units = core.TIME_UNITS
-    base_schema = tskit.MetadataSchema.permissive_json().schema
-
-    tables.metadata_schema = tskit.MetadataSchema(base_schema)
-    # TODO gene annotations to top level
-    # TODO add known fields to the schemas and document them.
-    tables.nodes.metadata_schema = tskit.MetadataSchema(base_schema)
-    tables.sites.metadata_schema = tskit.MetadataSchema(base_schema)
-    tables.mutations.metadata_schema = tskit.MetadataSchema(base_schema)
-    for site in sample_data.sites():
-        assert site.ancestral_state == reference[int(site.position)]
-        tables.sites.add_row(
-            site.position, site.ancestral_state, metadata={"masked_samples": 0}
-        )
-
-    # TODO should probably make the ultimate ancestor time something less
-    # plausible or at least configurable.
-    # NOTE: adding the ultimate ancestor is an artefact of using
-    # tsinfer's matching engine. This shouldn't be necessary when
-    # we move over the tskit.
-    for t in [1, 0]:
-        tables.nodes.add_row(time=t)
-    # TODO node 1 should be given metadata as the reference.
-    tables.edges.add_row(0, sample_data.sequence_length, 0, 1)
-    return tables
-
-
-def get_ancestors_ts(sample_data, ancestors_ts, time_increment):
-    if ancestors_ts is None:
-        tables = make_initial_tables(sample_data)
-    else:
-        # Should do more checks here for suitability.
-        if ancestors_ts.time_units != core.TIME_UNITS:
-            raise ValueError(
-                f"Mismatched time_units: {ancestors_ts.time_units}",
-            )
-        tables = ancestors_ts.dump_tables()
-
-    tables.nodes.time += time_increment
-    tables.mutations.time += time_increment
-
-    return tables.tree_sequence()
-
-
-def run_tsinfer_matching(
-    *,
-    sample_data,
-    ancestors_ts,
-    samples,
-    num_mismatches,
-    show_progress,
-    precision,
-    num_threads,
-):
-    ls_recomb, ls_mismatch = solve_num_mismatches(ancestors_ts, num_mismatches)
-    pm = tsinfer.inference._get_progress_monitor(
-        show_progress,
-        generate_ancestors=False,
-        match_ancestors=False,
-        match_samples=False,
-    )
-    manager = Matcher(
-        sample_data,
-        ancestors_ts,
-        allow_multiallele=True,
-        recombination=ls_recomb,
-        mismatch=ls_mismatch,
-        progress_monitor=pm,
-        num_threads=num_threads,
-        precision=precision,
-    )
-    return manager.run_match(np.array(samples))
-
-
-def old_extend(
-    sample_data,
-    *,
-    ancestors_ts,
-    samples,
-    num_mismatches,
-    time_increment,
-    show_progress=False,
-    precision=None,
-    num_threads=None,
-):
-    assert sample_data.num_individuals == sample_data.num_samples
-
-    ancestors_ts = get_ancestors_ts(sample_data, ancestors_ts, time_increment)
-    results = run_tsinfer_matching(
-        samples=samples,
-        sample_data=sample_data,
-        ancestors_ts=ancestors_ts,
-        num_mismatches=num_mismatches,
-        precision=precision,
-        show_progress=show_progress,
-        num_threads=num_threads,
-    )
-    return add_matching_results(sample_data, samples, ancestors_ts, results)
-
-
 # Work around tsinfer's reshuffling of the allele indexes
 def unshuffle_allele_index(index, ancestral_state):
     A = core.ALLELES
     as_index = A.index(ancestral_state)
     alleles = ancestral_state + A[:as_index] + A[as_index + 1 :]
     return alleles[index]
-
-
-def add_matching_results_old(sample_data, samples, ts, results):
-    """
-    Adds the specified matching results to the specified tree sequence
-    and returns the updated tree sequence.
-    """
-    assert sample_data.num_sites == ts.num_sites
-    tables = ts.dump_tables()
-    node_metadata = sample_data.individuals_metadata
-
-    # TODO factor out the tsinfer ResultBuffer here into something more
-    # useful locally, and do this coordinate translation there. Then
-    # our dependence on tsinfer is quite well isolated.
-    coord_map = np.append(tables.sites.position, [tables.sequence_length])
-    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-
-    coord_map[0] = 0
-    for sd_id in samples:
-        node_id = tables.nodes.add_row(
-            flags=tskit.NODE_IS_SAMPLE, time=0, metadata=node_metadata[sd_id]
-        )
-        # TODO path compression - what paths are identical? But be careful
-        # about the mutations.
-        for left, right, parent in zip(*results.get_path(node_id)):
-            tables.edges.add_row(
-                coord_map[left], coord_map[right], parent=parent, child=node_id
-            )
-
-        for site, derived_state in zip(*results.get_mutations(node_id)):
-            tables.mutations.add_row(
-                site=site,
-                node=node_id,
-                time=0,
-                derived_state=unshuffle_allele_index(
-                    derived_state, ancestral_state[site]
-                ),
-                metadata={"type": "mismatch"},
-            )
-    # Update the sites with metadata for these newly added samples.
-    tables.sites.clear()
-    for ts_site, sd_site in zip(ts.sites(), sample_data.sites()):
-        assert ts_site.position == sd_site.position
-        md = ts_site.metadata
-        # NOTE: this value is across the imported whole dataset on that day,
-        # not just those samples that we have filtered for inference.
-        md["masked_samples"] += sd_site.metadata["masked_samples"]
-        tables.sites.append(ts_site.replace(metadata=md))
-
-    # Add the sample data provenance
-    assert sample_data.num_provenances == 1
-    timestamp, record = list(sample_data.provenances())[0]
-    tables.provenances.add_row(timestamp=timestamp, record=json.dumps(record))
-
-    tables.sort()
-    tables.build_index()
-    tables.compute_mutation_parents()
-    ts = tables.tree_sequence()
-
-    ts = coalesce_mutations(ts)
-    ts = push_up_reversions(ts)
-    return ts
 
 
 @dataclasses.dataclass(frozen=True)
@@ -856,79 +626,6 @@ def push_up_reversions(ts):
         f"add {num_new_nodes} new nodes"
     )
     return update_tables(tables, edges_to_delete, mutations_to_delete)
-
-
-def _parse_date(date):
-    return datetime.datetime.fromisoformat(date)
-
-
-def _validate_dates(ts):
-    """
-    Check that the time in the ts is days-ago in sync with the date
-    metadata field.
-    """
-    samples = ts.samples()
-    today = _parse_date(ts.node(samples[-1]).metadata["date"])
-    for u in samples:
-        node = ts.node(u)
-        date = _parse_date(node.metadata["date"])
-        diff = today - date
-        assert diff.seconds == 0
-        assert diff.microseconds == 0
-
-
-def old_validate(sd, ts, max_submission_delay=None, show_progress=False):
-    """
-    Check that the ts contains all the data in the sample data.
-    """
-    assert ts.time_units == "days_ago"
-    assert ts.num_sites == sd.num_sites
-    if max_submission_delay is None:
-        max_submission_delay = 10**9 - 1
-    max_submission_delay = datetime.timedelta(days=max_submission_delay)
-    name_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
-    ts_samples = []
-    sd_samples = []
-    for j, ind in enumerate(sd.individuals()):
-        strain = ind.metadata["strain"]
-        submission_delay = _parse_date(ind.metadata["date_submitted"]) - _parse_date(
-            ind.metadata["date"]
-        )
-        if submission_delay <= max_submission_delay:
-            if strain not in name_map:
-                raise ValueError(f"Strain {strain} not in ts nodes")
-            sd_samples.append(j)
-            ts_samples.append(name_map[strain])
-        else:
-            if strain in name_map:
-                raise ValueError(f"Strain {strain} should have been filtered")
-    sd_samples = np.array(sd_samples)
-    ts_samples = np.array(ts_samples)
-
-    _validate_dates(ts)
-
-    if len(sd_samples) == 0:
-        return
-
-    reference = core.get_reference_sequence()
-
-    ts_vars = ts.variants(samples=ts_samples)
-    vars_iter = zip(ts_vars, sd.variants())
-    with tqdm.tqdm(vars_iter, total=ts.num_sites, disable=not show_progress) as bar:
-        for ts_var, sd_var in bar:
-            pos = int(ts_var.site.position)
-            assert ts_var.site.ancestral_state == reference[pos]
-            assert sd_var.site.position == pos
-            ts_a = np.array(ts_var.alleles)
-            sd_a = np.array(sd_var.alleles)
-            sd_genotypes = sd_var.genotypes[sd_samples]
-            non_missing = sd_genotypes != -1
-            # Convert to actual allelic observations here because
-            # allele encoding isn't stable
-            ts_chars = ts_a[ts_var.genotypes[non_missing]]
-            sd_chars = sd_a[sd_genotypes[non_missing]]
-            if not np.all(ts_chars == sd_chars):
-                raise ValueError("Data mismatch")
 
 
 class Matcher(tsinfer.SampleMatcher):
