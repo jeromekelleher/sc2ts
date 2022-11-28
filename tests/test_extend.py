@@ -484,8 +484,11 @@ def prepare(tables):
     """
     tables.mutations.metadata_schema = tskit.MetadataSchema.permissive_json()
     tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+    tables.sort()
+    tables.build_index()
     tables.compute_mutation_parents()
     return tables.tree_sequence()
+
 
 class TestCoalesceMutations:
     def test_no_mutations(self):
@@ -717,3 +720,43 @@ class TestPushUpReversions:
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
+
+
+class TestInsertRecombinants:
+    def test_no_recombination(self):
+        ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
+        ts2 = sc2ts.inference.insert_recombinants(ts1)
+        ts1.tables.assert_equals(ts2.tables)
+
+    def test_single_breakpoint_single_recombinant_no_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, 5, parent=0, child=2)
+        tables.edges.add_row(5, 10, parent=1, child=2)
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == 0
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges + 1
+
+    def test_single_breakpoint_two_recombinants_no_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, 5, parent=0, child=2)
+        tables.edges.add_row(5, 10, parent=1, child=2)
+        tables.edges.add_row(0, 5, parent=0, child=3)
+        tables.edges.add_row(5, 10, parent=1, child=3)
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == 0
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges

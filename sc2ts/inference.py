@@ -299,12 +299,8 @@ def add_matching_results(samples, ts):
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
         )
-
-        # TODO path compression - what paths are identical? But be careful
-        # about the mutations.
         for left, right, parent in sample.path:
             tables.edges.add_row(left, right, parent=parent, child=node_id)
-
         for site, derived_state in sample.mutations:
             tables.mutations.add_row(
                 site=site,
@@ -326,6 +322,7 @@ def add_matching_results(samples, ts):
     tables.compute_mutation_parents()
     ts = tables.tree_sequence()
 
+    ts = insert_recombinants(ts)
     ts = coalesce_mutations(ts)
     ts = push_up_reversions(ts)
     return ts
@@ -414,6 +411,60 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     tables.build_index()
     tables.compute_mutation_parents()
     return tables.tree_sequence()
+
+
+def insert_recombinants(ts):
+    """
+    Examine all time-0 samples and see if there are any recombinants.
+    For each unique recombinant (copying path) insert a new node.
+    """
+    recombinants = collections.defaultdict(list)
+    edges_to_delete = []
+    for u in ts.samples(time=0):
+        edges = np.where(ts.edges_child == u)[0]
+        if len(edges) > 1:
+            path = []
+            for eid in edges:
+                edge = ts.edge(eid)
+                path.append((edge.left, edge.right, edge.parent))
+                edges_to_delete.append(eid)
+            path = tuple(sorted(path))
+            recombinants[path].append(u)
+
+    if len(recombinants) == 0:
+        return ts
+
+    tables = ts.dump_tables()
+    for path, nodes in recombinants.items():
+        min_parent_time = ts.nodes_time[0]
+        for _, _, parent in path:
+            min_parent_time = min(ts.nodes_time[parent], min_parent_time)
+        recomb_node = tables.nodes.add_row(
+            time=min_parent_time / 2,
+            flags=core.NODE_IS_RECOMBINANT,
+            metadata={"path": path, "nodes": [int(u) for u in nodes]},
+        )
+
+        for left, right, parent in path:
+            tables.edges.add_row(left, right, parent, recomb_node)
+        for child in nodes:
+            tables.edges.add_row(0, ts.sequence_length, recomb_node, child)
+
+        # TODO REUSE the sample overlap logic here to put the maximum
+        # number of shared mutatations over the recombinant.
+        # child_mutations =
+        # for child in nodes:
+        #     node_mutations[v] = node_mutation_descriptors(ts, v)
+
+        # max_overlap = set()
+        # for v in tree.children(u):
+        #     if v != sample and v in node_mutations:
+        #         overlap = node_mutations[sample] & node_mutations[v]
+        #         if len(overlap) > len(max_overlap):
+        #             max_overlap = overlap
+        # max_sample_overlap[sample] = max_overlap
+
+    return update_tables(tables, edges_to_delete, [])
 
 
 def coalesce_mutations(ts):
