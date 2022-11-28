@@ -221,8 +221,8 @@ def match(
     samples = filter_samples(date_samples, alignment_store, max_submission_delay)
     num_samples = len(samples)
     if num_samples == 0:
-        logger.info("No samples for {date}")
-        return base_ts
+        logger.warning("No samples for {date}")
+        return []
     logger.info(f"Matching {len(samples)} samples")
 
     G = np.zeros((base_ts.num_sites, len(samples)), dtype=np.int8)
@@ -247,9 +247,9 @@ def match(
     masked_per_sample = np.mean([len(sample.masked_sites)])
     logger.info(f"Masked average of {masked_per_sample:.2f} nucleotides per sample")
     match_tsinfer(
-        samples,
-        base_ts,
-        G,
+        samples=samples,
+        ts=base_ts,
+        genotypes=G,
         num_mismatches=num_mismatches,
         precision=precision,
         num_threads=num_threads,
@@ -281,8 +281,9 @@ def extend(
         num_threads=num_threads,
         precision=precision,
     )
+    if len(samples) == 0:
+        return base_ts
     ts = increment_time(date, base_ts)
-
     return add_matching_results(samples, ts)
 
 
@@ -658,7 +659,7 @@ def push_up_reversions(ts):
 def match_tsinfer(
     samples,
     ts,
-    G,
+    genotypes,
     *,
     num_mismatches=None,
     precision=None,
@@ -672,10 +673,10 @@ def match_tsinfer(
     reference = core.get_reference_sequence()
     with tsinfer.SampleData(sequence_length=ts.sequence_length) as sd:
         alleles = tuple(core.ALLELES)
-        for pos, genotypes in zip(ts.sites_position.astype(int), G):
+        for pos, site_genotypes in zip(ts.sites_position.astype(int), genotypes):
             sd.add_site(
                 pos,
-                genotypes,
+                site_genotypes,
                 alleles=alleles,
                 ancestral_allele=alleles.index(reference[pos]),
             )
