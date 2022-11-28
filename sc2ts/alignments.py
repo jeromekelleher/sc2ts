@@ -133,6 +133,11 @@ class AlignmentStore(collections.abc.Mapping):
         self._flush(chunk)
         bar.close()
 
+    def __contains__(self, key):
+        with self.env.begin() as txn:
+            val = txn.get(key.encode())
+            return val is not None
+
     def __getitem__(self, key):
         with self.env.begin() as txn:
             val = txn.get(key.encode())

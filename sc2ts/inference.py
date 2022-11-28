@@ -52,12 +52,19 @@ def parse_date(date):
     return datetime.datetime.fromisoformat(date)
 
 
-def filter_samples(samples, max_submission_delay=None):
+def filter_samples(samples, alignment_store, max_submission_delay=None):
     if max_submission_delay is None:
         max_submission_delay = 10**8  # Arbitrary large number of days.
+    not_in_store = 0
     num_filtered = 0
     ret = []
     for sample in samples:
+        strain = sample["strain"]
+        if strain not in alignment_store:
+            logger.warn(f"{strain} not in alignment store")
+            not_in_store += 1
+            continue
+
         date = parse_date(sample["date"])
         date_submitted = parse_date(sample["date_submitted"])
         delay = date_submitted - date
@@ -170,7 +177,7 @@ def extend(
     precision=None,
 ):
     logger.info(f"Start extending for {date}")
-    samples = filter_samples(metadata_db.get(date), max_submission_delay)
+    samples = filter_samples(metadata_db.get(date), alignment_store, max_submission_delay)
     num_samples = len(samples)
     if num_samples == 0:
         logger.info("No samples for {date}")
