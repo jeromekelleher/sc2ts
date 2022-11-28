@@ -478,6 +478,15 @@ def assert_sequences_equal(ts1, ts2):
         np.testing.assert_array_equal(states1, states2)
 
 
+def prepare(tables):
+    """
+    Make changes needed for generic table collection to be used.
+    """
+    tables.mutations.metadata_schema = tskit.MetadataSchema.permissive_json()
+    tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+    tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
 class TestCoalesceMutations:
     def test_no_mutations(self):
         # 1.00┊    4    ┊
@@ -500,7 +509,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=1, time=0, derived_state="T")
         tables.mutations.add_row(site=0, node=2, time=0, derived_state="G")
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="G")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -522,7 +531,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=2, derived_state="G")
         tables.mutations.add_row(site=0, node=3, derived_state="G")
         tables.compute_mutation_times()
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -542,7 +551,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=0, derived_state="T")
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         tables.compute_mutation_times()
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -562,7 +571,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=1, time=0, derived_state="T")
         tables.mutations.add_row(site=0, node=2, time=0, derived_state="T")
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -583,7 +592,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=2, time=0, derived_state="G")
         tables.mutations.add_row(site=1, node=1, time=0, derived_state="T")
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -607,7 +616,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="T")
         tables.mutations.add_row(site=2, node=0, time=0, derived_state="T")
         tables.mutations.add_row(site=2, node=2, time=0, derived_state="T")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -624,7 +633,7 @@ class TestCoalesceMutations:
         tables.sites.add_row(0, "A")
         tables.mutations.add_row(site=0, node=0, time=0, derived_state="T")
         tables.mutations.add_row(site=0, node=0, time=0, derived_state="C", parent=0)
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         with pytest.raises(ValueError, match="Multiple mutations"):
             sc2ts.inference.coalesce_mutations(ts)
@@ -649,7 +658,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=1, time=0, derived_state="A", parent=4)
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="C", parent=4)
 
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -677,7 +686,7 @@ class TestPushUpReversions:
         tables.sites.add_row(0, "A")
         tables.mutations.add_row(site=0, node=4, time=1, derived_state="T")
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="A")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.push_up_reversions(ts)
         assert_sequences_equal(ts, ts2)
@@ -702,7 +711,7 @@ class TestPushUpReversions:
         # Shared mutation over 4
         tables.mutations.add_row(site=1, node=4, time=1, derived_state="T")
 
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.push_up_reversions(ts)
         assert_sequences_equal(ts, ts2)
