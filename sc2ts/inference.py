@@ -295,7 +295,7 @@ def add_matching_results(samples, ts):
 
     for sample in samples:
         site_masked_samples[sample.masked_sites] += 1
-        metadata = {**sample.metadata, **sample.alignment_qc}
+        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
         )
@@ -413,6 +413,17 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     return tables.tree_sequence()
 
 
+def maximum_subset(sets):
+    max_intersection = set()
+    n = len(sets)
+    for j in range(n):
+        for k in range(j, n):
+            intersection = sets[j] & sets[k]
+            if len(intersection) > len(max_intersection):
+                max_intersection = intersection
+    return max_intersection
+
+
 def insert_recombinants(ts):
     """
     Examine all time-0 samples and see if there are any recombinants.
@@ -439,10 +450,20 @@ def insert_recombinants(ts):
         min_parent_time = ts.nodes_time[0]
         for _, _, parent in path:
             min_parent_time = min(ts.nodes_time[parent], min_parent_time)
+
+        child_mutations = {}
+        # Store a list of tuples here rather than a mapping because JSON
+        # only supports string keys.
+        mutations_md = []
+        for child in nodes:
+            mutations = node_mutation_descriptors(ts, child)
+            child_mutations[child] = mutations
+            mutations_md.append((int(child), sorted([
+                (md.site, md.inherited_state, md.derived_state) for md in mutations])))
         recomb_node = tables.nodes.add_row(
             time=min_parent_time / 2,
             flags=core.NODE_IS_RECOMBINANT,
-            metadata={"path": path, "nodes": [int(u) for u in nodes]},
+            metadata={ "path": path, "mutations": mutations_md },
         )
 
         for left, right, parent in path:
@@ -450,19 +471,9 @@ def insert_recombinants(ts):
         for child in nodes:
             tables.edges.add_row(0, ts.sequence_length, recomb_node, child)
 
-        # TODO REUSE the sample overlap logic here to put the maximum
-        # number of shared mutatations over the recombinant.
-        # child_mutations =
-        # for child in nodes:
-        #     node_mutations[v] = node_mutation_descriptors(ts, v)
-
-        # max_overlap = set()
-        # for v in tree.children(u):
-        #     if v != sample and v in node_mutations:
-        #         overlap = node_mutations[sample] & node_mutations[v]
-        #         if len(overlap) > len(max_overlap):
-        #             max_overlap = overlap
-        # max_sample_overlap[sample] = max_overlap
+        # Push the maximum subset over the recombinant
+        max_subset = maximum_subset(list(child_mutations.values()))
+        print("max", max_subset)
 
     return update_tables(tables, edges_to_delete, [])
 
