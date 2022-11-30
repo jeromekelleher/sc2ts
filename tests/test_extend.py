@@ -478,6 +478,18 @@ def assert_sequences_equal(ts1, ts2):
         np.testing.assert_array_equal(states1, states2)
 
 
+def prepare(tables):
+    """
+    Make changes needed for generic table collection to be used.
+    """
+    tables.mutations.metadata_schema = tskit.MetadataSchema.permissive_json()
+    tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
+
 class TestCoalesceMutations:
     def test_no_mutations(self):
         # 1.00┊    4    ┊
@@ -500,7 +512,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=1, time=0, derived_state="T")
         tables.mutations.add_row(site=0, node=2, time=0, derived_state="G")
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="G")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -522,7 +534,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=2, derived_state="G")
         tables.mutations.add_row(site=0, node=3, derived_state="G")
         tables.compute_mutation_times()
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -542,7 +554,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=0, derived_state="T")
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         tables.compute_mutation_times()
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -562,7 +574,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=1, time=0, derived_state="T")
         tables.mutations.add_row(site=0, node=2, time=0, derived_state="T")
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -583,7 +595,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=2, time=0, derived_state="G")
         tables.mutations.add_row(site=1, node=1, time=0, derived_state="T")
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -607,7 +619,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="T")
         tables.mutations.add_row(site=2, node=0, time=0, derived_state="T")
         tables.mutations.add_row(site=2, node=2, time=0, derived_state="T")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -624,7 +636,7 @@ class TestCoalesceMutations:
         tables.sites.add_row(0, "A")
         tables.mutations.add_row(site=0, node=0, time=0, derived_state="T")
         tables.mutations.add_row(site=0, node=0, time=0, derived_state="C", parent=0)
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         with pytest.raises(ValueError, match="Multiple mutations"):
             sc2ts.inference.coalesce_mutations(ts)
@@ -649,7 +661,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=1, time=0, derived_state="A", parent=4)
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="C", parent=4)
 
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
@@ -677,7 +689,7 @@ class TestPushUpReversions:
         tables.sites.add_row(0, "A")
         tables.mutations.add_row(site=0, node=4, time=1, derived_state="T")
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="A")
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.push_up_reversions(ts)
         assert_sequences_equal(ts, ts2)
@@ -702,9 +714,117 @@ class TestPushUpReversions:
         # Shared mutation over 4
         tables.mutations.add_row(site=1, node=4, time=1, derived_state="T")
 
-        ts = tables.tree_sequence()
+        ts = prepare(tables)
 
         ts2 = sc2ts.inference.push_up_reversions(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
+
+
+class TestInsertRecombinants:
+    def test_no_recombination(self):
+        ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
+        ts2 = sc2ts.inference.insert_recombinants(ts1)
+        ts1.tables.assert_equals(ts2.tables)
+
+    def test_single_breakpoint_single_recombinant_no_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, 5, parent=0, child=2)
+        tables.edges.add_row(5, 10, parent=1, child=2)
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == 0
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges + 1
+        assert_sequences_equal(ts, ts2)
+
+    def test_single_breakpoint_two_recombinants_no_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, 5, parent=0, child=2)
+        tables.edges.add_row(5, 10, parent=1, child=2)
+        tables.edges.add_row(0, 5, parent=0, child=3)
+        tables.edges.add_row(5, 10, parent=1, child=3)
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == 0
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges
+        assert_sequences_equal(ts, ts2)
+
+    def test_single_breakpoint_single_recombinant_one_mutation(self):
+        tables = tskit.TableCollection(10)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, 5, parent=0, child=2)
+        tables.edges.add_row(5, 10, parent=1, child=2)
+        tables.sites.add_row(4, "A")
+        tables.mutations.add_row(site=0, node=2, derived_state="T")
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        md = ts2.node(3).metadata
+        assert md["mutations"] == [[2, [[0, "A", "T"]]]]
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == 1
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges + 1
+        assert np.all(ts2.mutations_node == 3)
+
+    def test_single_breakpoint_single_recombinant_two_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, 5, parent=0, child=2)
+        tables.edges.add_row(5, 10, parent=1, child=2)
+        tables.sites.add_row(4, "A")
+        tables.sites.add_row(5, "G")
+        tables.mutations.add_row(site=0, node=2, derived_state="T")
+        tables.mutations.add_row(site=1, node=2, derived_state="C")
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        md = ts2.node(3).metadata
+        assert md["mutations"] == [[2, [[0, "A", "T"], [1, "G", "C"]]]]
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == 2
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges + 1
+        assert np.all(ts2.mutations_node == 3)
+
+    def test_single_breakpoint_two_recombinants_different_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.sites.add_row(4, "A")
+        tables.sites.add_row(5, "G")
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        for j in [2, 3]:
+            tables.nodes.add_row(flags=1, time=0)
+            tables.edges.add_row(0, 5, parent=0, child=j)
+            tables.edges.add_row(5, 10, parent=1, child=j)
+            # Share the mutation at site 0
+            tables.mutations.add_row(site=0, node=j, derived_state="T")
+        # Different mutations at site 1
+        tables.mutations.add_row(site=1, node=2, derived_state="C")
+        tables.mutations.add_row(site=1, node=3, derived_state="T")
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        assert_sequences_equal(ts, ts2)
+        md = ts2.node(4).metadata
+        assert ts2.num_mutations == 3
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges
