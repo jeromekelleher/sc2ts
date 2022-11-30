@@ -783,7 +783,6 @@ class TestInsertRecombinants:
         assert ts2.num_edges == ts.num_edges + 1
         assert np.all(ts2.mutations_node == 3)
 
-
     def test_single_breakpoint_single_recombinant_two_mutations(self):
         tables = tskit.TableCollection(10)
         tables.nodes.add_row(flags=0, time=1)
@@ -806,3 +805,26 @@ class TestInsertRecombinants:
         assert ts2.num_edges == ts.num_edges + 1
         assert np.all(ts2.mutations_node == 3)
 
+    def test_single_breakpoint_two_recombinants_different_mutations(self):
+        tables = tskit.TableCollection(10)
+        tables.sites.add_row(4, "A")
+        tables.sites.add_row(5, "G")
+        tables.nodes.add_row(flags=0, time=1)
+        tables.nodes.add_row(flags=0, time=1)
+        for j in [2, 3]:
+            tables.nodes.add_row(flags=1, time=0)
+            tables.edges.add_row(0, 5, parent=0, child=j)
+            tables.edges.add_row(5, 10, parent=1, child=j)
+            # Share the mutation at site 0
+            tables.mutations.add_row(site=0, node=j, derived_state="T")
+        # Different mutations at site 1
+        tables.mutations.add_row(site=1, node=2, derived_state="C")
+        tables.mutations.add_row(site=1, node=3, derived_state="T")
+        ts = prepare(tables)
+
+        ts2 = sc2ts.inference.insert_recombinants(ts)
+        assert_sequences_equal(ts, ts2)
+        md = ts2.node(4).metadata
+        assert ts2.num_mutations == 3
+        assert ts2.num_nodes == ts.num_nodes + 1
+        assert ts2.num_edges == ts.num_edges

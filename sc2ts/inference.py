@@ -322,6 +322,10 @@ def add_matching_results(samples, ts):
     tables.compute_mutation_parents()
     ts = tables.tree_sequence()
 
+    # FIXME: doing these as three separate steps on different tree sequences
+    # is definitely suboptimal - we should probably have some algorithm that
+    # works directly on the result objects plus the tree sequence, adding
+    # all the stuff in afterwards when then new trees have been built.
     ts = insert_recombinants(ts)
     ts = coalesce_mutations(ts)
     ts = push_up_reversions(ts)
@@ -375,7 +379,12 @@ class MutationDescriptor:
 
 
 def node_mutation_descriptors(ts, u):
-    descriptors = set()
+    """
+    Return a mapping of unique mutations
+    (site, inherited_state, derived_state, parent_id) to the corresponding
+    mutation IDs that are on the specified node.
+    """
+    descriptors = {}
     for mut_id in np.where(ts.mutations_node == u)[0]:
         mut = ts.mutation(mut_id)
         inherited_state = ts.site(mut.site).ancestral_state
@@ -385,9 +394,11 @@ def node_mutation_descriptors(ts, u):
                 raise ValueError("Multiple mutations on same branch not supported")
             inherited_state = parent_mut.derived_state
         assert inherited_state != mut.derived_state
-        descriptors.add(
-            MutationDescriptor(mut.site, mut.derived_state, inherited_state, mut.parent)
+        desc = MutationDescriptor(
+            mut.site, mut.derived_state, inherited_state, mut.parent
         )
+        assert desc not in descriptors
+        descriptors[desc] = mut_id
     return descriptors
 
 
@@ -413,15 +424,65 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     return tables.tree_sequence()
 
 
-def maximum_subset(sets):
-    max_intersection = set()
-    n = len(sets)
-    for j in range(n):
-        for k in range(j, n):
-            intersection = sets[j] & sets[k]
-            if len(intersection) > len(max_intersection):
-                max_intersection = intersection
-    return max_intersection
+def process_recombinant(ts, tables, path, children):
+    """
+    Given a path of (left, right, parent) values and the set of children
+    that share this path, insert a recombinant node representing that
+    shared path, and push mutations shared by all of those children
+    above the recombinant.
+    """
+    min_parent_time = ts.nodes_time[0]
+    for _, _, parent in path:
+        min_parent_time = min(ts.nodes_time[parent], min_parent_time)
+
+    child_mutations = {}
+    # Store a list of tuples here rather than a mapping because JSON
+    # only supports string keys.
+    mutations_md = []
+    for child in children:
+        mutations = node_mutation_descriptors(ts, child)
+        child_mutations[child] = mutations
+        mutations_md.append(
+            (
+                int(child),
+                sorted(
+                    [
+                        (desc.site, desc.inherited_state, desc.derived_state)
+                        for desc in mutations
+                    ]
+                ),
+            )
+        )
+    recomb_node_time = min_parent_time / 2
+    recomb_node = tables.nodes.add_row(
+        time=recomb_node_time,
+        flags=core.NODE_IS_RECOMBINANT,
+        metadata={"path": path, "mutations": mutations_md},
+    )
+
+    for left, right, parent in path:
+        tables.edges.add_row(left, right, parent, recomb_node)
+    for child in children:
+        tables.edges.add_row(0, ts.sequence_length, recomb_node, child)
+
+    # Push any mutations shared by *all* children over the recombinant.
+    # child_mutations is a mapping from child node to the mapping of
+    # mutation descriptors to their original mutation IDs
+    child_mutation_sets = [set(mapping.keys()) for mapping in child_mutations.values()]
+    shared_mutations = set.intersection(*child_mutation_sets)
+    mutations_to_delete = []
+    for child in children:
+        for desc in shared_mutations:
+            mutations_to_delete.append(child_mutations[child][desc])
+    for desc in shared_mutations:
+        tables.mutations.add_row(
+            site=desc.site,
+            node=recomb_node,
+            time=recomb_node_time,
+            derived_state=desc.derived_state,
+            metadata={"type": "recomb_overlap"},
+        )
+    return mutations_to_delete
 
 
 def insert_recombinants(ts):
@@ -446,36 +507,11 @@ def insert_recombinants(ts):
         return ts
 
     tables = ts.dump_tables()
+    mutations_to_delete = []
     for path, nodes in recombinants.items():
-        min_parent_time = ts.nodes_time[0]
-        for _, _, parent in path:
-            min_parent_time = min(ts.nodes_time[parent], min_parent_time)
+        mutations_to_delete.extend(process_recombinant(ts, tables, path, nodes))
 
-        child_mutations = {}
-        # Store a list of tuples here rather than a mapping because JSON
-        # only supports string keys.
-        mutations_md = []
-        for child in nodes:
-            mutations = node_mutation_descriptors(ts, child)
-            child_mutations[child] = mutations
-            mutations_md.append((int(child), sorted([
-                (md.site, md.inherited_state, md.derived_state) for md in mutations])))
-        recomb_node = tables.nodes.add_row(
-            time=min_parent_time / 2,
-            flags=core.NODE_IS_RECOMBINANT,
-            metadata={ "path": path, "mutations": mutations_md },
-        )
-
-        for left, right, parent in path:
-            tables.edges.add_row(left, right, parent, recomb_node)
-        for child in nodes:
-            tables.edges.add_row(0, ts.sequence_length, recomb_node, child)
-
-        # Push the maximum subset over the recombinant
-        max_subset = maximum_subset(list(child_mutations.values()))
-        print("max", max_subset)
-
-    return update_tables(tables, edges_to_delete, [])
+    return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
 def coalesce_mutations(ts):
@@ -525,7 +561,7 @@ def coalesce_mutations(ts):
         max_overlap = set()
         for v in tree.children(u):
             if v != sample and v in node_mutations:
-                overlap = node_mutations[sample] & node_mutations[v]
+                overlap = set(node_mutations[sample]) & set(node_mutations[v])
                 if len(overlap) > len(max_overlap):
                     max_overlap = overlap
         max_sample_overlap[sample] = max_overlap
@@ -541,7 +577,7 @@ def coalesce_mutations(ts):
         if len(sample_overlap) > 0:
             for v in tree.children(u):
                 if v in node_mutations and v not in used_nodes:
-                    if sample_overlap.issubset(node_mutations[v]):
+                    if sample_overlap.issubset(set(node_mutations[v])):
                         sib_groups[key].add(v)
                         used_nodes.add(v)
         # Avoid creating a new node when there's only one node in the sib group
@@ -553,12 +589,7 @@ def coalesce_mutations(ts):
     for (_, overlap), sibs in sib_groups.items():
         for mut_desc in overlap:
             for sib in sibs:
-                condition = np.logical_and(
-                    ts.mutations_node == sib,
-                    ts.mutations_site == mut_desc.site,
-                    ts.mutations_parent == mut_desc.parent,
-                )
-                mutations_to_delete.extend(np.where(condition)[0])
+                mutations_to_delete.append(node_mutations[sib][mut_desc])
                 edges_to_delete.append(tree.edge(sib))
 
     tables = ts.dump_tables()
