@@ -431,6 +431,7 @@ def process_recombinant(ts, tables, path, children):
     shared path, and push mutations shared by all of those children
     above the recombinant.
     """
+    logger.info(f"Adding recombinant for {path} with {len(children)} children")
     min_parent_time = ts.nodes_time[0]
     for _, _, parent in path:
         min_parent_time = min(ts.nodes_time[parent], min_parent_time)
