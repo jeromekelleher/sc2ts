@@ -1,10 +1,7 @@
 import logging
-import random
 import datetime
 import dataclasses
 import collections
-import json
-import hashlib
 
 import tqdm
 import tskit
@@ -76,7 +73,6 @@ def filter_samples(samples, alignment_store, max_submission_delay=None):
 
 
 def last_date(ts):
-    previous_date = None
     if ts.num_samples == 0:
         # Special case for the initial ts which contains the
         # reference but not as a sample
@@ -167,13 +163,13 @@ class Sample:
         }
 
 
-# TODO Factor this into the Samples class so that we can move
-# lists of samples to and from files.
-def write_match_json(samples):
-    data = []
-    for sample in samples:
-        data.append(sample.asdict())
-    s = json.dumps(data, indent=2)
+# # TODO Factor this into the Samples class so that we can move
+# # lists of samples to and from files.
+# def write_match_json(samples):
+#     data = []
+#     for sample in samples:
+#         data.append(sample.asdict())
+#     s = json.dumps(data, indent=2)
 
 
 def daily_extend(
@@ -187,6 +183,7 @@ def daily_extend(
     max_daily_samples=None,
     num_threads=None,
     precision=None,
+    rng=None,
 ):
     start_day = last_date(base_ts)
     last_ts = base_ts
@@ -202,6 +199,7 @@ def daily_extend(
             max_daily_samples=max_daily_samples,
             num_threads=num_threads,
             precision=precision,
+            rng=rng,
         )
         yield ts, date
         last_ts = ts
@@ -219,20 +217,19 @@ def match(
     max_daily_samples=None,
     num_threads=None,
     precision=None,
+    rng=None,
 ):
     logger.info(f"Start match for {date}")
     date_samples = [Sample(md) for md in metadata_db.get(date)]
     samples = filter_samples(date_samples, alignment_store, max_submission_delay)
     if len(samples) == 0:
-        logger.warning("No samples for {date}")
+        logger.warning(f"No samples for {date}")
         return []
     logger.info(f"Got {len(samples)} samples")
 
     if max_daily_samples is not None and len(samples) > max_daily_samples:
-        # TODO set RNG somehow
-        samples = random.sample(samples, max_daily_samples)
+        samples = rng.sample(samples, max_daily_samples)
         logger.info(f"Sampled down to {len(samples)} samples")
-    num_samples = len(samples)
 
     G = np.zeros((base_ts.num_sites, len(samples)), dtype=np.int8)
     keep_sites = base_ts.sites_position.astype(int)
@@ -279,6 +276,7 @@ def extend(
     max_daily_samples=None,
     num_threads=None,
     precision=None,
+    rng=None,
 ):
     samples = match(
         alignment_store=alignment_store,
@@ -291,6 +289,7 @@ def extend(
         max_daily_samples=max_daily_samples,
         num_threads=num_threads,
         precision=precision,
+        rng=rng,
     )
     if len(samples) == 0:
         return base_ts
