@@ -204,6 +204,15 @@ def extend(
         "for it to be included in the inference"
     ),
 )
+@click.option(
+    "--max-daily-samples",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of samples to match in a single day. If the total "
+        "is greater than this, randomly subsample."
+    ),
+)
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
 @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
@@ -216,6 +225,7 @@ def daily_extend(
     output_prefix,
     num_mismatches,
     max_submission_delay,
+    max_daily_samples,
     num_threads,
     precision,
     no_progress,
@@ -234,6 +244,7 @@ def daily_extend(
             base_ts=base_ts,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
+            max_daily_samples=max_daily_samples,
             precision=precision,
             num_threads=num_threads,
             show_progress=not no_progress,
