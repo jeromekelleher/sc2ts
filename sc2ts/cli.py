@@ -1,6 +1,7 @@
 import json
 import logging
 import platform
+import random
 import pathlib
 import sys
 import contextlib
@@ -192,8 +193,17 @@ def extend(
 @click.command()
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.argument("base", type=click.Path(dir_okay=False))
 @click.argument("output-prefix")
+@click.option(
+    "-b",
+    "--base",
+    type=click.Path(dir_okay=False, exists=True),
+    default=None,
+    help=(
+        "The base tree sequence to match against. If not specified, create "
+        "a new initial base containing the reference. "
+    ),
+)
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option(
     "--max-submission-delay",
@@ -204,7 +214,17 @@ def extend(
         "for it to be included in the inference"
     ),
 )
+@click.option(
+    "--max-daily-samples",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of samples to match in a single day. If the total "
+        "is greater than this, randomly subsample."
+    ),
+)
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
+@click.option("--random-seed", default=42, type=int, help="Random seed for subsampling")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
 @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
@@ -212,28 +232,36 @@ def extend(
 def daily_extend(
     alignments,
     metadata,
-    base,
     output_prefix,
+    base,
     num_mismatches,
     max_submission_delay,
+    max_daily_samples,
     num_threads,
+    random_seed,
     precision,
     no_progress,
     verbose,
     log_file,
 ):
     setup_logging(verbose, log_file)
+    rng = random.Random(random_seed)
+    if base is None:
+        base_ts = inference.initial_ts()
+    else:
+        base_ts = tskit.load(base)
 
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
-        base_ts = tskit.load(base)
         ts_iter = inference.daily_extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             base_ts=base_ts,
             num_mismatches=num_mismatches,
             max_submission_delay=max_submission_delay,
+            max_daily_samples=max_daily_samples,
+            rng=rng,
             precision=precision,
             num_threads=num_threads,
             show_progress=not no_progress,
