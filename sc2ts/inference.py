@@ -657,7 +657,10 @@ def push_up_reversions(ts):
             u = tree.parent(u)
             if ts.nodes_flags[u] == core.NODE_IS_MUTATION_OVERLAP:
                 # Not strictly a sample, but represents some time-0 samples
-                samples.add(u)
+                pass
+                # FIXME Getting rid of this for now because we're getting
+                # some obscure errors
+                # samples.add(u)
         else:
             samples.add(u)
 
