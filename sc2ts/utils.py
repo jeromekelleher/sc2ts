@@ -97,9 +97,11 @@ class TreeInfo:
             total=ts.num_nodes,
             disable=not show_progress,
         )
-        last_sample = ts.node(ts.samples()[-1])
+        samples = ts.samples()
+        last_sample = ts.node(samples[-1])
+
         self.nodes_date[last_sample.id] = last_sample.metadata["date"]
-        time_zero = self.nodes_date[last_sample.id]
+        self.time_zero_as_date = self.nodes_date[last_sample.id]
         self.earliest_pango_lineage = {}
         self.pango_lineage_samples = collections.defaultdict(list)
         for node in iterator:
@@ -119,7 +121,9 @@ class TreeInfo:
                     warnings.warn("Node QC metadata not available")
             else:
                 # Rounding down here, might be misleading
-                self.nodes_date[node.id] = time_zero - int(self.ts.nodes_time[node.id])
+                self.nodes_date[node.id] = self.time_zero_as_date - int(
+                    self.ts.nodes_time[node.id]
+                )
 
         self.nodes_submission_delay = self.nodes_submission_date - self.nodes_date
 
@@ -181,6 +185,9 @@ class TreeInfo:
             self.ts.mutations_node, minlength=self.ts.num_nodes
         )
 
+        # The number of samples per day in time-ago (i.e., the nodes_time units).
+        self.num_samples_per_day = np.bincount(ts.nodes_time[samples].astype(int))
+
         # sample_sets = list(self.pango_lineage_samples.values())
         # FIXME this is wrong
         # X = ts.segregating_sites(sample_sets, mode="node", span_normalise=False)
@@ -219,6 +226,8 @@ class TreeInfo:
             ("mean_masked_sites_per_sample", np.mean(masked_sites_per_sample)),
             ("max_masked_samples_per_site", np.max(self.sites_num_masked_samples)),
             ("mean_masked_samples_per_site", np.mean(self.sites_num_masked_samples)),
+            ("max_samples_per_day", np.max(self.num_samples_per_day)),
+            ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
         ]
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
@@ -620,3 +629,35 @@ class TreeInfo:
         # plt.plot(problematic_sites)
         plt.ylabel("Number masked samples")
         plt.xlabel("Position on genome")
+
+    def plot_samples_per_day(self):
+        plt.figure(figsize=(16, 4))
+        t = np.arange(self.num_samples_per_day.shape[0])
+        plt.plot(self.time_zero_as_date - t, self.num_samples_per_day)
+        plt.xlabel("Date")
+        plt.ylabel("Number of samples")
+
+    def plot_recombinant_samples_per_day(self, unique=True):
+
+        recombinant_samples = []
+        for u in self.recombinants:
+            for child, _ in self.nodes_metadata[u]["mutations"]:
+                recombinant_samples.append(child)
+                if unique:
+                    break
+
+        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8))
+
+        num_recombinants_per_day = np.bincount(
+            self.ts.nodes_time[recombinant_samples].astype(int)
+        )
+        t = np.arange(num_recombinants_per_day.shape[0])
+        x = self.time_zero_as_date - t
+        ax1.plot(x, num_recombinants_per_day)
+
+        fraction = num_recombinants_per_day / self.num_samples_per_day[t]
+        ax2.plot(x, fraction, label="Fraction")
+        ax2.set_xlabel("Date")
+        ax1.set_ylabel("Number of recombinant samples")
+        ax2.set_ylabel("Fraction of samples recombinant")
+        ax2.set_ylim(0, 0.01)
