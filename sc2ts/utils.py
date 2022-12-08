@@ -637,12 +637,14 @@ class TreeInfo:
         plt.xlabel("Date")
         plt.ylabel("Number of samples")
 
-    def plot_recombinant_samples_per_day(self):
+    def plot_recombinant_samples_per_day(self, unique=True):
 
         recombinant_samples = []
         for u in self.recombinants:
             for child, _ in self.nodes_metadata[u]["mutations"]:
                 recombinant_samples.append(child)
+                if unique:
+                    break
 
         _, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8))
 
@@ -650,10 +652,10 @@ class TreeInfo:
             self.ts.nodes_time[recombinant_samples].astype(int)
         )
         t = np.arange(num_recombinants_per_day.shape[0])
-        fraction = num_recombinants_per_day / self.num_samples_per_day[t]
         x = self.time_zero_as_date - t
-
         ax1.plot(x, num_recombinants_per_day)
+
+        fraction = num_recombinants_per_day / self.num_samples_per_day[t]
         ax2.plot(x, fraction, label="Fraction")
         ax2.set_xlabel("Date")
         ax1.set_ylabel("Number of recombinant samples")
