@@ -477,6 +477,20 @@ class TreeInfo:
             HTML(self._copying_table(child, edges)),
         ]
 
+    def _get_closest_recombinant(self, tree, node):
+        u = node
+        closest_recombinant = -1
+        path_length = 0
+        while u != 0:
+            e = self.ts.edge(tree.edge(u))
+            if e.left != 0 or e.right != self.ts.sequence_length:
+                if closest_recombinant == -1:
+                    closest_recombinant = u
+                    break
+            path_length += 1
+            u = tree.parent(u)
+        return closest_recombinant, path_length
+
     def _show_path_to_root(self, tree, node):
         u = node
         closest_recombinant = -1
@@ -567,6 +581,23 @@ class TreeInfo:
         for lineage in self.pango_lineage_samples.keys():
             node = self.pango_lineage_samples[lineage][0]
             data.append(self._node_summary(node))
+        return pd.DataFrame(data)
+
+    def pango_recombinant_lineages_report(self):
+        tree = self.ts.first()
+        data = []
+        for lineage in self.pango_lineage_samples.keys():
+            if lineage.startswith("X"):
+                node = self.pango_lineage_samples[lineage][0]
+                closest_recombinant, path_length = self._get_closest_recombinant(
+                    tree, node
+                )
+                summary = {
+                    "recombinant": closest_recombinant,
+                    "path_length": path_length,
+                    **self._node_summary(node),
+                }
+                data.append(summary)
         return pd.DataFrame(data)
 
     def _repr_html_(self):
