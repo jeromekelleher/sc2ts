@@ -8,12 +8,17 @@ import sc2ts
 from sc2ts.inference import Matcher as SequentialExtender
 
 
-def assert_variants_equal(vars1, vars2):
+def assert_variants_equal(vars1, vars2, allele_shuffle=False):
     assert vars1.num_sites == vars2.num_sites
     assert vars1.num_samples == vars2.num_samples
     for var1, var2 in zip(vars1.variants(), vars2.variants()):
-        assert var1.alleles == var2.alleles
-        assert np.all(var1.genotypes == var2.genotypes)
+        if allele_shuffle:
+            h1 = np.array(var1.alleles)[var1.genotypes]
+            h2 = np.array(var2.alleles)[var2.genotypes]
+            assert np.all(h1 == h2)
+        else:
+            assert var1.alleles == var2.alleles
+            assert np.all(var1.genotypes == var2.genotypes)
 
 
 @pytest.mark.skip()
@@ -982,3 +987,18 @@ class TestTrimBranches:
         ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
         ts2 = sc2ts.trim_branches(ts1)
         assert_variants_equal(ts1, ts2)
+
+
+class TestInferBinary:
+    @pytest.mark.parametrize("n", [2, 10, 100])
+    @pytest.mark.parametrize("mutation_rate", [0.1, 0.5, 1.5])
+    def test_simulation(self, n, mutation_rate):
+        ts1 = msprime.sim_ancestry(n, sequence_length=100, ploidy=1, random_seed=3)
+        ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
+        ts2 = sc2ts.infer_binary(ts1)
+        assert_variants_equal(ts1, ts2, allele_shuffle=True)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.num_roots == 1
+        for u in tree.nodes():
+            assert len(tree.children(u)) in (0, 2)

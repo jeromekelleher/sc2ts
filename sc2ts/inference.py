@@ -8,6 +8,9 @@ import tqdm
 import tskit
 import tsinfer
 import numpy as np
+import scipy.spatial.distance
+import scipy.cluster.hierarchy
+import numba
 
 from . import core
 from . import alignments
@@ -870,69 +873,11 @@ class Matcher(tsinfer.SampleMatcher):
         return self.results
 
 
-@dataclasses.dataclass(frozen=False)
-class LocalTreeNode:
-    mutations: Set = dataclasses.field(default_factory=set)
-    children: List = dataclasses.field(default_factory=list)
-    parent: LocalTreeNode = None
-
-    def group_mutations(self):
-        """
-        Find the largest overlapping subsets of mutations between the children
-        and create new nodes to represent those subsets.
-        """
-        max_child_overlap = []
-        for child in self.children:
-            pass
-
-            print(c)
-        # # For each sample, what is the ("a" more accurately - this is greedy)
-        # # maximum mutation overlap with one of its sibs?
-        # max_sample_overlap = {}
-        # for sample in samples:
-        #     u = tree.parent(sample)
-        #     max_overlap = set()
-        #     for v in tree.children(u):
-        #         if v != sample and v in node_mutations:
-        #             overlap = set(node_mutations[sample]) & set(node_mutations[v])
-        #             if len(overlap) > len(max_overlap):
-        #                 max_overlap = overlap
-        #     max_sample_overlap[sample] = max_overlap
-
-        # # Group the maximum mutation overlaps by the parent and mutation pattern
-        # sib_groups = collections.defaultdict(set)
-        # # Make sure we don't use the same node in more than one sib-set
-        # used_nodes = set()
-        # for sample in samples:
-        #     u = tree.parent(sample)
-        #     sample_overlap = frozenset(max_sample_overlap[sample])
-        #     key = (u, sample_overlap)
-        #     if len(sample_overlap) > 0:
-        #         for v in tree.children(u):
-        #             if v in node_mutations and v not in used_nodes:
-        #                 if sample_overlap.issubset(set(node_mutations[v])):
-        #                     sib_groups[key].add(v)
-        #                     used_nodes.add(v)
-        #     # Avoid creating a new node when there's only one node in the sib group
-        #     if len(sib_groups[key]) < 2:
-        #         del sib_groups[key]
-
-        pass
-
-
-import scipy.spatial.distance
-import scipy.cluster.hierarchy
-import numba
-
-
-@numba.njit
-def _linkage_matrix_to_dataset(Z):
+def _linkage_matrix_to_tskit(Z):
     n = Z.shape[0] + 1
     N = 2 * n
     parent = np.full(N, -1, dtype=np.int32)
     time = np.full(N, 0, dtype=np.float64)
-    left_child = np.full(N, -1, dtype=np.int32)
-    right_sib = np.full(N, -1, dtype=np.int32)
     for j, row in enumerate(Z):
         u = n + j
         time[u] = j + 1
@@ -940,81 +885,46 @@ def _linkage_matrix_to_dataset(Z):
         rc = int(row[1])
         parent[lc] = u
         parent[rc] = u
-        left_child[u] = lc
-        right_sib[lc] = rc
-    # left_child[-1] = N - 2
-    # time[-1] = np.inf
-    # return parent, time, left_child, right_sib, n
     return parent[:-1], time[:-1]
 
 
-class LocalTree:
+def infer_binary(ts):
     """
-    The tree built to represent many samples copying from the same
-    node in a daily match process.
+    Infer a strictly binary tree from the variation data in the
+    specified tree sequence.
     """
+    assert ts.num_trees == 1
 
-    @staticmethod
-    def build(variants):
-        G = np.zeros((len(variants), len(variants[0].genotypes)), dtype=int)
-        for j, var in enumerate(variants):
-            G[j] = var.genotypes
+    G = ts.genotype_matrix()
+    # Hamming distance should be suitable here because it's giving the overall
+    # number of differences between the observations. Euclidean is definitely
+    # not because of the allele encoding (difference between 0 and 4 is not
+    # greater than 0 and 1).
+    Y = scipy.spatial.distance.pdist(G.T, "hamming")
+    Z = scipy.cluster.hierarchy.average(Y)
+    parent, time = _linkage_matrix_to_tskit(Z)
 
-        Y = scipy.spatial.distance.pdist(G.T, "hamming")
-        # print(G)
-        # print(Y)
-        Z = scipy.cluster.hierarchy.average(Y)
-        # print(Z)
-        parent, time = _linkage_matrix_to_dataset(Z)
-        tables = tskit.TableCollection(variants[-1].site.position + 1)
-        print(parent, time)
-        for p, t in zip(parent, time):
-            u = tables.nodes.add_row(time=t, flags=1 if t == 0 else 0)
-            if p != tskit.NULL:
-                tables.edges.add_row(0, tables.sequence_length, parent=p, child=u)
+    tables = tskit.TableCollection(ts.sequence_length)
+    for p, t in zip(parent, time):
+        u = tables.nodes.add_row(time=t, flags=1 if t == 0 else 0)
+        if p != tskit.NULL:
+            tables.edges.add_row(0, ts.sequence_length, parent=p, child=u)
 
-        tables.sort()
-        ts = tables.tree_sequence()
-        print(ts.draw_text())
-        tree = ts.first()
-        for var in variants:
-            anc, muts = tree.map_mutations(
-                var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
+    tables.sort()
+    ts_binary = tables.tree_sequence()
+
+    tree = ts_binary.first()
+    for var in ts.variants():
+        anc, muts = tree.map_mutations(
+            var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
+        )
+        assert anc == var.site.ancestral_state
+        site = tables.sites.add_row(var.site.position, anc)
+        for mut in muts:
+            tables.mutations.add_row(
+                site=site, node=mut.node, derived_state=mut.derived_state
             )
-            print(anc, muts)
-            assert anc == var.site.ancestral_state
-            site = tables.sites.add_row(var.site.position, anc)
-            for mut in muts:
-                tables.mutations.add_row(
-                    site=site, node=mut.node, derived_state=mut.derived_state
-                )
-        print(tables.mutations)
-        ts = tables.tree_sequence()
-        print(ts)
-
-        assert ts.num_sites == len(variants)
-        for v1, v2 in zip(variants, ts.variants()):
-            print(v1.alleles, v1.genotypes)
-            print(v2.alleles, v2.genotypes)
-            print()
-
-        # root = LocalTreeNode()
-        # return root
-
-        # # Factor the sequences with zero mutations out as they complicate
-        # # other steps, and will always just descend directly from the root.
-        # zero_mutation_children = []
-        # for sample_mutations in mutations:
-        #     child = LocalTreeNode(mutations=set(sample_mutations), parent=root)
-        #     if len(child.mutations) == 0:
-        #         zero_mutation_children.append(child)
-        #     else:
-        #         root.children.append(child)
-
-        # root.group_mutations()
-
-        # root.children.extend(zero_mutation_children)
-        # return root
+    return tables.tree_sequence()
 
 
 def trim_branches(ts):
