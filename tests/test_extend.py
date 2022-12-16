@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 import tskit
+import msprime
 
 import tsinfer
 import sc2ts
@@ -828,3 +829,156 @@ class TestInsertRecombinants:
         assert ts2.num_mutations == 3
         assert ts2.num_nodes == ts.num_nodes + 1
         assert ts2.num_edges == ts.num_edges
+
+
+class TestLocalTree:
+    def test_simple(self):
+        observations = [[0, 0, 0], [0, 1, 0], [1, 1, 0]]
+        # muts = [
+        #     [(0, "A"), (1, "T")],
+        #     [(0, "A")],
+        #     []]
+        tree = sc2ts.LocalTree.build(observations)
+        print(tree)
+
+    def test_polytomy(self):
+        observations = [
+            [0],
+            [0],
+            [0],
+            [0],
+            [
+                1,
+            ],
+        ]
+        # muts = [
+        #     [(0, "A"), (1, "T")],
+        #     [(0, "A")],
+        #     []]
+        tree = sc2ts.LocalTree.build(observations)
+        print(tree)
+
+    def test_simulation(self):
+        ts = msprime.sim_ancestry(10, sequence_length=100, ploidy=1, random_seed=3)
+        ts = msprime.sim_mutations(ts, rate=1.5)
+        tree = sc2ts.LocalTree.build(list(ts.variants()))
+        print(ts.draw_text())
+        print(tree)
+
+
+class TestTrimBranches:
+    def test_one_mutation_three_children(self):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5 x ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=5, derived_state="T")
+        ts1 = tables.tree_sequence()
+
+        ts2 = sc2ts.trim_branches(ts1)
+        # 3.00┊   5     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   4   ┊
+        #     ┊ ┃ ┏━╋━┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        assert ts2.num_trees == 1
+        assert ts2.first().parent_dict == {0: 5, 1: 4, 2: 4, 3: 4, 4: 5}
+        assert_variants_equal(ts1, ts2)
+
+    def test_no_mutations(self):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5 x ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4).tree_sequence
+        tables = ts.dump_tables()
+        ts1 = tables.tree_sequence()
+
+        ts2 = sc2ts.trim_branches(ts1)
+        assert ts2.num_trees == 1
+        assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
+        assert_variants_equal(ts1, ts2)
+
+    def test_one_leaf_mutation(self):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5   ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3x┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=3, derived_state="T")
+        ts1 = tables.tree_sequence()
+
+        ts2 = sc2ts.trim_branches(ts1)
+        # Tree is also flat because this mutation is private
+        assert ts2.num_trees == 1
+        assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
+        assert_variants_equal(ts1, ts2)
+
+    def test_n_leaf_mutations(self):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5   ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0x1x2x3x┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        for j in range(4):
+            tables.mutations.add_row(site=0, node=j, derived_state="T")
+        ts1 = tables.tree_sequence()
+
+        ts2 = sc2ts.trim_branches(ts1)
+        # Tree is also flat because all mutations are private
+        assert ts2.num_trees == 1
+        assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
+        assert_variants_equal(ts1, ts2)
+
+    def test_mutations_each_branch(self):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5   ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4, span=10).tree_sequence
+        tables = ts.dump_tables()
+        for j in range(6):
+            tables.sites.add_row(j, "A")
+            tables.mutations.add_row(site=j, node=j, derived_state="T")
+        ts1 = tables.tree_sequence()
+
+        ts2 = sc2ts.trim_branches(ts1)
+        assert ts2.num_trees == 1
+        assert ts2.first().parent_dict == ts1.first().parent_dict
+        assert_variants_equal(ts1, ts2)
+
+    @pytest.mark.parametrize("n", [2, 10, 100])
+    @pytest.mark.parametrize("mutation_rate", [0.1, 0.5, 1.5])
+    def test_simulation(self, n, mutation_rate):
+        ts1 = msprime.sim_ancestry(n, sequence_length=100, ploidy=1, random_seed=3)
+        ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
+        ts2 = sc2ts.trim_branches(ts1)
+        assert_variants_equal(ts1, ts2)
