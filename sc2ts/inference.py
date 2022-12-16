@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 def initial_ts():
     reference = core.get_reference_sequence()
-    L = len(reference)
+    L = core.REFERENCE_SEQUENCE_LENGTH
+    assert L == len(reference)
     problematic_sites = set(core.get_problematic_sites())
 
     tables = tskit.TableCollection(L)
@@ -128,12 +129,13 @@ def validate(ts, alignment_store, show_progress=False):
                 raise ValueError("Data mismatch")
 
 
+@dataclasses.dataclass
 class Sample:
-    def __init__(self, metadata):
-        self.metadata = metadata
-        self.alignment_qc = {}
-        self.path = None
-        self.mutations = None
+    metadata: Dict = dataclasses.field(default_factory=dict)
+    path: List = dataclasses.field(default_factory=list)
+    mutations: List = dataclasses.field(default_factory=list)
+    alignment_qc: Dict = dataclasses.field(default_factory=dict)
+    masked_sites: List = dataclasses.field(default_factory=list)
 
     def __repr__(self):
         return self.strain
@@ -301,14 +303,93 @@ def extend(
     return add_matching_results(samples, ts)
 
 
+def match_path_ts(samples, ts):
+    """
+    Given the specified list of samples with equal copying paths,
+    return the tree sequence rooted at zero representing the data.
+    """
+    tables = tskit.TableCollection(ts.sequence_length)
+    tables.nodes.metadata_schema = ts.table_metadata_schemas.node
+    # Zero is the attach node
+    tables.nodes.add_row(time=1)
+    path = samples[0].path
+    site_id_map = {}
+    first_sample = len(tables.nodes)
+    for sample in samples:
+        assert sample.path == path
+        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
+        node_id = tables.nodes.add_row(
+            flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
+        )
+        for left, right, parent in sample.path:
+            tables.edges.add_row(left, right, parent=0, child=node_id)
+        for site, _ in sample.mutations:
+            site_id_map[site] = -1
+
+    # Get the sites that we have variation for and the inherited state
+    # at that site in the parent ts.
+    tree = ts.first()
+    for site_id in sorted(site_id_map.keys()):
+        site = ts.site(site_id)
+        mutations = {
+            mutation.node: mutation.derived_state for mutation in site.mutations
+        }
+        tree.seek(site.position)
+        for left, right, parent in path:
+            if left <= site.position < right:
+                u = parent
+                while u not in mutations and u != -1:
+                    u = tree.parent(u)
+                root_state = site.ancestral_state
+                if u != -1:
+                    root_state = mutations[u]
+        new_id = tables.sites.add_row(site.position, ancestral_state=root_state)
+        site_id_map[site_id] = new_id
+
+    # Now add the mutations
+    for node_id, sample in enumerate(samples, first_sample):
+        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
+        for site, derived_state in sample.mutations:
+            tables.mutations.add_row(
+                site=site_id_map[site],
+                node=node_id,
+                time=0,
+                derived_state=derived_state,
+            )
+    tables.sort()
+    return tables.tree_sequence()
+    # print(tables)
+
+
 def add_matching_results(samples, ts):
+
+    # Group matches by path
+    matches = collections.defaultdict(list)
+    site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
+    for sample in samples:
+        site_masked_samples[sample.masked_sites] += 1
+        matches[tuple(sample.path)].append(sample)
+
+    print(f"Matching to {len(matches)} distinct paths")
+    for path in matches.keys():
+        flat_ts = match_path_ts(matches[path], ts)
+        print(flat_ts.draw_text())
+        print("flat mutations = ", flat_ts.num_mutations)
+        if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
+            poly_ts = flat_ts
+        else:
+            binary_ts = infer_binary(flat_ts)
+            poly_ts = trim_branches(binary_ts)
+        assert poly_ts.num_samples == flat_ts.num_samples
+        print(poly_ts.draw_text())
+        print("poly mutations = ", poly_ts.num_mutations)
+        print("----")
+    # PICK UP HERE - now we need to rewrite the code below to attach
+    # at the right points.
 
     tables = ts.dump_tables()
 
-    site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
-
     for sample in samples:
-        site_masked_samples[sample.masked_sites] += 1
         metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata

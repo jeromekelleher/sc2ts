@@ -4,67 +4,147 @@ import tsinfer
 import tskit
 
 import sc2ts
-from sc2ts import inference
-from sc2ts import core
-from sc2ts import convert
 
 
+class TestMatchPathTs:
+    def match_path_ts(self, samples, ts):
+        ts2 = sc2ts.match_path_ts(samples, ts)
+        assert ts2.num_samples == len(samples)
+        for u, sample in ts.samples():
+            node = ts.node(u)
+            assert node.time == 0
+            assert node.metadata == sample.metadata
+        return ts2
 
-# @pytest.fixture
-def small_sd_fixture():
-    reference = core.get_reference_sequence()
-    print(reference)
-    fasta = {"REF": reference}
-    rows = [{"strain": "REF"}]
-    sd = convert.convert_alignments(rows, fasta)
+    def test_one_sample(self):
+        ts = sc2ts.initial_ts()
+        s1 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)])
+        ts2 = self.match_path_ts([s1], ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0}
 
-    return sd
+    def test_one_sample_one_mutation(self):
+        ts = sc2ts.initial_ts()
+        s1 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)], mutations=[(100, "X")])
+        ts2 = self.match_path_ts([s1], ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0}
+        assert ts2.num_sites == 1
+        assert ts2.site(0).ancestral_state == ts.site(100).ancestral_state
+        assert list(ts2.haplotypes()) == ["X"]
 
-    # ref = core.get_reference_sequence()
-    # with tsinfer.SampleData(sequence_length=len(ref)) as sd:
-    #     sd.add_individual(
-    #         metadata={
-    #             "strain": "A",
-    #             "date": "2019-12-30",
-    #             "date_submitted": "2020-01-02",
-    #         }
-    #     )
-    #     sd.add_individual(
-    #         metadata={
-    #             "strain": "B",
-    #             "date": "2020-01-01",
-    #             "date_submitted": "2020-02-02",
-    #         }
-    #     )
-    #     sd.add_individual(
-    #         metadata={
-    #             "strain": "C",
-    #             "date": "2020-01-01",
-    #             "date_submitted": "2020-02-02",
-    #         }
-    #     )
-    #     sd.add_individual(
-    #         metadata={
-    #             "strain": "D",
-    #             "date": "2020-01-02",
-    #             "date_submitted": "2022-02-02",
-    #         }
-    #     )
-    #     sd.add_individual(
-    #         metadata={
-    #             "strain": "E",
-    #             "date": "2020-01-06",
-    #             "date_submitted": "2020-02-02",
-    #         }
-    #     )
-    # for
-    # return sd
+    def test_two_sample_one_mutation_each(self):
+        ts = sc2ts.initial_ts()
+        s1 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)], mutations=[(100, "X")])
+        s2 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)], mutations=[(200, "Y")])
+        ts2 = self.match_path_ts([s1, s2], ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0, 2: 0}
+        assert ts2.num_sites == 2
+        site0 = ts2.site(0)
+        site1 = ts2.site(1)
+        assert site0.ancestral_state == ts.site(100).ancestral_state
+        assert site1.ancestral_state == ts.site(200).ancestral_state
+        assert len(site0.mutations) == 1
+        assert len(site1.mutations) == 1
+        assert site0.mutations[0].derived_state == "X"
+        assert site1.mutations[0].derived_state == "Y"
 
-class TestInitialTables:
-    def test_site_schema(self):
-        sd = small_sd_fixture()
-        pass
+    @pytest.mark.parametrize("num_mutations", range(1, 6))
+    def test_one_sample_k_mutations(self, num_mutations):
+        ts = sc2ts.initial_ts()
+        s1 = sc2ts.Sample(
+            path=[(0, ts.sequence_length, 1)],
+            mutations=[(j, f"{j}") for j in range(num_mutations)],
+        )
+        ts2 = self.match_path_ts([s1], ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0}
+        assert ts2.num_sites == num_mutations
+        for j in range(num_mutations):
+            assert ts2.site(j).ancestral_state == ts.site(j).ancestral_state
+        assert list(ts2.haplotypes()) == ["".join(f"{j}" for j in range(num_mutations))]
 
+    def test_n_samples_metadata(self):
+        ts = sc2ts.initial_ts()
+        samples = []
+        for j in range(10):
+            samples.append(
+                sc2ts.Sample(
+                    metadata={f"x{j}": j, f"y{j}": list(range(j))},
+                    path=[(0, ts.sequence_length, 1)],
+                )
+            )
+        self.match_path_ts(samples, ts)
+
+
+class TestAddMatchingResults:
+    def test_one_sample(self):
+        ts = sc2ts.initial_ts()
+        ts = sc2ts.increment_time("2021-01-02", ts)
+        s1 = sc2ts.Sample(metadata={}, path=[(0, ts.sequence_length, 1)], mutations=[])
+
+        ts2 = sc2ts.add_matching_results([s1], ts)
+
+
+# # @pytest.fixture
+# def small_sd_fixture():
+#     reference = core.get_reference_sequence()
+#     print(reference)
+#     fasta = {"REF": reference}
+#     rows = [{"strain": "REF"}]
+#     sd = convert.convert_alignments(rows, fasta)
+
+#     return sd
+
+# ref = core.get_reference_sequence()
+# with tsinfer.SampleData(sequence_length=len(ref)) as sd:
+#     sd.add_individual(
+#         metadata={
+#             "strain": "A",
+#             "date": "2019-12-30",
+#             "date_submitted": "2020-01-02",
+#         }
+#     )
+#     sd.add_individual(
+#         metadata={
+#             "strain": "B",
+#             "date": "2020-01-01",
+#             "date_submitted": "2020-02-02",
+#         }
+#     )
+#     sd.add_individual(
+#         metadata={
+#             "strain": "C",
+#             "date": "2020-01-01",
+#             "date_submitted": "2020-02-02",
+#         }
+#     )
+#     sd.add_individual(
+#         metadata={
+#             "strain": "D",
+#             "date": "2020-01-02",
+#             "date_submitted": "2022-02-02",
+#         }
+#     )
+#     sd.add_individual(
+#         metadata={
+#             "strain": "E",
+#             "date": "2020-01-06",
+#             "date_submitted": "2020-02-02",
+#         }
+#     )
+# for
+# return sd
+
+# class TestInitialTables:
+#     def test_site_schema(self):
+#         sd = small_sd_fixture()
+#         pass
 
 
 @pytest.mark.skip()

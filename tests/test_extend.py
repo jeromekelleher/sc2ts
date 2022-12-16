@@ -1002,3 +1002,6 @@ class TestInferBinary:
         assert tree.num_roots == 1
         for u in tree.nodes():
             assert len(tree.children(u)) in (0, 2)
+
+
+
