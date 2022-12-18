@@ -836,41 +836,6 @@ class TestInsertRecombinants:
         assert ts2.num_edges == ts.num_edges
 
 
-class TestLocalTree:
-    def test_simple(self):
-        observations = [[0, 0, 0], [0, 1, 0], [1, 1, 0]]
-        # muts = [
-        #     [(0, "A"), (1, "T")],
-        #     [(0, "A")],
-        #     []]
-        tree = sc2ts.LocalTree.build(observations)
-        print(tree)
-
-    def test_polytomy(self):
-        observations = [
-            [0],
-            [0],
-            [0],
-            [0],
-            [
-                1,
-            ],
-        ]
-        # muts = [
-        #     [(0, "A"), (1, "T")],
-        #     [(0, "A")],
-        #     []]
-        tree = sc2ts.LocalTree.build(observations)
-        print(tree)
-
-    def test_simulation(self):
-        ts = msprime.sim_ancestry(10, sequence_length=100, ploidy=1, random_seed=3)
-        ts = msprime.sim_mutations(ts, rate=1.5)
-        tree = sc2ts.LocalTree.build(list(ts.variants()))
-        print(ts.draw_text())
-        print(tree)
-
-
 class TestTrimBranches:
     def test_one_mutation_three_children(self):
         # 3.00┊   6     ┊
@@ -909,6 +874,26 @@ class TestTrimBranches:
         #     0         1
         ts = tskit.Tree.generate_comb(4).tree_sequence
         tables = ts.dump_tables()
+        ts1 = tables.tree_sequence()
+
+        ts2 = sc2ts.trim_branches(ts1)
+        assert ts2.num_trees == 1
+        assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
+        assert_variants_equal(ts1, ts2)
+
+    def test_mutation_over_root(self):
+        # 3.00┊   6 x   ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5   ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=6, derived_state="T")
         ts1 = tables.tree_sequence()
 
         ts2 = sc2ts.trim_branches(ts1)
@@ -1003,5 +988,22 @@ class TestInferBinary:
         for u in tree.nodes():
             assert len(tree.children(u)) in (0, 2)
 
-
-
+    @pytest.mark.parametrize("n", [2, 10])
+    @pytest.mark.parametrize("num_mutations", [1, 2, 10])
+    def test_simulation_root_mutations(self, n, num_mutations):
+        ts1 = msprime.sim_ancestry(n, sequence_length=100, ploidy=1, random_seed=3)
+        root = ts1.first().root
+        tables = ts1.dump_tables()
+        for j in range(num_mutations):
+            tables.sites.add_row(j, "A")
+            tables.mutations.add_row(site=j, node=root, derived_state="T")
+        ts1 = tables.tree_sequence()
+        ts2 = sc2ts.infer_binary(ts1)
+        assert_variants_equal(ts1, ts2)
+        root = ts2.first().root
+        assert np.all(ts2.mutations_node == root)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.num_roots == 1
+        for u in tree.nodes():
+            assert len(tree.children(u)) in (0, 2)

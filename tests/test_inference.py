@@ -6,11 +6,28 @@ import tskit
 import sc2ts
 
 
+class TestAttach:
+    def test_binary_tree_example(self):
+        # Attach a balance binary tree to each of its leaves.
+
+        # 5.00┊    6    ┊
+        #     ┊  ┏━┻━┓  ┊
+        # 4.00┊  4   5  ┊
+        #     ┊ ┏┻┓ ┏┻┓ ┊
+        # 3.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
+        tables = ts.dump_tables()
+        tables.nodes.time += 3
+        ts = sc2ts.attach(tables.tree_sequence(), {0: ts, 1: ts, 2: ts, 3: ts})
+
+
+
 class TestMatchPathTs:
     def match_path_ts(self, samples, ts):
         ts2 = sc2ts.match_path_ts(samples, ts)
         assert ts2.num_samples == len(samples)
-        for u, sample in ts.samples():
+        for u, sample in zip(ts.samples(), samples):
             node = ts.node(u)
             assert node.time == 0
             assert node.metadata == sample.metadata
@@ -23,6 +40,55 @@ class TestMatchPathTs:
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
+
+    def test_one_sample_match_recombinant(self):
+        # 3.00┊  0  ┊  0  ┊
+        #     ┊  ┃  ┊  ┃  ┊
+        # 2.00┊  1  ┊  1  ┊
+        #     ┊ ┏┻┓ ┊ ┏┻┓ ┊
+        # 1.00┊ 3 2 ┊ 2 3 ┊
+        #     ┊   ┃ ┊   ┃ ┊
+        # 0.00┊   4 ┊   4 ┊
+        #    0   14952 29904
+        # Our target node is 4
+
+        ts = sc2ts.initial_ts()
+        L = ts.sequence_length
+        tables = ts.dump_tables()
+        tables.nodes.time += 2
+        u = ts.num_nodes - 1
+        a = tables.nodes.add_row(flags=0, time=1)
+        b = tables.nodes.add_row(flags=0, time=1)
+        c = tables.nodes.add_row(flags=1, time=0)
+        tables.edges.add_row(0, L, parent=u, child=a)
+        tables.edges.add_row(0, L, parent=u, child=b)
+        tables.edges.add_row(0, L // 2, parent=a, child=c)
+        tables.edges.add_row(L // 2, L, parent=b, child=c)
+        # Redo the sites to make things simpler
+        tables.sites.clear()
+        tables.sites.add_row(L // 4, "A")
+        tables.sites.add_row(3 * L // 4, "A")
+        # Put mutations over 3 at both sites. We should only inherit from
+        # the second one.
+        tables.mutations.add_row(site=0, derived_state="T", node=3)
+        tables.mutations.add_row(site=1, derived_state="T", node=3)
+        tables.sort()
+        ts = tables.tree_sequence()
+
+        s1 = sc2ts.Sample(
+            path=[(0, ts.sequence_length, c)], mutations=[(0, "G"), (1, "G")]
+        )
+        ts2 = self.match_path_ts([s1], ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0}
+        assert ts2.num_sites == 2
+        assert ts2.num_mutations == 2
+        assert ts2.site(0).position == ts.site(0).position
+        assert ts2.site(0).ancestral_state == "A"
+        assert ts2.site(1).position == ts.site(1).position
+        assert ts2.site(1).ancestral_state == "T"
+        assert list(ts2.haplotypes()) == ["GG"]
 
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()

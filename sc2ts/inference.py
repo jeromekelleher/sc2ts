@@ -10,7 +10,6 @@ import tsinfer
 import numpy as np
 import scipy.spatial.distance
 import scipy.cluster.hierarchy
-import numba
 
 from . import core
 from . import alignments
@@ -137,11 +136,11 @@ class Sample:
     alignment_qc: Dict = dataclasses.field(default_factory=dict)
     masked_sites: List = dataclasses.field(default_factory=list)
 
-    def __repr__(self):
-        return self.strain
+    # def __repr__(self):
+    #     return self.strain
 
-    def __str__(self):
-        return f"{self.strain}: {self.path} + {self.mutations}"
+    # def __str__(self):
+    #     return f"{self.strain}: {self.path} + {self.mutations}"
 
     @property
     def strain(self):
@@ -370,40 +369,25 @@ def add_matching_results(samples, ts):
         site_masked_samples[sample.masked_sites] += 1
         matches[tuple(sample.path)].append(sample)
 
+    tables = ts.dump_tables()
     print(f"Matching to {len(matches)} distinct paths")
+
     for path in matches.keys():
         flat_ts = match_path_ts(matches[path], ts)
-        print(flat_ts.draw_text())
-        print("flat mutations = ", flat_ts.num_mutations)
         if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
             poly_ts = flat_ts
         else:
             binary_ts = infer_binary(flat_ts)
             poly_ts = trim_branches(binary_ts)
         assert poly_ts.num_samples == flat_ts.num_samples
-        print(poly_ts.draw_text())
-        print("poly mutations = ", poly_ts.num_mutations)
-        print("----")
-    # PICK UP HERE - now we need to rewrite the code below to attach
-    # at the right points.
+        if poly_ts.num_samples > 5:
+            # print(flat_ts.draw_text())
+            print(poly_ts.draw_text())
+            print("flat mutations = ", flat_ts.num_mutations)
+            print("poly mutations = ", poly_ts.num_mutations)
+            print("----")
 
-    tables = ts.dump_tables()
-
-    for sample in samples:
-        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
-        node_id = tables.nodes.add_row(
-            flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
-        )
-        for left, right, parent in sample.path:
-            tables.edges.add_row(left, right, parent=parent, child=node_id)
-        for site, derived_state in sample.mutations:
-            tables.mutations.add_row(
-                site=site,
-                node=node_id,
-                time=0,
-                derived_state=derived_state,
-                metadata={"type": "mismatch"},
-            )
+        attach_tree(ts, tables, path, poly_ts)
 
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
@@ -421,9 +405,9 @@ def add_matching_results(samples, ts):
     # is definitely suboptimal - we should probably have some algorithm that
     # works directly on the result objects plus the tree sequence, adding
     # all the stuff in afterwards when then new trees have been built.
-    ts = insert_recombinants(ts)
-    ts = coalesce_mutations(ts)
-    ts = push_up_reversions(ts)
+    # ts = insert_recombinants(ts)
+    # ts = coalesce_mutations(ts)
+    # ts = push_up_reversions(ts)
     return ts
 
 
@@ -975,6 +959,8 @@ def infer_binary(ts):
     specified tree sequence.
     """
     assert ts.num_trees == 1
+    tables = ts.dump_tables()
+    tables.clear()
 
     G = ts.genotype_matrix()
     # Hamming distance should be suitable here because it's giving the overall
@@ -984,12 +970,25 @@ def infer_binary(ts):
     Y = scipy.spatial.distance.pdist(G.T, "hamming")
     Z = scipy.cluster.hierarchy.average(Y)
     parent, time = _linkage_matrix_to_tskit(Z)
+    # Rescale time to be from 0 to 1
+    time /= np.max(time)
 
-    tables = tskit.TableCollection(ts.sequence_length)
-    for p, t in zip(parent, time):
-        u = tables.nodes.add_row(time=t, flags=1 if t == 0 else 0)
-        if p != tskit.NULL:
-            tables.edges.add_row(0, ts.sequence_length, parent=p, child=u)
+    # Add the samples in first
+    u = 0
+    for v in ts.samples():
+        node = ts.node(v)
+        assert node.time == 0
+        assert time[u] == 0
+        assert u == len(tables.nodes)
+        tables.nodes.append(node)
+        tables.edges.add_row(0, ts.sequence_length, parent=parent[u], child=u)
+        u += 1
+    while u < len(parent):
+        assert u == len(tables.nodes)
+        tables.nodes.add_row(time=time[u], flags=0)
+        if parent[u] != tskit.NULL:
+            tables.edges.add_row(0, ts.sequence_length, parent=parent[u], child=u)
+        u += 1
 
     tables.sort()
     ts_binary = tables.tree_sequence()
@@ -1034,4 +1033,70 @@ def trim_branches(ts):
     tables.sort()
     # Get rid of unreferenced nodes
     tables.simplify()
+    return tables.tree_sequence()
+
+
+def attach_tree(parent_ts, parent_tables, attach_path, child_ts):
+
+    assert len(attach_path) == 1
+    attach_node = attach_path[0][-1]
+
+    root_time = parent_ts.nodes_time[attach_node]
+    if root_time == 0:
+        raise ValueError("Cannot attach at time-zero node")
+    if child_ts.num_trees != 1:
+        raise ValueError("Can only attach single trees")
+    if child_ts.sequence_length != parent_ts.sequence_length:
+        raise ValueError("Incompatible sequence length")
+
+    tree = child_ts.first()
+    if np.any(child_ts.mutations_node == tree.root):
+        child_ts = add_root_edge(child_ts)
+        tree = child_ts.first()
+
+    node_id_map = {tree.root: attach_node}
+    if child_ts.nodes_time[tree.root] != 1.0:
+        raise ValueError("Time must be scaled from 0 to 1.")
+    node_time = {}
+    for u in tree.postorder():
+        node = child_ts.node(u)
+        if tree.parent(u) != -1:
+            # Tree branch length is scaled from 0 to 1.
+            time = node.time * root_time
+            node_time[u] = time
+            new_id = parent_tables.nodes.append(node.replace(time=time))
+            node_id_map[node.id] = new_id
+        for v in tree.children(u):
+            parent_tables.edges.add_row(
+                0,
+                parent_ts.sequence_length,
+                child=node_id_map[v],
+                parent=node_id_map[u],
+            )
+    # Add the mutations.
+    for site in child_ts.sites():
+        parent_site_id = parent_ts.site(position=site.position).id
+        for mutation in site.mutations:
+            assert mutation.node != tree.root
+            parent_tables.mutations.add_row(
+                site=parent_site_id,
+                node=node_id_map[mutation.node],
+                derived_state=mutation.derived_state,
+                time=node_time[mutation.node],
+            )
+
+
+def add_root_edge(ts):
+    """
+    Add another node and edge above the root and rescale time back to
+    0-1.
+    """
+    assert ts.num_trees == 1
+    tables = ts.dump_tables()
+    root = ts.first().root
+    # FIXME this is bogus. We should be doing all the time scaling by numbers
+    # of mutations.
+    new_root = tables.nodes.add_row(time=1.25)
+    tables.edges.add_row(0, ts.sequence_length, parent=new_root, child=root)
+    tables.nodes.time /= np.max(tables.nodes.time)
     return tables.tree_sequence()
