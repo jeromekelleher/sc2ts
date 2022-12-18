@@ -6,22 +6,6 @@ import tskit
 import sc2ts
 
 
-class TestAttach:
-    def test_binary_tree_example(self):
-        # Attach a balance binary tree to each of its leaves.
-
-        # 5.00┊    6    ┊
-        #     ┊  ┏━┻━┓  ┊
-        # 4.00┊  4   5  ┊
-        #     ┊ ┏┻┓ ┏┻┓ ┊
-        # 3.00┊ 0 1 2 3 ┊
-        #     0         1
-        ts = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
-        tables = ts.dump_tables()
-        tables.nodes.time += 3
-        ts = sc2ts.attach(tables.tree_sequence(), {0: ts, 1: ts, 2: ts, 3: ts})
-
-
 
 class TestMatchPathTs:
     def match_path_ts(self, samples, ts):

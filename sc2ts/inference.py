@@ -370,7 +370,7 @@ def add_matching_results(samples, ts):
         matches[tuple(sample.path)].append(sample)
 
     tables = ts.dump_tables()
-    print(f"Matching to {len(matches)} distinct paths")
+    logger.info(f"Got {len(matches)} distinct paths")
 
     for path in matches.keys():
         flat_ts = match_path_ts(matches[path], ts)
@@ -380,13 +380,12 @@ def add_matching_results(samples, ts):
             binary_ts = infer_binary(flat_ts)
             poly_ts = trim_branches(binary_ts)
         assert poly_ts.num_samples == flat_ts.num_samples
-        if poly_ts.num_samples > 5:
-            # print(flat_ts.draw_text())
-            print(poly_ts.draw_text())
-            print("flat mutations = ", flat_ts.num_mutations)
-            print("poly mutations = ", poly_ts.num_mutations)
-            print("----")
-
+        tree = poly_ts.first()
+        attach_depth = max(tree.depth(u) for u in poly_ts.samples())
+        logger.debug(
+            f"Path {path}: samples={poly_ts.num_samples} "
+            f"depth={attach_depth} mutations={poly_ts.num_mutations}"
+        )
         attach_tree(ts, tables, path, poly_ts)
 
     # Update the sites with metadata for these newly added samples.
@@ -401,13 +400,15 @@ def add_matching_results(samples, ts):
     tables.compute_mutation_parents()
     ts = tables.tree_sequence()
 
+    attach_nodes = [path[0][-1] for path in matches.keys() if len(path) == 1]
+
     # FIXME: doing these as three separate steps on different tree sequences
     # is definitely suboptimal - we should probably have some algorithm that
     # works directly on the result objects plus the tree sequence, adding
     # all the stuff in afterwards when then new trees have been built.
     # ts = insert_recombinants(ts)
     # ts = coalesce_mutations(ts)
-    # ts = push_up_reversions(ts)
+    ts = push_up_reversions(ts, attach_nodes)
     return ts
 
 
@@ -711,28 +712,11 @@ def coalesce_mutations(ts):
     return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
-def push_up_reversions(ts):
+def push_up_reversions(ts, samples):
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
 
     tree = ts.first()
-    mutations_per_node = np.bincount(ts.mutations_node, minlength=ts.num_nodes)
-
-    # First get all the time-0 samples that have mutations, or the unique parents
-    # of those that do not.
-    samples = set()
-    for u in ts.samples(time=0):
-        if mutations_per_node[u] == 0:
-            u = tree.parent(u)
-            if ts.nodes_flags[u] == core.NODE_IS_MUTATION_OVERLAP:
-                # Not strictly a sample, but represents some time-0 samples
-                pass
-                # FIXME Getting rid of this for now because we're getting
-                # some obscure errors
-                # samples.add(u)
-        else:
-            samples.add(u)
-
     # Get the samples that span the whole sequence and also have
     # parents that span the full sequence. No reason we couldn't
     # update the algorithm to work with partial edges, it's just easier
@@ -960,7 +944,11 @@ def infer_binary(ts):
     """
     assert ts.num_trees == 1
     tables = ts.dump_tables()
-    tables.clear()
+    # Don't clear popualtions for simplicity
+    tables.nodes.clear()
+    tables.edges.clear()
+    tables.sites.clear()
+    tables.mutations.clear()
 
     G = ts.genotype_matrix()
     # Hamming distance should be suitable here because it's giving the overall

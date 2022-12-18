@@ -678,7 +678,7 @@ class TestCoalesceMutations:
 class TestPushUpReversions:
     def test_no_mutations(self):
         ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
-        ts2 = sc2ts.inference.push_up_reversions(ts1)
+        ts2 = sc2ts.inference.push_up_reversions(ts1, [0, 1, 2, 3])
         ts1.tables.assert_equals(ts2.tables)
 
     def test_one_site_simple_reversion(self):
@@ -697,7 +697,29 @@ class TestPushUpReversions:
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="A")
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.push_up_reversions(ts)
+        ts2 = sc2ts.inference.push_up_reversions(ts, [0, 1, 2, 3])
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == ts.num_mutations - 1
+        assert ts2.num_nodes == ts.num_nodes + 1
+
+    def test_one_site_simple_reversion_internal(self):
+        # 4.00┊   8       ┊
+        #     ┊ ┏━┻━┓     ┊
+        # 3.00┊ ┃   7     ┊
+        #     ┊ ┃ ┏━┻━┓   ┊
+        # 2.00┊ ┃ ┃   6   ┊
+        #     ┊ ┃ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃ ┃  5  ┊
+        #     ┊ ┃ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 4 ┊
+        #     0           1
+        ts = tskit.Tree.generate_comb(5).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=6, time=2, derived_state="T")
+        tables.mutations.add_row(site=0, node=5, time=1, derived_state="A")
+        ts = prepare(tables)
+        ts2 = sc2ts.inference.push_up_reversions(ts, [5])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
@@ -722,7 +744,7 @@ class TestPushUpReversions:
 
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.push_up_reversions(ts)
+        ts2 = sc2ts.inference.push_up_reversions(ts, [0, 1, 2, 3])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
