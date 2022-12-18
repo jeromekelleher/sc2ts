@@ -402,12 +402,8 @@ def add_matching_results(samples, ts):
 
     attach_nodes = [path[0][-1] for path in matches.keys() if len(path) == 1]
 
-    # FIXME: doing these as three separate steps on different tree sequences
-    # is definitely suboptimal - we should probably have some algorithm that
-    # works directly on the result objects plus the tree sequence, adding
-    # all the stuff in afterwards when then new trees have been built.
     # ts = insert_recombinants(ts)
-    # ts = coalesce_mutations(ts)
+    ts = coalesce_mutations(ts, attach_nodes)
     ts = push_up_reversions(ts, attach_nodes)
     return ts
 
@@ -595,30 +591,30 @@ def insert_recombinants(ts):
     return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
-def coalesce_mutations(ts):
+def coalesce_mutations(ts, samples=None):
     """
     Examine all time-0 samples and their (full-sequence) sibs and create
     new nodes to represent overlapping sets of mutations. The algorithm
     is greedy and makes no guarantees about uniqueness or optimality.
     Also note that we don't recurse and only reason about mutation sharing
     at a single level in the tree.
-
-    Note: this function will most likely move to sc2ts once it has moved
-    over to tskit's hapotype matching engine.
     """
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
+    if samples is None:
+        samples = ts.samples(time=0)
 
     tree = ts.first()
 
     # Get the samples that span the whole sequence
-    samples = []
-    for u in ts.samples(time=0):
+    keep_samples = []
+    for u in samples:
         e = tree.edge(u)
         assert e != -1
         edge = ts.edge(e)
         if edge.left == 0 and edge.right == ts.sequence_length:
-            samples.append(u)
+            keep_samples.append(u)
+    samples = keep_samples
     logger.info(f"Coalescing mutations for {len(samples)} full-span samples")
 
     # For each node in one of the sib groups, the set of mutations.
