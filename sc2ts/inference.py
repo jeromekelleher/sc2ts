@@ -1,12 +1,19 @@
+from __future__ import annotations
 import logging
 import datetime
 import dataclasses
 import collections
+import io
 
 import tqdm
 import tskit
 import tsinfer
 import numpy as np
+import scipy.spatial.distance
+import scipy.cluster.hierarchy
+import Bio.AlignIO
+from Bio.Phylo import TreeConstruction
+
 
 from . import core
 from . import alignments
@@ -16,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 def initial_ts():
     reference = core.get_reference_sequence()
-    L = len(reference)
+    L = core.REFERENCE_SEQUENCE_LENGTH
+    assert L == len(reference)
     problematic_sites = set(core.get_problematic_sites())
 
     tables = tskit.TableCollection(L)
@@ -65,6 +73,8 @@ def filter_samples(samples, alignment_store, max_submission_delay=None):
             ret.append(sample)
         else:
             num_filtered += 1
+    if not_in_store == len(samples):
+        raise ValueError("All samples for day missing")
     logger.info(
         f"Filtered {num_filtered} samples with "
         f"max_submission_delay >= {max_submission_delay}"
@@ -124,18 +134,19 @@ def validate(ts, alignment_store, show_progress=False):
                 raise ValueError("Data mismatch")
 
 
+@dataclasses.dataclass
 class Sample:
-    def __init__(self, metadata):
-        self.metadata = metadata
-        self.alignment_qc = {}
-        self.path = None
-        self.mutations = None
+    metadata: Dict = dataclasses.field(default_factory=dict)
+    path: List = dataclasses.field(default_factory=list)
+    mutations: List = dataclasses.field(default_factory=list)
+    alignment_qc: Dict = dataclasses.field(default_factory=dict)
+    masked_sites: List = dataclasses.field(default_factory=list)
 
-    def __repr__(self):
-        return self.strain
+    # def __repr__(self):
+    #     return self.strain
 
-    def __str__(self):
-        return f"{self.strain}: {self.path} + {self.mutations}"
+    # def __str__(self):
+    #     return f"{self.strain}: {self.path} + {self.mutations}"
 
     @property
     def strain(self):
@@ -294,31 +305,114 @@ def extend(
     if len(samples) == 0:
         return base_ts
     ts = increment_time(date, base_ts)
-    return add_matching_results(samples, ts)
+    return add_matching_results(samples, ts, show_progress)
 
 
-def add_matching_results(samples, ts):
-
-    tables = ts.dump_tables()
-
-    site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
-
+def match_path_ts(samples, ts, path, reversions):
+    """
+    Given the specified list of samples with equal copying paths,
+    return the tree sequence rooted at zero representing the data.
+    """
+    tables = tskit.TableCollection(ts.sequence_length)
+    tables.nodes.metadata_schema = ts.table_metadata_schemas.node
+    flags = 0
+    # TODO more info and flags
+    if len(path) > 1:
+        flags = core.NODE_IS_RECOMBINANT
+    # Zero is the attach node
+    tables.nodes.add_row(time=1, flags=flags)
+    path = samples[0].path
+    site_id_map = {}
+    first_sample = len(tables.nodes)
     for sample in samples:
-        site_masked_samples[sample.masked_sites] += 1
+        assert sample.path == path
         metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
         )
-        for left, right, parent in sample.path:
-            tables.edges.add_row(left, right, parent=parent, child=node_id)
-        for site, derived_state in sample.mutations:
+        tables.edges.add_row(0, ts.sequence_length, parent=0, child=node_id)
+        for mut in sample.mutations:
+            if mut.site_id not in site_id_map:
+                new_id = tables.sites.add_row(mut.site_position, mut.inherited_state)
+                site_id_map[mut.site_id] = new_id
+
+    # Now add the mutations
+    for node_id, sample in enumerate(samples, first_sample):
+        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
+        for mut in sample.mutations:
             tables.mutations.add_row(
-                site=site,
+                site=site_id_map[mut.site_id],
                 node=node_id,
                 time=0,
-                derived_state=derived_state,
-                metadata={"type": "mismatch"},
+                derived_state=mut.derived_state,
             )
+    tables.sort()
+    return tables.tree_sequence()
+    # print(tables)
+
+
+def add_matching_results(samples, ts, show_progress=False):
+
+    # Group matches by path and set of reversion mutations
+    grouped_matches = collections.defaultdict(list)
+    site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
+    for sample in samples:
+        site_masked_samples[sample.masked_sites] += 1
+        path = tuple(sample.path)
+        reversions = tuple(
+            (mut.site_id, mut.derived_state)
+            for mut in sample.mutations
+            if mut.is_immediate_reversion
+        )
+        grouped_matches[(path, reversions)].append(sample)
+
+    tables = ts.dump_tables()
+    logger.info(f"Got {len(grouped_matches)} distinct paths")
+
+    attach_nodes = []
+
+    with tqdm.tqdm(
+        grouped_matches.items(),
+        desc="Build",
+        total=len(grouped_matches),
+        disable=not show_progress,
+    ) as bar:
+        for (path, reversions), match_samples in bar:
+            # print(path, reversions, len(match_samples))
+            # Delete the reversions from these samples so that we don't
+            # build them into the trees
+            if len(reversions) > 0:
+                for sample in match_samples:
+                    new_muts = [
+                        mut
+                        for mut in sample.mutations
+                        if (mut.site_id, mut.derived_state) not in reversions
+                    ]
+                    assert len(new_muts) == len(sample.mutations) - len(reversions)
+                    sample.mutations = new_muts
+
+            flat_ts = match_path_ts(match_samples, ts, path, reversions)
+            if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
+                poly_ts = flat_ts
+            else:
+                binary_ts = infer_binary(flat_ts)
+                # print(binary_ts.draw_text())
+                # print(binary_ts.tables.mutations)
+                poly_ts = trim_branches(binary_ts)
+                # print(poly_ts.draw_text())
+                # print(poly_ts.tables.mutations)
+                # print("----")
+            assert poly_ts.num_samples == flat_ts.num_samples
+            tree = poly_ts.first()
+            attach_depth = max(tree.depth(u) for u in poly_ts.samples())
+            nodes = attach_tree(ts, tables, path, reversions, poly_ts)
+            # print(nodes)
+            logger.debug(
+                f"Path {path}: samples={poly_ts.num_samples} "
+                f"depth={attach_depth} mutations={poly_ts.num_mutations} "
+                f"reversions={reversions} attach_nodes={nodes}"
+            )
+            attach_nodes.extend(nodes)
 
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
@@ -330,15 +424,18 @@ def add_matching_results(samples, ts):
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
+    # print("START")
+    # print(ts.draw_text())
+
     ts = tables.tree_sequence()
 
-    # FIXME: doing these as three separate steps on different tree sequences
-    # is definitely suboptimal - we should probably have some algorithm that
-    # works directly on the result objects plus the tree sequence, adding
-    # all the stuff in afterwards when then new trees have been built.
-    ts = insert_recombinants(ts)
-    ts = coalesce_mutations(ts)
-    ts = push_up_reversions(ts)
+    # ts = insert_recombinants(ts)
+    # print("BEFORE", attach_nodes)
+    # print(ts.draw_text())
+    ts = push_up_reversions(ts, attach_nodes)
+    # print("AFTER")
+    # print(ts.draw_text())
+    ts = coalesce_mutations(ts, attach_nodes)
     return ts
 
 
@@ -525,30 +622,30 @@ def insert_recombinants(ts):
     return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
-def coalesce_mutations(ts):
+def coalesce_mutations(ts, samples=None):
     """
     Examine all time-0 samples and their (full-sequence) sibs and create
     new nodes to represent overlapping sets of mutations. The algorithm
     is greedy and makes no guarantees about uniqueness or optimality.
     Also note that we don't recurse and only reason about mutation sharing
     at a single level in the tree.
-
-    Note: this function will most likely move to sc2ts once it has moved
-    over to tskit's hapotype matching engine.
     """
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
+    if samples is None:
+        samples = ts.samples(time=0)
 
     tree = ts.first()
 
     # Get the samples that span the whole sequence
-    samples = []
-    for u in ts.samples(time=0):
+    keep_samples = []
+    for u in samples:
         e = tree.edge(u)
         assert e != -1
         edge = ts.edge(e)
         if edge.left == 0 and edge.right == ts.sequence_length:
-            samples.append(u)
+            keep_samples.append(u)
+    samples = keep_samples
     logger.info(f"Coalescing mutations for {len(samples)} full-span samples")
 
     # For each node in one of the sib groups, the set of mutations.
@@ -642,28 +739,11 @@ def coalesce_mutations(ts):
     return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
-def push_up_reversions(ts):
+def push_up_reversions(ts, samples):
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
 
     tree = ts.first()
-    mutations_per_node = np.bincount(ts.mutations_node, minlength=ts.num_nodes)
-
-    # First get all the time-0 samples that have mutations, or the unique parents
-    # of those that do not.
-    samples = set()
-    for u in ts.samples(time=0):
-        if mutations_per_node[u] == 0:
-            u = tree.parent(u)
-            if ts.nodes_flags[u] == core.NODE_IS_MUTATION_OVERLAP:
-                # Not strictly a sample, but represents some time-0 samples
-                pass
-                # FIXME Getting rid of this for now because we're getting
-                # some obscure errors
-                # samples.add(u)
-        else:
-            samples.add(u)
-
     # Get the samples that span the whole sequence and also have
     # parents that span the full sequence. No reason we couldn't
     # update the algorithm to work with partial edges, it's just easier
@@ -821,20 +901,99 @@ def match_tsinfer(
     coord_map = np.append(ts.sites_position, [ts.sequence_length]).astype(int)
     coord_map[0] = 0
 
+    sample_paths = []
+    sample_mutations = []
     # Update the Sample objects with their paths and sets of mutations.
     for node_id, sample in enumerate(samples, ts.num_nodes):
         path = []
         for left, right, parent in zip(*results.get_path(node_id)):
             path.append((int(coord_map[left]), int(coord_map[right]), int(parent)))
         path.sort()
-        sample.path = path
+        sample_paths.append(path)
 
         mutations = []
         for site, derived_state in zip(*results.get_mutations(node_id)):
             derived_state = unshuffle_allele_index(derived_state, ancestral_state[site])
             mutations.append((int(site), derived_state))
         mutations.sort()
-        sample.mutations = mutations
+        sample_mutations.append(mutations)
+
+    update_path_info(samples, ts, sample_paths, sample_mutations)
+
+
+@dataclasses.dataclass(frozen=True)
+class PathSegment:
+    left: int
+    right: int
+    parent: int
+
+    def contains(self, position):
+        return self.left <= position < self.right
+
+
+@dataclasses.dataclass(frozen=True)
+class MatchMutation:
+    site_id: int
+    site_position: int
+    derived_state: str
+    inherited_state: str
+    is_reversion: bool
+    is_immediate_reversion: bool
+
+
+def update_path_info(samples, ts, sample_paths, sample_mutations):
+    tables = ts.tables
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+    del tables
+
+    tree = ts.first()
+    cache = {}
+
+    def get_closest_mutation(node, site_id):
+        if (node, site_id) not in cache:
+            site = ts.site(site_id)
+            mutations = {mutation.node: mutation for mutation in site.mutations}
+            tree.seek(site.position)
+            u = node
+            while u not in mutations and u != -1:
+                u = tree.parent(u)
+            closest = None
+            if u != -1:
+                closest = mutations[u]
+            cache[(node, site_id)] = closest
+
+        return cache[(node, site_id)]
+
+    for sample, path, mutations in zip(samples, sample_paths, sample_mutations):
+        sample.path = [PathSegment(*seg) for seg in path]
+        for site_id, derived_state in mutations:
+            site_pos = ts.sites_position[site_id]
+            seg = [seg for seg in sample.path if seg.contains(site_pos)][0]
+            closest_mutation = get_closest_mutation(seg.parent, site_id)
+            inherited_state = ancestral_state[site_id]
+            is_reversion = False
+            is_immediate_reversion = False
+            if closest_mutation is not None:
+                inherited_state = closest_mutation.derived_state
+                parent_inherited_state = ancestral_state[site_id]
+                if closest_mutation.parent != -1:
+                    grandparent_mutation = ts.mutation(closest_mutation.parent)
+                    parent_inherited_state = grandparent_mutation.derived_state
+                is_reversion = parent_inherited_state == derived_state
+                if is_reversion:
+                    is_immediate_reversion = closest_mutation.node == seg.parent
+
+            sample.mutations.append(
+                MatchMutation(
+                    site_id=site_id,
+                    site_position=site_pos,
+                    derived_state=derived_state,
+                    inherited_state=inherited_state,
+                    is_reversion=is_reversion,
+                    is_immediate_reversion=is_immediate_reversion,
+                )
+            )
 
 
 class Matcher(tsinfer.SampleMatcher):
@@ -867,3 +1026,258 @@ class Matcher(tsinfer.SampleMatcher):
             self.sample_id_map[sd_id] = builder.add_node(0)
         self._match_samples(samples)
         return self.results
+
+
+def _linkage_matrix_to_tskit(Z):
+    n = Z.shape[0] + 1
+    N = 2 * n
+    parent = np.full(N, -1, dtype=np.int32)
+    time = np.full(N, 0, dtype=np.float64)
+    for j, row in enumerate(Z):
+        u = n + j
+        time[u] = j + 1
+        lc = int(row[0])
+        rc = int(row[1])
+        parent[lc] = u
+        parent[rc] = u
+    return parent[:-1], time[:-1]
+
+
+# Currently unused method based on scipy - let's see how the Biopython
+# one works out and remove this if it's fast enough.
+def infer_binary_distance_matrix(ts):
+    """
+    Infer a strictly binary tree from the variation data in the
+    specified tree sequence.
+    """
+    assert ts.num_trees == 1
+    tables = ts.dump_tables()
+    # Don't clear popualtions for simplicity
+    tables.nodes.clear()
+    tables.edges.clear()
+    tables.sites.clear()
+    tables.mutations.clear()
+
+    G = ts.genotype_matrix()
+    # Hamming distance should be suitable here because it's giving the overall
+    # number of differences between the observations. Euclidean is definitely
+    # not because of the allele encoding (difference between 0 and 4 is not
+    # greater than 0 and 1).
+    Y = scipy.spatial.distance.pdist(G.T, "hamming")
+    Z = scipy.cluster.hierarchy.average(Y)
+    parent, time = _linkage_matrix_to_tskit(Z)
+    # Rescale time to be from 0 to 1
+    time /= np.max(time)
+
+    # Add the samples in first
+    u = 0
+    for v in ts.samples():
+        node = ts.node(v)
+        assert node.time == 0
+        assert time[u] == 0
+        assert u == len(tables.nodes)
+        tables.nodes.append(node)
+        tables.edges.add_row(0, ts.sequence_length, parent=parent[u], child=u)
+        u += 1
+    while u < len(parent):
+        assert u == len(tables.nodes)
+        tables.nodes.add_row(time=time[u], flags=0)
+        if parent[u] != tskit.NULL:
+            tables.edges.add_row(0, ts.sequence_length, parent=parent[u], child=u)
+        u += 1
+
+    tables.sort()
+    ts_binary = tables.tree_sequence()
+
+    tree = ts_binary.first()
+    for var in ts.variants():
+        anc, muts = tree.map_mutations(
+            var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
+        )
+        assert anc == var.site.ancestral_state
+        site = tables.sites.add_row(var.site.position, anc)
+        for mut in muts:
+            tables.mutations.add_row(
+                site=site, node=mut.node, derived_state=mut.derived_state
+            )
+    return tables.tree_sequence()
+
+
+def infer_binary(ts):
+
+    f = io.StringIO()
+    for u, h in zip(ts.samples(), ts.haplotypes()):
+        print(f"> {u}", file=f)
+        print(h, file=f)
+    f.seek(0)
+    aln = Bio.AlignIO.read(f, "fasta")
+
+    scorer = TreeConstruction.ParsimonyScorer()
+    searcher = TreeConstruction.NNITreeSearcher(scorer)
+    constructor = TreeConstruction.ParsimonyTreeConstructor(searcher)
+    tree = constructor.build_tree(aln)
+
+    tables = ts.dump_tables()
+    tables.nodes.clear()
+    tables.edges.clear()
+    tables.mutations.clear()
+    tables.sites.clear()
+
+    node_map = {}
+    node_time_map = {}
+    for node in sorted(tree.get_terminals(), key=lambda node: int(node.name)):
+        old_node = ts.node(int(node.name))
+        new_id = tables.nodes.append(old_node)
+        node_map[node] = new_id
+        node_time_map[node] = 0
+
+    for node in tree.find_clades(order="postorder"):
+        if node.branch_length == 0:
+            node.branch_length = 0.125  # FIXME
+        if not node.is_terminal():
+            time = max(
+                node_time_map[child] + child.branch_length for child in node.clades
+            )
+            new_id = tables.nodes.add_row(time=time)
+            node_time_map[node] = time
+            node_map[node] = new_id
+
+            for child in node.clades:
+                tables.edges.add_row(
+                    0, ts.sequence_length, parent=new_id, child=node_map[child]
+                )
+
+    # rescale time to 0-1
+    tables.nodes.time /= np.max(tables.nodes.time)
+
+    tables.sort()
+    ts_binary = tables.tree_sequence()
+    tree = ts_binary.first()
+    for var in ts.variants():
+        anc, muts = tree.map_mutations(
+            var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
+        )
+        assert anc == var.site.ancestral_state
+        site = tables.sites.add_row(var.site.position, anc)
+        for mut in muts:
+            tables.mutations.add_row(
+                site=site, node=mut.node, derived_state=mut.derived_state
+            )
+    return tables.tree_sequence()
+
+
+def trim_branches(ts):
+    """
+    Remove branches from the tree that have no mutations.
+    """
+    assert ts.num_trees == 1
+    tree = ts.first()
+    nodes_to_keep = set(ts.samples()) | {tree.root}
+    for mut in tree.mutations():
+        nodes_to_keep.add(mut.node)
+
+    parent = {}
+    for u in tree.postorder()[:-1]:
+        if u in nodes_to_keep:
+            p = tree.parent(u)
+            while p not in nodes_to_keep:
+                p = tree.parent(p)
+            parent[u] = p
+
+    tables = ts.dump_tables()
+    tables.edges.clear()
+    for c, p in parent.items():
+        tables.edges.add_row(0, ts.sequence_length, parent=p, child=c)
+
+    tables.sort()
+    # Get rid of unreferenced nodes
+    tables.simplify()
+    return tables.tree_sequence()
+
+
+def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
+
+    root_time = min(parent_ts.nodes_time[seg.parent] for seg in attach_path)
+    if root_time == 0:
+        raise ValueError("Cannot attach at time-zero node")
+    if child_ts.num_trees != 1:
+        raise ValueError("Can only attach single trees")
+    if child_ts.sequence_length != parent_ts.sequence_length:
+        raise ValueError("Incompatible sequence length")
+
+    tree = child_ts.first()
+    condition = (
+        np.any(child_ts.mutations_node == tree.root)
+        or len(reversions) > 0
+        or len(attach_path) > 1
+    )
+    if condition:
+        child_ts = add_root_edge(child_ts)
+        tree = child_ts.first()
+
+    node_id_map = {}
+    if child_ts.nodes_time[tree.root] != 1.0:
+        raise ValueError("Time must be scaled from 0 to 1.")
+    node_time = {}
+    for u in tree.postorder()[:-1]:
+        node = child_ts.node(u)
+        # Tree branch length is scaled from 0 to 1.
+        time = node.time * root_time
+        node_time[u] = time
+        new_id = parent_tables.nodes.append(node.replace(time=time))
+        node_id_map[node.id] = new_id
+        for v in tree.children(u):
+            parent_tables.edges.add_row(
+                0,
+                parent_ts.sequence_length,
+                child=node_id_map[v],
+                parent=node_id_map[u],
+            )
+    # Attach the root to the input path.
+    for child in tree.children(tree.root):
+        for seg in attach_path:
+            parent_tables.edges.add_row(
+                seg.left, seg.right, parent=seg.parent, child=node_id_map[child]
+            )
+
+    # Add the mutations.
+    for site in child_ts.sites():
+        parent_site_id = parent_ts.site(position=site.position).id
+        for mutation in site.mutations:
+            assert mutation.node != tree.root
+            parent_tables.mutations.add_row(
+                site=parent_site_id,
+                node=node_id_map[mutation.node],
+                derived_state=mutation.derived_state,
+                time=node_time[mutation.node],
+            )
+    if len(reversions) > 0:
+        # Add the reversions back on over the unary root.
+        node = tree.children(tree.root)[0]
+        assert tree.num_children(tree.root) == 1
+        # print("attaching reversions at ", node, node_id_map[node])
+        # print(child_ts.draw_text())
+        for site_id, derived_state in reversions:
+            parent_tables.mutations.add_row(
+                site=site_id,
+                node=node_id_map[node],
+                derived_state=derived_state,
+                time=node_time[node],
+            )
+    return [node_id_map[u] for u in tree.children(tree.root)]
+
+
+def add_root_edge(ts):
+    """
+    Add another node and edge above the root and rescale time back to
+    0-1.
+    """
+    assert ts.num_trees == 1
+    tables = ts.dump_tables()
+    root = ts.first().root
+    # FIXME this is bogus. We should be doing all the time scaling by numbers
+    # of mutations.
+    new_root = tables.nodes.add_row(time=1.25)
+    tables.edges.add_row(0, ts.sequence_length, parent=new_root, child=root)
+    tables.nodes.time /= np.max(tables.nodes.time)
+    return tables.tree_sequence()
