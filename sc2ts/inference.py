@@ -382,15 +382,19 @@ def add_matching_results(samples, ts):
             poly_ts = flat_ts
         else:
             binary_ts = infer_binary(flat_ts)
+            # print(binary_ts.draw_text())
+            # print(binary_ts.tables.mutations)
             poly_ts = trim_branches(binary_ts)
+            # print(poly_ts.draw_text())
+            # print(poly_ts.tables.mutations)
         assert poly_ts.num_samples == flat_ts.num_samples
         tree = poly_ts.first()
         attach_depth = max(tree.depth(u) for u in poly_ts.samples())
         nodes = attach_tree(ts, tables, path, reversions, poly_ts)
         logger.debug(
             f"Path {path}: samples={poly_ts.num_samples} "
-            f"depth={attach_depth} mutations={poly_ts.num_mutations}"
-            f"reversions={reversions} attach_nodes={attach_nodes}"
+            f"depth={attach_depth} mutations={poly_ts.num_mutations} "
+            f"reversions={reversions} attach_nodes={nodes}"
         )
         attach_nodes.extend(nodes)
 
