@@ -6,7 +6,6 @@ import tskit
 import sc2ts
 
 
-
 class TestMatchPathTs:
     def match_path_ts(self, samples, ts):
         ts2 = sc2ts.match_path_ts(samples, ts)

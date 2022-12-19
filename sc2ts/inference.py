@@ -301,7 +301,7 @@ def extend(
     if len(samples) == 0:
         return base_ts
     ts = increment_time(date, base_ts)
-    return add_matching_results(samples, ts)
+    return add_matching_results(samples, ts, show_progress)
 
 
 def match_path_ts(samples, ts):
@@ -344,7 +344,7 @@ def match_path_ts(samples, ts):
     # print(tables)
 
 
-def add_matching_results(samples, ts):
+def add_matching_results(samples, ts, show_progress=False):
 
     # Group matches by path and set of reversion mutations
     grouped_matches = collections.defaultdict(list)
@@ -363,40 +363,49 @@ def add_matching_results(samples, ts):
     logger.info(f"Got {len(grouped_matches)} distinct paths")
 
     attach_nodes = []
-    for (path, reversions), match_samples in grouped_matches.items():
-        # print(path, reversions, len(match_samples))
-        # Delete the reversions from these samples so that we don't
-        # build them into the trees
-        if len(reversions) > 0:
-            for sample in match_samples:
-                new_muts = [
-                    mut
-                    for mut in sample.mutations
-                    if (mut.site_id, mut.derived_state) not in reversions
-                ]
-                assert len(new_muts) == len(sample.mutations) - len(reversions)
-                sample.mutations = new_muts
 
-        flat_ts = match_path_ts(match_samples, ts)
-        if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
-            poly_ts = flat_ts
-        else:
-            binary_ts = infer_binary(flat_ts)
-            # print(binary_ts.draw_text())
-            # print(binary_ts.tables.mutations)
-            poly_ts = trim_branches(binary_ts)
-            # print(poly_ts.draw_text())
-            # print(poly_ts.tables.mutations)
-        assert poly_ts.num_samples == flat_ts.num_samples
-        tree = poly_ts.first()
-        attach_depth = max(tree.depth(u) for u in poly_ts.samples())
-        nodes = attach_tree(ts, tables, path, reversions, poly_ts)
-        logger.debug(
-            f"Path {path}: samples={poly_ts.num_samples} "
-            f"depth={attach_depth} mutations={poly_ts.num_mutations} "
-            f"reversions={reversions} attach_nodes={nodes}"
-        )
-        attach_nodes.extend(nodes)
+    with tqdm.tqdm(
+        grouped_matches.items(),
+        desc="Build",
+        total=len(grouped_matches),
+        disable=not show_progress,
+    ) as bar:
+        for (path, reversions), match_samples in bar:
+            # print(path, reversions, len(match_samples))
+            # Delete the reversions from these samples so that we don't
+            # build them into the trees
+            if len(reversions) > 0:
+                for sample in match_samples:
+                    new_muts = [
+                        mut
+                        for mut in sample.mutations
+                        if (mut.site_id, mut.derived_state) not in reversions
+                    ]
+                    assert len(new_muts) == len(sample.mutations) - len(reversions)
+                    sample.mutations = new_muts
+
+            flat_ts = match_path_ts(match_samples, ts)
+            if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
+                poly_ts = flat_ts
+            else:
+                binary_ts = infer_binary(flat_ts)
+                # print(binary_ts.draw_text())
+                # print(binary_ts.tables.mutations)
+                poly_ts = trim_branches(binary_ts)
+                # print(poly_ts.draw_text())
+                # print(poly_ts.tables.mutations)
+                # print("----")
+            assert poly_ts.num_samples == flat_ts.num_samples
+            tree = poly_ts.first()
+            attach_depth = max(tree.depth(u) for u in poly_ts.samples())
+            nodes = attach_tree(ts, tables, path, reversions, poly_ts)
+            # print(nodes)
+            logger.debug(
+                f"Path {path}: samples={poly_ts.num_samples} "
+                f"depth={attach_depth} mutations={poly_ts.num_mutations} "
+                f"reversions={reversions} attach_nodes={nodes}"
+            )
+            attach_nodes.extend(nodes)
 
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
@@ -1027,7 +1036,7 @@ def _linkage_matrix_to_tskit(Z):
     return parent[:-1], time[:-1]
 
 
-def infer_binary(ts):
+def infer_binary_distance_matrix(ts):
     """
     Infer a strictly binary tree from the variation data in the
     specified tree sequence.
@@ -1071,6 +1080,74 @@ def infer_binary(ts):
     tables.sort()
     ts_binary = tables.tree_sequence()
 
+    tree = ts_binary.first()
+    for var in ts.variants():
+        anc, muts = tree.map_mutations(
+            var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
+        )
+        assert anc == var.site.ancestral_state
+        site = tables.sites.add_row(var.site.position, anc)
+        for mut in muts:
+            tables.mutations.add_row(
+                site=site, node=mut.node, derived_state=mut.derived_state
+            )
+    return tables.tree_sequence()
+
+
+import Bio.AlignIO
+from Bio.Phylo import TreeConstruction
+import io
+
+
+def infer_binary(ts):
+
+    f = io.StringIO()
+    for u, h in zip(ts.samples(), ts.haplotypes()):
+        print(f"> {u}", file=f)
+        print(h, file=f)
+    f.seek(0)
+    aln = Bio.AlignIO.read(f, "fasta")
+
+    scorer = TreeConstruction.ParsimonyScorer()
+    searcher = TreeConstruction.NNITreeSearcher(scorer)
+    constructor = TreeConstruction.ParsimonyTreeConstructor(searcher)
+    tree = constructor.build_tree(aln)
+
+    tables = ts.dump_tables()
+    tables.nodes.clear()
+    tables.edges.clear()
+    tables.mutations.clear()
+    tables.sites.clear()
+
+    node_map = {}
+    node_time_map = {}
+    for node in sorted(tree.get_terminals(), key=lambda node: int(node.name)):
+        old_node = ts.node(int(node.name))
+        new_id = tables.nodes.append(old_node)
+        node_map[node] = new_id
+        node_time_map[node] = 0
+
+    for node in tree.find_clades(order="postorder"):
+        if node.branch_length == 0:
+            node.branch_length = 0.125  # FIXME
+        if not node.is_terminal():
+            time = max(
+                node_time_map[child] + child.branch_length for child in node.clades
+            )
+            new_id = tables.nodes.add_row(time=time)
+            node_time_map[node] = time
+            node_map[node] = new_id
+
+            for child in node.clades:
+                tables.edges.add_row(
+                    0, ts.sequence_length, parent=new_id, child=node_map[child]
+                )
+
+    # rescale time to 0-1
+    tables.nodes.time /= np.max(tables.nodes.time)
+
+    tables.sort()
+    ts_binary = tables.tree_sequence()
     tree = ts_binary.first()
     for var in ts.variants():
         anc, muts = tree.map_mutations(

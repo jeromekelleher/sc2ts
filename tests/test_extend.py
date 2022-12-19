@@ -997,7 +997,7 @@ class TestTrimBranches:
 
 
 class TestInferBinary:
-    @pytest.mark.parametrize("n", [2, 10, 100])
+    @pytest.mark.parametrize("n", [2, 10, 15])
     @pytest.mark.parametrize("mutation_rate", [0.1, 0.5, 1.5])
     def test_simulation(self, n, mutation_rate):
         ts1 = msprime.sim_ancestry(n, sequence_length=100, ploidy=1, random_seed=3)
