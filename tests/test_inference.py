@@ -6,6 +6,9 @@ import tskit
 import sc2ts
 
 
+# NOTE: the current API in which we update the Sample objects is
+# really horrible and we need to refactor to make it more testable.
+# This function is a symptom of that.
 def get_samples(ts, paths, mutations=None):
     if mutations is None:
         mutations = [[] for _ in paths]
@@ -13,6 +16,86 @@ def get_samples(ts, paths, mutations=None):
     samples = [sc2ts.Sample() for _ in paths]
     sc2ts.update_path_info(samples, ts, paths, mutations)
     return samples
+
+
+def example_binary(n):
+    base = sc2ts.initial_ts()
+    tables = base.dump_tables()
+    tree = tskit.Tree.generate_balanced(n, span=base.sequence_length)
+    binary_tables = tree.tree_sequence.dump_tables()
+    binary_tables.nodes.time += 1
+    tables.nodes.time += np.max(binary_tables.nodes.time) + 1
+    binary_tables.edges.child += len(tables.nodes)
+    binary_tables.edges.parent += len(tables.nodes)
+    for node in binary_tables.nodes:
+        tables.nodes.append(node.replace(metadata={}))
+    for edge in binary_tables.edges:
+        tables.edges.append(edge)
+    # FIXME brittle
+    tables.edges.add_row(0, base.sequence_length, parent=1, child=tree.root + 2)
+    tables.sort()
+    return tables.tree_sequence()
+
+
+class TestAddMatchingResults:
+    def add_matching_results(self, samples, ts):
+        ts2 = sc2ts.add_matching_results(samples, ts)
+        assert ts2.num_samples == len(samples) + ts.num_samples
+        for u, sample in zip(ts2.samples()[-len(samples) :], samples):
+            node = ts2.node(u)
+            assert node.time == 0
+        assert ts2.num_sites == ts.num_sites
+        return ts2
+
+    def test_one_sample(self):
+        # 4.00┊  0  ┊
+        #     ┊  ┃  ┊
+        # 3.00┊  1  ┊
+        #     ┊  ┃  ┊
+        # 2.00┊  4  ┊
+        #     ┊ ┏┻┓ ┊
+        # 1.00┊ 2 3 ┊
+        #     0   29904
+        ts = example_binary(2)
+        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        ts2 = self.add_matching_results(samples, ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 5: 1}
+
+    def test_one_sample_recombinant(self):
+        # 4.00┊  0  ┊
+        #     ┊  ┃  ┊
+        # 3.00┊  1  ┊
+        #     ┊  ┃  ┊
+        # 2.00┊  4  ┊
+        #     ┊ ┏┻┓ ┊
+        # 1.00┊ 2 3 ┊
+        #     0   29904
+        ts = example_binary(2)
+        L = ts.sequence_length
+        x = L / 2
+        samples = get_samples(ts, [[(0, x, 2), (x, L, 3)]])
+        ts2 = self.add_matching_results(samples, ts)
+        assert ts2.num_trees == 2
+        assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
+        assert ts2.last().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 3, 5: 6}
+        assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
+
+    def test_one_sample_one_mutation(self):
+        ts = sc2ts.initial_ts()
+        ts = sc2ts.increment_time("2020-01-01", ts)
+        samples = get_samples(
+            ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
+        )
+        ts2 = self.add_matching_results(samples, ts)
+        assert ts2.num_trees == 1
+        tree = ts2.first()
+        assert tree.parent_dict == {1: 0, 2: 1}
+        assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
+        assert ts2.num_mutations == 1
+        var = next(ts2.variants())
+        assert var.alleles[var.genotypes[0]] == "X"
 
 
 class TestMatchPathTs:
@@ -150,15 +233,6 @@ class TestMatchPathTs:
             samples, ts, [s.path for s in samples], [s.mutations for s in samples]
         )
         self.match_path_ts(samples, ts)
-
-
-class TestAddMatchingResults:
-    def test_one_sample(self):
-        ts = sc2ts.initial_ts()
-        ts = sc2ts.increment_time("2021-01-02", ts)
-        s1 = sc2ts.Sample(metadata={}, path=[(0, ts.sequence_length, 1)], mutations=[])
-
-        ts2 = sc2ts.add_matching_results([s1], ts)
 
 
 # # @pytest.fixture

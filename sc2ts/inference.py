@@ -3,6 +3,7 @@ import logging
 import datetime
 import dataclasses
 import collections
+import io
 
 import tqdm
 import tskit
@@ -10,6 +11,9 @@ import tsinfer
 import numpy as np
 import scipy.spatial.distance
 import scipy.cluster.hierarchy
+import Bio.AlignIO
+from Bio.Phylo import TreeConstruction
+
 
 from . import core
 from . import alignments
@@ -304,15 +308,19 @@ def extend(
     return add_matching_results(samples, ts, show_progress)
 
 
-def match_path_ts(samples, ts):
+def match_path_ts(samples, ts, path, reversions):
     """
     Given the specified list of samples with equal copying paths,
     return the tree sequence rooted at zero representing the data.
     """
     tables = tskit.TableCollection(ts.sequence_length)
     tables.nodes.metadata_schema = ts.table_metadata_schemas.node
+    flags = 0
+    # TODO more info and flags
+    if len(path) > 1:
+        flags = core.NODE_IS_RECOMBINANT
     # Zero is the attach node
-    tables.nodes.add_row(time=1)
+    tables.nodes.add_row(time=1, flags=flags)
     path = samples[0].path
     site_id_map = {}
     first_sample = len(tables.nodes)
@@ -322,8 +330,7 @@ def match_path_ts(samples, ts):
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
         )
-        for seg in sample.path:
-            tables.edges.add_row(seg.left, seg.right, parent=0, child=node_id)
+        tables.edges.add_row(0, ts.sequence_length, parent=0, child=node_id)
         for mut in sample.mutations:
             if mut.site_id not in site_id_map:
                 new_id = tables.sites.add_row(mut.site_position, mut.inherited_state)
@@ -384,7 +391,7 @@ def add_matching_results(samples, ts, show_progress=False):
                     assert len(new_muts) == len(sample.mutations) - len(reversions)
                     sample.mutations = new_muts
 
-            flat_ts = match_path_ts(match_samples, ts)
+            flat_ts = match_path_ts(match_samples, ts, path, reversions)
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
                 poly_ts = flat_ts
             else:
@@ -1036,6 +1043,8 @@ def _linkage_matrix_to_tskit(Z):
     return parent[:-1], time[:-1]
 
 
+# Currently unused method based on scipy - let's see how the Biopython
+# one works out and remove this if it's fast enough.
 def infer_binary_distance_matrix(ts):
     """
     Infer a strictly binary tree from the variation data in the
@@ -1092,11 +1101,6 @@ def infer_binary_distance_matrix(ts):
                 site=site, node=mut.node, derived_state=mut.derived_state
             )
     return tables.tree_sequence()
-
-
-import Bio.AlignIO
-from Bio.Phylo import TreeConstruction
-import io
 
 
 def infer_binary(ts):
@@ -1193,10 +1197,7 @@ def trim_branches(ts):
 
 def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
 
-    assert len(attach_path) == 1
-    attach_node = attach_path[0].parent
-
-    root_time = parent_ts.nodes_time[attach_node]
+    root_time = min(parent_ts.nodes_time[seg.parent] for seg in attach_path)
     if root_time == 0:
         raise ValueError("Cannot attach at time-zero node")
     if child_ts.num_trees != 1:
@@ -1205,22 +1206,26 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
         raise ValueError("Incompatible sequence length")
 
     tree = child_ts.first()
-    if np.any(child_ts.mutations_node == tree.root) or len(reversions) > 0:
+    condition = (
+        np.any(child_ts.mutations_node == tree.root)
+        or len(reversions) > 0
+        or len(attach_path) > 1
+    )
+    if condition:
         child_ts = add_root_edge(child_ts)
         tree = child_ts.first()
 
-    node_id_map = {tree.root: attach_node}
+    node_id_map = {}
     if child_ts.nodes_time[tree.root] != 1.0:
         raise ValueError("Time must be scaled from 0 to 1.")
     node_time = {}
-    for u in tree.postorder():
+    for u in tree.postorder()[:-1]:
         node = child_ts.node(u)
-        if tree.parent(u) != -1:
-            # Tree branch length is scaled from 0 to 1.
-            time = node.time * root_time
-            node_time[u] = time
-            new_id = parent_tables.nodes.append(node.replace(time=time))
-            node_id_map[node.id] = new_id
+        # Tree branch length is scaled from 0 to 1.
+        time = node.time * root_time
+        node_time[u] = time
+        new_id = parent_tables.nodes.append(node.replace(time=time))
+        node_id_map[node.id] = new_id
         for v in tree.children(u):
             parent_tables.edges.add_row(
                 0,
@@ -1228,6 +1233,13 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
                 child=node_id_map[v],
                 parent=node_id_map[u],
             )
+    # Attach the root to the input path.
+    for child in tree.children(tree.root):
+        for seg in attach_path:
+            parent_tables.edges.add_row(
+                seg.left, seg.right, parent=seg.parent, child=node_id_map[child]
+            )
+
     # Add the mutations.
     for site in child_ts.sites():
         parent_site_id = parent_ts.site(position=site.position).id
@@ -1242,6 +1254,7 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
     if len(reversions) > 0:
         # Add the reversions back on over the unary root.
         node = tree.children(tree.root)[0]
+        assert tree.num_children(tree.root) == 1
         # print("attaching reversions at ", node, node_id_map[node])
         # print(child_ts.draw_text())
         for site_id, derived_state in reversions:
