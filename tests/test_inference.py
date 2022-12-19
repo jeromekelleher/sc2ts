@@ -6,6 +6,15 @@ import tskit
 import sc2ts
 
 
+def get_samples(ts, paths, mutations=None):
+    if mutations is None:
+        mutations = [[] for _ in paths]
+
+    samples = [sc2ts.Sample() for _ in paths]
+    sc2ts.update_path_info(samples, ts, paths, mutations)
+    return samples
+
+
 class TestMatchPathTs:
     def match_path_ts(self, samples, ts):
         ts2 = sc2ts.match_path_ts(samples, ts)
@@ -18,8 +27,8 @@ class TestMatchPathTs:
 
     def test_one_sample(self):
         ts = sc2ts.initial_ts()
-        s1 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)])
-        ts2 = self.match_path_ts([s1], ts)
+        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        ts2 = self.match_path_ts(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -58,10 +67,10 @@ class TestMatchPathTs:
         tables.sort()
         ts = tables.tree_sequence()
 
-        s1 = sc2ts.Sample(
-            path=[(0, ts.sequence_length, c)], mutations=[(0, "G"), (1, "G")]
+        samples = get_samples(
+            ts, [[(0, ts.sequence_length, c)]], mutations=[[(0, "G"), (1, "G")]]
         )
-        ts2 = self.match_path_ts([s1], ts)
+        ts2 = self.match_path_ts(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -75,8 +84,10 @@ class TestMatchPathTs:
 
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()
-        s1 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)], mutations=[(100, "X")])
-        ts2 = self.match_path_ts([s1], ts)
+        samples = get_samples(
+            ts, [[(0, ts.sequence_length, 1)]], mutations=[[(100, "X")]]
+        )
+        ts2 = self.match_path_ts(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -86,9 +97,13 @@ class TestMatchPathTs:
 
     def test_two_sample_one_mutation_each(self):
         ts = sc2ts.initial_ts()
-        s1 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)], mutations=[(100, "X")])
-        s2 = sc2ts.Sample(path=[(0, ts.sequence_length, 1)], mutations=[(200, "Y")])
-        ts2 = self.match_path_ts([s1, s2], ts)
+
+        samples = get_samples(
+            ts,
+            [[(0, ts.sequence_length, 1)], [(0, ts.sequence_length, 1)]],
+            mutations=[[(100, "X")], [(200, "Y")]],
+        )
+        ts2 = self.match_path_ts(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0, 2: 0}
@@ -105,11 +120,12 @@ class TestMatchPathTs:
     @pytest.mark.parametrize("num_mutations", range(1, 6))
     def test_one_sample_k_mutations(self, num_mutations):
         ts = sc2ts.initial_ts()
-        s1 = sc2ts.Sample(
-            path=[(0, ts.sequence_length, 1)],
-            mutations=[(j, f"{j}") for j in range(num_mutations)],
+        samples = get_samples(
+            ts,
+            [[(0, ts.sequence_length, 1)]],
+            mutations=[[(j, f"{j}") for j in range(num_mutations)]],
         )
-        ts2 = self.match_path_ts([s1], ts)
+        ts2 = self.match_path_ts(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -126,8 +142,13 @@ class TestMatchPathTs:
                 sc2ts.Sample(
                     metadata={f"x{j}": j, f"y{j}": list(range(j))},
                     path=[(0, ts.sequence_length, 1)],
+                    mutations=[],
                 )
             )
+
+        sc2ts.update_path_info(
+            samples, ts, [s.path for s in samples], [s.mutations for s in samples]
+        )
         self.match_path_ts(samples, ts)
 
 
