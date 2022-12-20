@@ -38,8 +38,8 @@ def example_binary(n):
 
 
 class TestAddMatchingResults:
-    def add_matching_results(self, samples, ts):
-        ts2 = sc2ts.add_matching_results(samples, ts)
+    def add_matching_results(self, samples, ts, date="2020-01-01"):
+        ts2 = sc2ts.add_matching_results(samples, ts, date)
         assert ts2.num_samples == len(samples) + ts.num_samples
         for u, sample in zip(ts2.samples()[-len(samples) :], samples):
             node = ts2.node(u)
@@ -76,11 +76,12 @@ class TestAddMatchingResults:
         L = ts.sequence_length
         x = L / 2
         samples = get_samples(ts, [[(0, x, 2), (x, L, 3)]])
-        ts2 = self.add_matching_results(samples, ts)
+        ts2 = self.add_matching_results(samples, ts, "2021")
         assert ts2.num_trees == 2
         assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
         assert ts2.last().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 3, 5: 6}
         assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
+        assert ts2.node(6).metadata == {"date_added": "2021"}
 
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()
@@ -100,7 +101,8 @@ class TestAddMatchingResults:
 
 class TestMatchPathTs:
     def match_path_ts(self, samples, ts):
-        ts2 = sc2ts.match_path_ts(samples, ts)
+        # FIXME this API is terrible
+        ts2 = sc2ts.match_path_ts(samples, ts, samples[0].path, [])
         assert ts2.num_samples == len(samples)
         for u, sample in zip(ts.samples(), samples):
             node = ts.node(u)
