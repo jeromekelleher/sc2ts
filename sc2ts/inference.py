@@ -305,7 +305,7 @@ def extend(
     if len(samples) == 0:
         return base_ts
     ts = increment_time(date, base_ts)
-    return add_matching_results(samples, ts, show_progress)
+    return add_matching_results(samples, ts, date, show_progress)
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -315,12 +315,8 @@ def match_path_ts(samples, ts, path, reversions):
     """
     tables = tskit.TableCollection(ts.sequence_length)
     tables.nodes.metadata_schema = ts.table_metadata_schemas.node
-    flags = 0
-    # TODO more info and flags
-    if len(path) > 1:
-        flags = core.NODE_IS_RECOMBINANT
     # Zero is the attach node
-    tables.nodes.add_row(time=1, flags=flags)
+    tables.nodes.add_row(time=1)
     path = samples[0].path
     site_id_map = {}
     first_sample = len(tables.nodes)
@@ -351,7 +347,7 @@ def match_path_ts(samples, ts, path, reversions):
     # print(tables)
 
 
-def add_matching_results(samples, ts, show_progress=False):
+def add_matching_results(samples, ts, date, show_progress=False):
 
     # Group matches by path and set of reversion mutations
     grouped_matches = collections.defaultdict(list)
@@ -405,7 +401,7 @@ def add_matching_results(samples, ts, show_progress=False):
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
-            nodes = attach_tree(ts, tables, path, reversions, poly_ts)
+            nodes = attach_tree(ts, tables, path, reversions, poly_ts, date)
             # print(nodes)
             logger.debug(
                 f"Path {path}: samples={poly_ts.num_samples} "
@@ -1195,7 +1191,7 @@ def trim_branches(ts):
     return tables.tree_sequence()
 
 
-def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
+def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts, date):
 
     root_time = min(parent_ts.nodes_time[seg.parent] for seg in attach_path)
     if root_time == 0:
@@ -1224,7 +1220,10 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
         # Tree branch length is scaled from 0 to 1.
         time = node.time * root_time
         node_time[u] = time
-        new_id = parent_tables.nodes.append(node.replace(time=time))
+        metadata = node.metadata
+        if tree.is_internal(u):
+            metadata = {"date_added": date}
+        new_id = parent_tables.nodes.append(node.replace(time=time, metadata=metadata))
         node_id_map[node.id] = new_id
         for v in tree.children(u):
             parent_tables.edges.add_row(
@@ -1233,7 +1232,7 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
                 child=node_id_map[v],
                 parent=node_id_map[u],
             )
-    # Attach the root to the input path.
+    # Attach the children of the root to the input path.
     for child in tree.children(tree.root):
         for seg in attach_path:
             parent_tables.edges.add_row(
@@ -1252,6 +1251,9 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
                 time=node_time[mutation.node],
             )
     if len(reversions) > 0:
+        # FIXME we should either flag these nodes with a specific value
+        # or update the reversion push code below to remove them. I think
+        # they'll end up as useless internal nodes? Need to check.
         # Add the reversions back on over the unary root.
         node = tree.children(tree.root)[0]
         assert tree.num_children(tree.root) == 1
@@ -1264,6 +1266,12 @@ def attach_tree(parent_ts, parent_tables, attach_path, reversions, child_ts):
                 derived_state=derived_state,
                 time=node_time[node],
             )
+    if len(attach_path) > 1:
+        # Update the recombinant flags also.
+        u = node_id_map[tree.children(tree.root)[0]]
+        assert tree.num_children(tree.root) == 1
+        node = parent_tables.nodes[u]
+        parent_tables.nodes[u] = node.replace(flags=core.NODE_IS_RECOMBINANT)
     return [node_id_map[u] for u in tree.children(tree.root)]
 
 
