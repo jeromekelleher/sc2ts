@@ -1110,8 +1110,12 @@ def infer_tsinfer(ts):
     anc_ts = tsinfer.match_ancestors(
         sd, ancestors, recombination=recombination, mismatch=mismatch
     )
-    assert np.all(anc_ts.edges_left == 0)
-    assert np.all(anc_ts.edges_right == ts.sequence_length)
+    if anc_ts.num_trees > 1:
+        logger.warning(
+            "Pathological local tree inferred, returning flat; "
+            f"samples={ts.num_samples} mutations={ts.num_mutations}"
+        )
+        return ts
     inferred_ts = tsinfer.match_samples(
         sd, anc_ts, recombination=recombination, mismatch=mismatch, post_process=False
     )
