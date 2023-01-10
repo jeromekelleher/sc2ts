@@ -391,13 +391,14 @@ def add_matching_results(samples, ts, date, show_progress=False):
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
                 poly_ts = flat_ts
             else:
-                binary_ts = infer_binary(flat_ts)
+                # binary_ts = infer_binary(flat_ts)
                 # print(binary_ts.draw_text())
                 # print(binary_ts.tables.mutations)
-                poly_ts = trim_branches(binary_ts)
+                # poly_ts = trim_branches(binary_ts)
                 # print(poly_ts.draw_text())
                 # print(poly_ts.tables.mutations)
                 # print("----")
+                poly_ts = infer_tsinfer(flat_ts)
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
@@ -1096,6 +1097,44 @@ def infer_binary_distance_matrix(ts):
             tables.mutations.add_row(
                 site=site, node=mut.node, derived_state=mut.derived_state
             )
+    return tables.tree_sequence()
+
+
+def infer_tsinfer(ts):
+    sd = tsinfer.SampleData.from_tree_sequence(ts)
+    ancestors = tsinfer.generate_ancestors(sd)
+    if ancestors.num_ancestors == 0:
+        return ts
+    recombination = np.zeros(ancestors.num_sites - 1) + 1e-200
+    mismatch = np.zeros(ancestors.num_sites) + 1e-3
+    anc_ts = tsinfer.match_ancestors(
+        sd, ancestors, recombination=recombination, mismatch=mismatch
+    )
+    if anc_ts.num_trees > 1:
+        logger.warning(
+            "Pathological local tree inferred, returning flat; "
+            f"samples={ts.num_samples} mutations={ts.num_mutations}"
+        )
+        return ts
+    inferred_ts = tsinfer.match_samples(
+        sd, anc_ts, recombination=recombination, mismatch=mismatch, post_process=False
+    )
+    inferred_ts = inferred_ts.simplify()
+    tables = ts.dump_tables()
+    tables.nodes.clear()
+    tables.edges.clear()
+    tables.mutations.clear()
+    # Add in the samples first. Because we have simplified, inferred_ts
+    # will always have 0,..., n.
+    for u in ts.samples():
+        node = ts.node(u)
+        tables.nodes.append(node)
+    max_time = np.max(inferred_ts.nodes_time)
+    # Add the internal nodes
+    for u in range(ts.num_samples, inferred_ts.num_nodes):
+        tables.nodes.add_row(flags=0, time=inferred_ts.nodes_time[u] / max_time)
+    tables.edges.replace_with(inferred_ts.tables.edges)
+    tables.mutations.replace_with(inferred_ts.tables.mutations)
     return tables.tree_sequence()
 
 
