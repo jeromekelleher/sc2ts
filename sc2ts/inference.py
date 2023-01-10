@@ -1055,6 +1055,7 @@ def infer_binary(ts):
     # not because of the allele encoding (difference between 0 and 4 is not
     # greater than 0 and 1).
     Y = scipy.spatial.distance.pdist(G.T, "hamming")
+    # This is the UPGMA algorithm
     Z = scipy.cluster.hierarchy.average(Y)
     parent, time = _linkage_matrix_to_tskit(Z)
     # Rescale time to be from 0 to 1

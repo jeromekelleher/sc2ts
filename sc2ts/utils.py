@@ -289,11 +289,8 @@ class TreeInfo:
                 strain = f"Push {len(md['sites'])} reversions"
             else:
                 strain = "Push debug missing"
-        elif flags == 1 << 23:
-            if "path" in md:
-                strain = f"Recomb path={len(md['path'])} nodes={len(md['mutations'])}"
-            else:
-                strain = "Recomb debug missing"
+        elif "date_added" in md:
+            strain = f"Added {md['date_added']}"
         return {
             "node": u,
             "strain": strain,
@@ -668,19 +665,12 @@ class TreeInfo:
         plt.xlabel("Date")
         plt.ylabel("Number of samples")
 
-    def plot_recombinant_samples_per_day(self, unique=True):
-
-        recombinant_samples = []
-        for u in self.recombinants:
-            for child, _ in self.nodes_metadata[u]["mutations"]:
-                recombinant_samples.append(child)
-                if unique:
-                    break
+    def plot_recombinants_per_day(self):
 
         _, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8))
 
         num_recombinants_per_day = np.bincount(
-            self.ts.nodes_time[recombinant_samples].astype(int)
+            self.ts.nodes_time[self.recombinants].astype(int)
         )
         t = np.arange(num_recombinants_per_day.shape[0])
         x = self.time_zero_as_date - t
