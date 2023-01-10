@@ -11,9 +11,6 @@ import tsinfer
 import numpy as np
 import scipy.spatial.distance
 import scipy.cluster.hierarchy
-import Bio.AlignIO
-from Bio.Phylo import TreeConstruction
-
 
 from . import core
 from . import alignments
@@ -391,14 +388,13 @@ def add_matching_results(samples, ts, date, show_progress=False):
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
                 poly_ts = flat_ts
             else:
-                # binary_ts = infer_binary(flat_ts)
+                binary_ts = infer_binary(flat_ts)
                 # print(binary_ts.draw_text())
                 # print(binary_ts.tables.mutations)
-                # poly_ts = trim_branches(binary_ts)
+                poly_ts = trim_branches(binary_ts)
                 # print(poly_ts.draw_text())
                 # print(poly_ts.tables.mutations)
                 # print("----")
-                poly_ts = infer_tsinfer(flat_ts)
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
@@ -1040,9 +1036,7 @@ def _linkage_matrix_to_tskit(Z):
     return parent[:-1], time[:-1]
 
 
-# Currently unused method based on scipy - let's see how the Biopython
-# one works out and remove this if it's fast enough.
-def infer_binary_distance_matrix(ts):
+def infer_binary(ts):
     """
     Infer a strictly binary tree from the variation data in the
     specified tree sequence.
@@ -1086,107 +1080,6 @@ def infer_binary_distance_matrix(ts):
     tables.sort()
     ts_binary = tables.tree_sequence()
 
-    tree = ts_binary.first()
-    for var in ts.variants():
-        anc, muts = tree.map_mutations(
-            var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
-        )
-        assert anc == var.site.ancestral_state
-        site = tables.sites.add_row(var.site.position, anc)
-        for mut in muts:
-            tables.mutations.add_row(
-                site=site, node=mut.node, derived_state=mut.derived_state
-            )
-    return tables.tree_sequence()
-
-
-def infer_tsinfer(ts):
-    sd = tsinfer.SampleData.from_tree_sequence(ts)
-    ancestors = tsinfer.generate_ancestors(sd)
-    if ancestors.num_ancestors == 0:
-        return ts
-    recombination = np.zeros(ancestors.num_sites - 1) + 1e-200
-    mismatch = np.zeros(ancestors.num_sites) + 1e-3
-    anc_ts = tsinfer.match_ancestors(
-        sd, ancestors, recombination=recombination, mismatch=mismatch
-    )
-    if anc_ts.num_trees > 1:
-        logger.warning(
-            "Pathological local tree inferred, returning flat; "
-            f"samples={ts.num_samples} mutations={ts.num_mutations}"
-        )
-        return ts
-    inferred_ts = tsinfer.match_samples(
-        sd, anc_ts, recombination=recombination, mismatch=mismatch, post_process=False
-    )
-    inferred_ts = inferred_ts.simplify()
-    tables = ts.dump_tables()
-    tables.nodes.clear()
-    tables.edges.clear()
-    tables.mutations.clear()
-    # Add in the samples first. Because we have simplified, inferred_ts
-    # will always have 0,..., n.
-    for u in ts.samples():
-        node = ts.node(u)
-        tables.nodes.append(node)
-    max_time = np.max(inferred_ts.nodes_time)
-    # Add the internal nodes
-    for u in range(ts.num_samples, inferred_ts.num_nodes):
-        tables.nodes.add_row(flags=0, time=inferred_ts.nodes_time[u] / max_time)
-    tables.edges.replace_with(inferred_ts.tables.edges)
-    tables.mutations.replace_with(inferred_ts.tables.mutations)
-    return tables.tree_sequence()
-
-
-def infer_binary(ts):
-
-    f = io.StringIO()
-    for u, h in zip(ts.samples(), ts.haplotypes()):
-        print(f"> {u}", file=f)
-        print(h, file=f)
-    f.seek(0)
-    aln = Bio.AlignIO.read(f, "fasta")
-
-    scorer = TreeConstruction.ParsimonyScorer()
-    searcher = TreeConstruction.NNITreeSearcher(scorer)
-    constructor = TreeConstruction.ParsimonyTreeConstructor(searcher)
-    tree = constructor.build_tree(aln)
-
-    tables = ts.dump_tables()
-    tables.nodes.clear()
-    tables.edges.clear()
-    tables.mutations.clear()
-    tables.sites.clear()
-
-    node_map = {}
-    node_time_map = {}
-    for node in sorted(tree.get_terminals(), key=lambda node: int(node.name)):
-        old_node = ts.node(int(node.name))
-        new_id = tables.nodes.append(old_node)
-        node_map[node] = new_id
-        node_time_map[node] = 0
-
-    for node in tree.find_clades(order="postorder"):
-        if node.branch_length == 0:
-            node.branch_length = 0.125  # FIXME
-        if not node.is_terminal():
-            time = max(
-                node_time_map[child] + child.branch_length for child in node.clades
-            )
-            new_id = tables.nodes.add_row(time=time)
-            node_time_map[node] = time
-            node_map[node] = new_id
-
-            for child in node.clades:
-                tables.edges.add_row(
-                    0, ts.sequence_length, parent=new_id, child=node_map[child]
-                )
-
-    # rescale time to 0-1
-    tables.nodes.time /= np.max(tables.nodes.time)
-
-    tables.sort()
-    ts_binary = tables.tree_sequence()
     tree = ts_binary.first()
     for var in ts.variants():
         anc, muts = tree.map_mutations(
