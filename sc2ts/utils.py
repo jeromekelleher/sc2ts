@@ -577,7 +577,11 @@ class TreeInfo:
         data = []
         for lineage in self.pango_lineage_samples.keys():
             node = self.pango_lineage_samples[lineage][0]
-            data.append(self._node_summary(node))
+            row = {
+                "total_samples": len(self.pango_lineage_samples[lineage]),
+                **self._node_summary(node),
+            }
+            data.append(row)
         return pd.DataFrame(data)
 
     def pango_recombinant_lineages_report(self):
@@ -586,13 +590,22 @@ class TreeInfo:
         for lineage in self.pango_lineage_samples.keys():
             if lineage.startswith("X"):
                 node = self.pango_lineage_samples[lineage][0]
+                node_summary = self._node_summary(node)
                 closest_recombinant, path_length = self._get_closest_recombinant(
                     tree, node
                 )
+                sample_is_recombinant = False
+                if closest_recombinant != -1:
+                    recomb_date = self.ts.node(closest_recombinant).metadata[
+                        "date_added"
+                    ]
+                    sample_is_recombinant = recomb_date == str(node_summary["date"])
                 summary = {
                     "recombinant": closest_recombinant,
+                    "total_samples": len(self.pango_lineage_samples[lineage]),
+                    "direct": sample_is_recombinant,
                     "path_length": path_length,
-                    **self._node_summary(node),
+                    **node_summary,
                 }
                 data.append(summary)
         return pd.DataFrame(data)
