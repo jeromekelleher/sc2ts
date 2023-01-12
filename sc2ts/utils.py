@@ -3,6 +3,7 @@ Utilities for examining sc2ts output.
 """
 import collections
 import warnings
+import datetime
 import json
 
 import tskit
@@ -13,6 +14,14 @@ import matplotlib.pyplot as plt
 from IPython.display import Markdown, HTML
 
 import sc2ts
+
+
+def get_recombinants(ts):
+    partial_edges = np.logical_or(
+        ts.edges_left != 0, ts.edges_right != ts.sequence_length
+    )
+    recomb_nodes = np.unique(ts.edges_child[partial_edges])
+    return recomb_nodes
 
 
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
@@ -71,27 +80,8 @@ def max_descendant_samples(ts, show_progress=True):
                 u = tree.parent(u)
         tree.next()
     return num_samples
-=======
-import datetime
-import json
-
-import numpy as np
-import tskit
 
 
-import sc2ts
->>>>>>> 6b68dd3... Initial infrastructure for reversing coords
-
-
-def get_recombinants(ts):
-    partial_edges = np.logical_or(
-        ts.edges_left != 0, ts.edges_right != ts.sequence_length
-    )
-    recomb_nodes = np.unique(ts.edges_child[partial_edges])
-    return recomb_nodes
-
-
-<<<<<<< HEAD
 class TreeInfo:
     def __init__(self, ts, show_progress=True):
         self.ts = ts
@@ -714,15 +704,20 @@ class TreeInfo:
         ax2.set_ylabel("Fraction of samples recombinant")
         ax2.set_ylim(0, 0.01)
 
+
 def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
     precision = 12
     recomb_nodes = get_recombinants(ts)
+    # strain = "India/GJ-GBRC160b/2020"
+    # strain_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
+    # recomb_nodes = [strain_map[strain]]
     print("Examining", len(recomb_nodes), "recombinants")
 
     data = []
     for u in recomb_nodes:
         node = ts.node(u)
         original_node_id = node.metadata["mutations"][0][0]
+        # original_node_id = u
         original_node = ts.node(original_node_id)
         date = original_node.metadata["date"]
         previous_date = datetime.date.fromisoformat(date)
@@ -734,7 +729,7 @@ def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
         for num_mismatches in [2, 3, 4, 5, 10000]:
             for mirror in [True, False]:
                 sample = sc2ts.Sample(original_node.metadata)
-                # print(f"Rerunning for {sample.strain} with {num_mismatches} mismatches")
+                # print(f"Rerunning for {sample.strain} with mismatch={num_mismatches}")
                 samples = sc2ts.match(
                     samples=[sample],
                     alignment_store=alignment_store,
@@ -747,11 +742,9 @@ def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
                 assert len(samples) == 1
                 sample = samples[0]
                 datum = {
-                    "strain": sample.strain,
-                    "path": sample.path,
-                    "mutations": sample.mutations,
                     "num_mismatches": num_mismatches,
                     "mirror": mirror,
+                    **sample.asdict(),
                 }
                 print(datum)
                 data.append(datum)

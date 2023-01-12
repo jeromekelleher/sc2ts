@@ -18,6 +18,28 @@ from . import alignments
 logger = logging.getLogger(__name__)
 
 
+def mirror(x, L):
+    return L - x
+
+
+def mirror_ts_coordinates(ts):
+    """
+    Returns a copy of the specified tree sequence in which all
+    coordinates x are transformed into L - x.
+    """
+    L = ts.sequence_length
+    tables = ts.dump_tables()
+    left = tables.edges.left
+    right = tables.edges.right
+    tables.edges.left = mirror(right, L)
+    tables.edges.right = mirror(left, L)
+    tables.sites.position = mirror(tables.sites.position, L)
+    # NOTE!! this is just the positions. The ancestral states and everything
+    # else will be wrong.
+    tables.sort()
+    return tables.tree_sequence()
+
+
 def initial_ts():
     reference = core.get_reference_sequence()
     L = core.REFERENCE_SEQUENCE_LENGTH
@@ -214,30 +236,17 @@ def daily_extend(
 
 
 def match(
+    samples,
     *,
     alignment_store,
-    metadata_db,
-    date,
     base_ts,
     num_mismatches=None,
     show_progress=False,
-    max_submission_delay=None,
-    max_daily_samples=None,
     num_threads=None,
     precision=None,
-    rng=None,
+    mirror_coordinates=False,
 ):
-    logger.info(f"Start match for {date}")
-    date_samples = [Sample(md) for md in metadata_db.get(date)]
-    samples = filter_samples(date_samples, alignment_store, max_submission_delay)
-    if len(samples) == 0:
-        logger.warning(f"No samples for {date}")
-        return []
-    logger.info(f"Got {len(samples)} samples")
-
-    if max_daily_samples is not None and len(samples) > max_daily_samples:
-        samples = rng.sample(samples, max_daily_samples)
-        logger.info(f"Sampled down to {len(samples)} samples")
+    logger.info(f"Start match for {len(samples)}")
 
     G = np.zeros((base_ts.num_sites, len(samples)), dtype=np.int8)
     keep_sites = base_ts.sites_position.astype(int)
@@ -245,13 +254,14 @@ def match(
     samples_iter = enumerate(samples)
     with tqdm.tqdm(
         samples_iter,
-        desc=f"Fetch {date}",
+        desc=f"Fetch",
         total=len(samples),
         disable=not show_progress,
     ) as bar:
         for j, sample in bar:
             logger.debug(f"Getting alignment for {sample.strain}")
             alignment = alignment_store[sample.strain]
+            sample.alignment = alignment
             logger.debug(f"Encoding alignment")
             ma = alignments.encode_and_mask(alignment)
             G[:, j] = ma.alignment[keep_sites]
@@ -260,6 +270,7 @@ def match(
 
     masked_per_sample = np.mean([len(sample.masked_sites)])
     logger.info(f"Masked average of {masked_per_sample:.2f} nucleotides per sample")
+
     match_tsinfer(
         samples=samples,
         ts=base_ts,
@@ -268,6 +279,7 @@ def match(
         precision=precision,
         num_threads=num_threads,
         show_progress=show_progress,
+        mirror_coordinates=mirror_coordinates,
     )
     return samples
 
@@ -286,21 +298,29 @@ def extend(
     precision=None,
     rng=None,
 ):
+
+    date_samples = [Sample(md) for md in metadata_db.get(date)]
+    samples = filter_samples(date_samples, alignment_store, max_submission_delay)
+
+    if max_daily_samples is not None and len(samples) > max_daily_samples:
+        samples = rng.sample(samples, max_daily_samples)
+        logger.info(f"Sampled down to {len(samples)} samples")
+
+    if len(samples) == 0:
+        logger.warning(f"No samples for {date}")
+        return base_ts
+
+    logger.info(f"Got {len(samples)} samples")
+
     samples = match(
+        samples,
         alignment_store=alignment_store,
-        metadata_db=metadata_db,
-        date=date,
         base_ts=base_ts,
         num_mismatches=num_mismatches,
         show_progress=show_progress,
-        max_submission_delay=max_submission_delay,
-        max_daily_samples=max_daily_samples,
         num_threads=num_threads,
         precision=precision,
-        rng=rng,
     )
-    if len(samples) == 0:
-        return base_ts
     ts = increment_time(date, base_ts)
     return add_matching_results(samples, ts, date, show_progress)
 
@@ -845,12 +865,19 @@ def match_tsinfer(
     precision=None,
     num_threads=None,
     show_progress=False,
+    mirror_coordinates=False,
 ):
     if num_mismatches is None:
         # Default to no recombination
         num_mismatches = 1000
 
     reference = core.get_reference_sequence()
+
+    if mirror_coordinates:
+        ts = mirror_ts_coordinates(ts)
+        reference = np.append(reference[0], reference[1:][::-1])
+        genotypes = reversed(genotypes)
+
     with tsinfer.SampleData(sequence_length=ts.sequence_length) as sd:
         alleles = tuple(core.ALLELES)
         for pos, site_genotypes in zip(ts.sites_position.astype(int), genotypes):
@@ -863,6 +890,7 @@ def match_tsinfer(
 
     logger.info(f"Built temporary sample data file")
 
+    L = int(ts.sequence_length)
     ls_recomb, ls_mismatch = solve_num_mismatches(ts, num_mismatches)
     pm = tsinfer.inference._get_progress_monitor(
         show_progress,
@@ -891,7 +919,7 @@ def match_tsinfer(
     results = manager.run_match(np.arange(sd.num_samples))
     ancestral_state = core.get_reference_sequence()[ts.sites_position.astype(int)]
 
-    coord_map = np.append(ts.sites_position, [ts.sequence_length]).astype(int)
+    coord_map = np.append(ts.sites_position, [L]).astype(int)
     coord_map[0] = 0
 
     sample_paths = []
@@ -899,6 +927,7 @@ def match_tsinfer(
     # Update the Sample objects with their paths and sets of mutations.
     for node_id, sample in enumerate(samples, ts.num_nodes):
         path = []
+        last_right = 0
         for left, right, parent in zip(*results.get_path(node_id)):
             path.append((int(coord_map[left]), int(coord_map[right]), int(parent)))
         path.sort()
@@ -906,8 +935,17 @@ def match_tsinfer(
 
         mutations = []
         for site, derived_state in zip(*results.get_mutations(node_id)):
-            derived_state = unshuffle_allele_index(derived_state, ancestral_state[site])
-            mutations.append((int(site), derived_state))
+            pos = int(coord_map[site])
+            derived_state = unshuffle_allele_index(derived_state, reference[pos])
+            # print(f"Mutation: pos={pos} "
+            #         f"ancestral={reference[pos]} derived={derived_state}")
+            if mirror_coordinates:
+                real_pos = mirror(pos, L)
+                assert sample.alignment[real_pos] == derived_state
+            else:
+                assert sample.alignment[pos] == derived_state
+
+            mutations.append((pos, derived_state))
         mutations.sort()
         sample_mutations.append(mutations)
 
@@ -987,6 +1025,22 @@ def update_path_info(samples, ts, sample_paths, sample_mutations):
                     is_immediate_reversion=is_immediate_reversion,
                 )
             )
+
+    if mirror_coordinates:
+        num_sites = ts.num_sites
+        for sample in samples:
+            mutations = []
+            for pos, derived_state in reversed(sample.mutations):
+                pos = mirror(pos, L)
+                # print(pos, sample.alignment[pos], derived_state)
+                assert sample.alignment[pos] == derived_state
+                mutations.append((pos, derived_state))
+                # print(f"Mutation: pos={pos} derived={derived_state}")
+            sample.mutations = mutations
+        path = []
+        for left, right, node in reversed(sample.path):
+            path.append((mirror(right, L), mirror(left, L), node))
+        sample.path = path
 
 
 class Matcher(tsinfer.SampleMatcher):
