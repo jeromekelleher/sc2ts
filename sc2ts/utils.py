@@ -71,6 +71,16 @@ def max_descendant_samples(ts, show_progress=True):
                 u = tree.parent(u)
         tree.next()
     return num_samples
+=======
+import datetime
+import json
+
+import numpy as np
+import tskit
+
+
+import sc2ts
+>>>>>>> 6b68dd3... Initial infrastructure for reversing coords
 
 
 def get_recombinants(ts):
@@ -81,6 +91,7 @@ def get_recombinants(ts):
     return recomb_nodes
 
 
+<<<<<<< HEAD
 class TreeInfo:
     def __init__(self, ts, show_progress=True):
         self.ts = ts
@@ -702,3 +713,47 @@ class TreeInfo:
         ax1.set_ylabel("Number of recombinant samples")
         ax2.set_ylabel("Fraction of samples recombinant")
         ax2.set_ylim(0, 0.01)
+
+def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
+    precision = 12
+    recomb_nodes = get_recombinants(ts)
+    print("Examining", len(recomb_nodes), "recombinants")
+
+    data = []
+    for u in recomb_nodes:
+        node = ts.node(u)
+        original_node_id = node.metadata["mutations"][0][0]
+        original_node = ts.node(original_node_id)
+        date = original_node.metadata["date"]
+        previous_date = datetime.date.fromisoformat(date)
+        previous_date -= datetime.timedelta(days=1)
+        print(f"Got sequence for {date} finding base at {previous_date}")
+        ts_path = f"{daily_ts_prefix}{previous_date}.ts"
+        print("loading", ts_path)
+        base_ts = tskit.load(ts_path)
+        for num_mismatches in [2, 3, 4, 5, 10000]:
+            for mirror in [True, False]:
+                sample = sc2ts.Sample(original_node.metadata)
+                # print(f"Rerunning for {sample.strain} with {num_mismatches} mismatches")
+                samples = sc2ts.match(
+                    samples=[sample],
+                    alignment_store=alignment_store,
+                    base_ts=base_ts,
+                    num_mismatches=num_mismatches,
+                    precision=precision,
+                    num_threads=0,
+                    mirror_coordinates=mirror,
+                )
+                assert len(samples) == 1
+                sample = samples[0]
+                datum = {
+                    "strain": sample.strain,
+                    "path": sample.path,
+                    "mutations": sample.mutations,
+                    "num_mismatches": num_mismatches,
+                    "mirror": mirror,
+                }
+                print(datum)
+                data.append(datum)
+                with open(datafile, "w") as f:
+                    json.dump(data, f)
