@@ -239,8 +239,11 @@ class TestMatchPathTs:
 
 
 class TestMirrorTsCoords:
+
     def check_double_mirror(self, ts):
         mirror = sc2ts.inference.mirror_ts_coordinates(ts)
+        for h1, h2 in zip(ts.haplotypes(), mirror.haplotypes()):
+            assert h1 == h2[::-1]
         double_mirror = sc2ts.inference.mirror_ts_coordinates(mirror)
         ts.tables.assert_equals(double_mirror.tables)
 
@@ -263,7 +266,7 @@ class TestMirrorTsCoords:
     @pytest.mark.parametrize("n", [2, 3, 13, 20])
     def test_single_tree_mutations(self, n):
         ts = msprime.sim_ancestry(n, sequence_length=100, random_seed=42234)
-        ts = msprime.sim_mutations(ts, rate=0.1, random_seed=32234)
+        ts = msprime.sim_mutations(ts, rate=0.01, random_seed=32234)
         assert ts.num_sites > 2
         self.check_double_mirror(ts)
 

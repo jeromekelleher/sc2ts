@@ -27,8 +27,7 @@ def mirror_ts_coordinates(ts):
     Returns a copy of the specified tree sequence in which all
     coordinates x are transformed into L - x.
 
-    Makes a bunch of simplifying assumptions and silently drops
-    site metadata.
+    Makes a bunch of simplifying assumptions.
     """
     assert ts.num_migrations == 0
     assert ts.discrete_genome
@@ -38,14 +37,7 @@ def mirror_ts_coordinates(ts):
     right = tables.edges.right
     tables.edges.left = mirror(right, L)
     tables.edges.right = mirror(left, L)
-    assert tables.edges.metadata_offset[-1] == 0
-    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    # WARNING!!! This silently drops site metadata. This doesn't matter in
-    # the applications here, but could be a gotcha.
-    tables.sites.set_columns(
-        position=mirror(tables.sites.position, L - 1),
-        ancestral_state=tables.sites.ancestral_state[::-1],
-        ancestral_state_offset=tables.sites.ancestral_state_offset)
+    tables.sites.position = mirror(tables.sites.position, L-1)
     tables.sort()
     return tables.tree_sequence()
 
