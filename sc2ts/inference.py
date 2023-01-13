@@ -172,6 +172,15 @@ class Sample:
         return self.metadata["strain"]
 
     @property
+    def breakpoints(self):
+        breakpoints = [seg.left for seg in self.path]
+        return breakpoints + [self.path[-1].right]
+
+    @property
+    def parents(self):
+        return [seg.parent for seg in self.path]
+
+    @property
     def date(self):
         return parse_date(self.metadata["date"])
 
@@ -873,6 +882,7 @@ def match_tsinfer(
 
     reference = core.get_reference_sequence()
 
+    input_ts = ts
     if mirror_coordinates:
         ts = mirror_ts_coordinates(ts)
         reference = np.append(reference[0], reference[1:][::-1])
@@ -926,7 +936,6 @@ def match_tsinfer(
     sample_mutations = []
     # Update the Sample objects with their paths and sets of mutations.
     for node_id, sample in enumerate(samples, ts.num_nodes):
-        print("START", node_id)
         path = []
         for left, right, parent in zip(*results.get_path(node_id)):
             if mirror_coordinates:
@@ -942,23 +951,13 @@ def match_tsinfer(
         mutations = []
         for site, derived_state in zip(*results.get_mutations(node_id)):
             if mirror_coordinates:
-                pos = mirror(int(coord_map[site]), L)
-            else:
-                pos = int(coord_map[site])
-
-            derived_state = unshuffle_allele_index(derived_state, reference[pos])
-            assert sample.alignment[pos] == derived_state
-            # print(f"Mutation: pos={pos} "
-            #         f"ancestral={reference[pos]} derived={derived_state}")
-            mutations.append((pos, derived_state))
+                site = mirror(site, ts.num_sites - 1)
+            derived_state = unshuffle_allele_index(derived_state, ancestral_state[site])
+            mutations.append((int(site), derived_state))
         mutations.sort()
         sample_mutations.append(mutations)
 
-    print("paths = ", sample_paths)
-    print("mutations = ", sample_mutations)
-
-
-    update_path_info(samples, ts, sample_paths, sample_mutations)
+    update_path_info(samples, input_ts, sample_paths, sample_mutations)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -979,6 +978,9 @@ class MatchMutation:
     inherited_state: str
     is_reversion: bool
     is_immediate_reversion: bool
+
+    def __str__(self):
+        return f"{int(self.site_position)}{self.inherited_state}>{self.derived_state}"
 
 
 def update_path_info(samples, ts, sample_paths, sample_mutations):

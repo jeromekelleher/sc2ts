@@ -705,6 +705,33 @@ class TreeInfo:
         ax2.set_ylim(0, 0.01)
 
 
+def examine_recombinant(strain, date, ts, alignment_store):
+    num_mismatches = 3
+    for mirror in [False, True]:
+        sample = sc2ts.Sample({"strain": strain})
+        # print(f"Rerunning for {sample.strain} with mismatch={num_mismatches}")
+        samples = sc2ts.match(
+            samples=[sample],
+            alignment_store=alignment_store,
+            base_ts=ts,
+            num_mismatches=num_mismatches,
+            precision=14,
+            num_threads=0,
+            mirror_coordinates=mirror,
+        )
+        assert len(samples) == 1
+        sample = samples[0]
+        # datum = {
+        #     "num_mismatches": num_mismatches,
+        #     "mirror": mirror,
+        #     **sample.asdict(),
+        # }
+        print(strain, date, mirror, sample.breakpoints, sample.parents,
+                [str(mut) for mut in sample.mutations], sep="\t")
+        # data.append(datum)
+        # with open(datafile, "w") as f:
+        #     json.dump(data, f)
+
 def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
     precision = 12
     recomb_nodes = get_recombinants(ts)
@@ -733,31 +760,34 @@ def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
         date = original_node.metadata["date"]
         previous_date = datetime.date.fromisoformat(date)
         previous_date -= datetime.timedelta(days=1)
-        print(f"Got sequence for {date} finding base at {previous_date}")
         ts_path = f"{daily_ts_prefix}{previous_date}.ts"
-        print("loading", ts_path)
+        # print(f"Got sequence for {date} finding base at {previous_date}")
+        # print("loading", ts_path)
         base_ts = tskit.load(ts_path)
-        for num_mismatches in [2, 3, 4, 5, 10000]:
-            for mirror in [True, False]:
-                sample = sc2ts.Sample(original_node.metadata)
-                # print(f"Rerunning for {sample.strain} with mismatch={num_mismatches}")
-                samples = sc2ts.match(
-                    samples=[sample],
-                    alignment_store=alignment_store,
-                    base_ts=base_ts,
-                    num_mismatches=num_mismatches,
-                    precision=precision,
-                    num_threads=0,
-                    mirror_coordinates=mirror,
-                )
-                assert len(samples) == 1
-                sample = samples[0]
-                datum = {
-                    "num_mismatches": num_mismatches,
-                    "mirror": mirror,
-                    **sample.asdict(),
-                }
-                print(num_mismatches, mirror, sample.path, sample.mutations)
-                data.append(datum)
-                # with open(datafile, "w") as f:
-                #     json.dump(data, f)
+        examine_recombinant(
+            original_node.metadata["strain"], date, base_ts, alignment_store)
+        # num_mismatches = 3
+        # for mirror in [True, False]:
+        #     sample = sc2ts.Sample(original_node.metadata)
+        #     # print(f"Rerunning for {sample.strain} with mismatch={num_mismatches}")
+        #     samples = sc2ts.match(
+        #         samples=[sample],
+        #         alignment_store=alignment_store,
+        #         base_ts=base_ts,
+        #         num_mismatches=num_mismatches,
+        #         precision=precision,
+        #         num_threads=0,
+        #         mirror_coordinates=mirror,
+        #     )
+        #     assert len(samples) == 1
+        #     sample = samples[0]
+        #     datum = {
+        #         "num_mismatches": num_mismatches,
+        #         "mirror": mirror,
+        #         **sample.asdict(),
+        #     }
+        #     print(u, date, mirror, sample.breakpoints, sample.parents,
+        #             [str(mut) for mut in sample.mutations], sep="\t")
+        #     data.append(datum)
+        #     # with open(datafile, "w") as f:
+        #     #     json.dump(data, f)
