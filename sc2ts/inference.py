@@ -926,28 +926,37 @@ def match_tsinfer(
     sample_mutations = []
     # Update the Sample objects with their paths and sets of mutations.
     for node_id, sample in enumerate(samples, ts.num_nodes):
+        print("START", node_id)
         path = []
-        last_right = 0
         for left, right, parent in zip(*results.get_path(node_id)):
-            path.append((int(coord_map[left]), int(coord_map[right]), int(parent)))
+            if mirror_coordinates:
+                left_pos = mirror(int(coord_map[right]), L)
+                right_pos = mirror(int(coord_map[left]), L)
+            else:
+                left_pos = int(coord_map[left])
+                right_pos = int(coord_map[right])
+            path.append((left_pos, right_pos, int(parent)))
         path.sort()
         sample_paths.append(path)
 
         mutations = []
         for site, derived_state in zip(*results.get_mutations(node_id)):
-            pos = int(coord_map[site])
+            if mirror_coordinates:
+                pos = mirror(int(coord_map[site]), L)
+            else:
+                pos = int(coord_map[site])
+
             derived_state = unshuffle_allele_index(derived_state, reference[pos])
+            assert sample.alignment[pos] == derived_state
             # print(f"Mutation: pos={pos} "
             #         f"ancestral={reference[pos]} derived={derived_state}")
-            if mirror_coordinates:
-                real_pos = mirror(pos, L)
-                assert sample.alignment[real_pos] == derived_state
-            else:
-                assert sample.alignment[pos] == derived_state
-
             mutations.append((pos, derived_state))
         mutations.sort()
         sample_mutations.append(mutations)
+
+    print("paths = ", sample_paths)
+    print("mutations = ", sample_mutations)
+
 
     update_path_info(samples, ts, sample_paths, sample_mutations)
 
@@ -1025,22 +1034,6 @@ def update_path_info(samples, ts, sample_paths, sample_mutations):
                     is_immediate_reversion=is_immediate_reversion,
                 )
             )
-
-    if mirror_coordinates:
-        num_sites = ts.num_sites
-        for sample in samples:
-            mutations = []
-            for pos, derived_state in reversed(sample.mutations):
-                pos = mirror(pos, L)
-                # print(pos, sample.alignment[pos], derived_state)
-                assert sample.alignment[pos] == derived_state
-                mutations.append((pos, derived_state))
-                # print(f"Mutation: pos={pos} derived={derived_state}")
-            sample.mutations = mutations
-        path = []
-        for left, right, node in reversed(sample.path):
-            path.append((mirror(right, L), mirror(left, L), node))
-        sample.path = path
 
 
 class Matcher(tsinfer.SampleMatcher):

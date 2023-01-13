@@ -708,17 +708,28 @@ class TreeInfo:
 def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
     precision = 12
     recomb_nodes = get_recombinants(ts)
+    print(recomb_nodes)
     # strain = "India/GJ-GBRC160b/2020"
     # strain_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
     # recomb_nodes = [strain_map[strain]]
     print("Examining", len(recomb_nodes), "recombinants")
 
+    tree = ts.first()
     data = []
     for u in recomb_nodes:
         node = ts.node(u)
-        original_node_id = node.metadata["mutations"][0][0]
+        recomb_date = node.metadata["date_added"]
+        for v in tree.children(u):
+            child = ts.node(v)
+            if child.is_sample() and child.metadata["date"] == recomb_date:
+                edge = ts.edge(tree.edge(v))
+                assert edge.left == 0 and edge.right == ts.sequence_length
+                original_node = child
+                break
+
+        # original_node_id = node.metadata["mutations"][0][0]
         # original_node_id = u
-        original_node = ts.node(original_node_id)
+        # original_node = ts.node(original_node_id)
         date = original_node.metadata["date"]
         previous_date = datetime.date.fromisoformat(date)
         previous_date -= datetime.timedelta(days=1)
@@ -746,7 +757,7 @@ def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
                     "mirror": mirror,
                     **sample.asdict(),
                 }
-                print(datum)
+                print(num_mismatches, mirror, sample.path, sample.mutations)
                 data.append(datum)
-                with open(datafile, "w") as f:
-                    json.dump(data, f)
+                # with open(datafile, "w") as f:
+                #     json.dump(data, f)
