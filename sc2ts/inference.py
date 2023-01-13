@@ -37,7 +37,7 @@ def mirror_ts_coordinates(ts):
     right = tables.edges.right
     tables.edges.left = mirror(right, L)
     tables.edges.right = mirror(left, L)
-    tables.sites.position = mirror(tables.sites.position, L-1)
+    tables.sites.position = mirror(tables.sites.position, L - 1)
     tables.sort()
     return tables.tree_sequence()
 
@@ -890,7 +890,11 @@ def match_tsinfer(
         reference = np.append(reference[0], reference[1:][::-1])
         genotypes = reversed(genotypes)
 
-    with tsinfer.SampleData(sequence_length=ts.sequence_length) as sd:
+    # Note: this bit is actually quite slow, so it would be good to factor
+    # it out at some point and build the underlying zarr directly. May
+    # not be worthwhile doing though, if the tskit APIs are mature soon
+    # enough.
+    with tsinfer.SampleData(sequence_length=ts.sequence_length, compressor=None) as sd:
         alleles = tuple(core.ALLELES)
         for pos, site_genotypes in zip(ts.sites_position.astype(int), genotypes):
             sd.add_site(
@@ -929,6 +933,7 @@ def match_tsinfer(
         precision=precision,
     )
     results = manager.run_match(np.arange(sd.num_samples))
+    print(results)
     ancestral_state = core.get_reference_sequence()[ts.sites_position.astype(int)]
 
     coord_map = np.append(ts.sites_position, [L]).astype(int)
@@ -951,11 +956,14 @@ def match_tsinfer(
         sample_paths.append(path)
 
         mutations = []
-        for site, derived_state in zip(*results.get_mutations(node_id)):
+        for site_id, derived_state in zip(*results.get_mutations(node_id)):
+            site_pos = coord_map[site_id]
             if mirror_coordinates:
-                site = mirror(site, ts.num_sites - 1)
-            derived_state = unshuffle_allele_index(derived_state, ancestral_state[site])
-            mutations.append((int(site), derived_state))
+                site_pos = mirror(site_pos, L - 1)
+            derived_state = unshuffle_allele_index(
+                derived_state, ancestral_state[site_id]
+            )
+            mutations.append((site_pos, derived_state))
         mutations.sort()
         sample_mutations.append(mutations)
 
@@ -1011,8 +1019,10 @@ def update_path_info(samples, ts, sample_paths, sample_mutations):
 
     for sample, path, mutations in zip(samples, sample_paths, sample_mutations):
         sample.path = [PathSegment(*seg) for seg in path]
-        for site_id, derived_state in mutations:
-            site_pos = ts.sites_position[site_id]
+        print("num_mutations = ", len(mutations))
+        for site_pos, derived_state in mutations:
+            site_id = np.searchsorted(ts.sites_position, site_pos)
+            assert ts.sites_position[site_id] == site_pos
             seg = [seg for seg in sample.path if seg.contains(site_pos)][0]
             closest_mutation = get_closest_mutation(seg.parent, site_id)
             inherited_state = ancestral_state[site_id]
@@ -1027,6 +1037,10 @@ def update_path_info(samples, ts, sample_paths, sample_mutations):
                 is_reversion = parent_inherited_state == derived_state
                 if is_reversion:
                     is_immediate_reversion = closest_mutation.node == seg.parent
+
+            if derived_state != sample.alignment[site_pos]:
+                assert site_pos in sample.masked_sites
+            assert inherited_state != derived_state
 
             sample.mutations.append(
                 MatchMutation(
