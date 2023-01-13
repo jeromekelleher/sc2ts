@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import tsinfer
 import tskit
+import msprime
 
 import sc2ts
 
@@ -235,6 +236,46 @@ class TestMatchPathTs:
             samples, ts, [s.path for s in samples], [s.mutations for s in samples]
         )
         self.match_path_ts(samples, ts)
+
+
+class TestMirrorTsCoords:
+    def check_double_mirror(self, ts):
+        mirror = sc2ts.inference.mirror_ts_coordinates(ts)
+        double_mirror = sc2ts.inference.mirror_ts_coordinates(mirror)
+        ts.tables.assert_equals(double_mirror.tables)
+
+    @pytest.mark.parametrize("n", [2, 3, 13, 20])
+    def test_single_tree_no_mutations(self, n):
+        ts = msprime.sim_ancestry(n, random_seed=42)
+        self.check_double_mirror(ts)
+
+    @pytest.mark.parametrize("n", [2, 3, 13, 20])
+    def test_multiple_trees_no_mutations(self, n):
+        ts = msprime.sim_ancestry(
+            n,
+            sequence_length=100,
+            recombination_rate=1,
+            random_seed=420,
+        )
+        assert ts.num_trees > 1
+        self.check_double_mirror(ts)
+
+    @pytest.mark.parametrize("n", [2, 3, 13, 20])
+    def test_single_tree_mutations(self, n):
+        ts = msprime.sim_ancestry(n, sequence_length=100, random_seed=42234)
+        ts = msprime.sim_mutations(ts, rate=0.1, random_seed=32234)
+        assert ts.num_sites > 2
+        self.check_double_mirror(ts)
+
+    @pytest.mark.parametrize("n", [2, 3, 13, 20])
+    def test_multiple_tree_mutations(self, n):
+        ts = msprime.sim_ancestry(
+            n, sequence_length=100, recombination_rate=0.1, random_seed=1234
+        )
+        ts = msprime.sim_mutations(ts, rate=0.1, random_seed=334)
+        assert ts.num_sites > 2
+        assert ts.num_trees > 2
+        self.check_double_mirror(ts)
 
 
 # # @pytest.fixture

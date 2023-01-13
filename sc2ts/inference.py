@@ -26,16 +26,22 @@ def mirror_ts_coordinates(ts):
     """
     Returns a copy of the specified tree sequence in which all
     coordinates x are transformed into L - x.
+
+    Makes a bunch of simplifying assumptions
     """
+    assert ts.num_migrations == 0
+    assert ts.discrete_genome
     L = ts.sequence_length
     tables = ts.dump_tables()
     left = tables.edges.left
     right = tables.edges.right
     tables.edges.left = mirror(right, L)
     tables.edges.right = mirror(left, L)
-    tables.sites.position = mirror(tables.sites.position, L)
-    # NOTE!! this is just the positions. The ancestral states and everything
-    # else will be wrong.
+    assert tables.edges.metadata_offset[-1] == 0
+    tables.sites.position = mirror(tables.sites.position, L - 1)
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    tables.sites.ancestral_state = tables.sites.ancestral_state[::-1]
+    assert tables.sites.metadata_offset[-1] == 0
     tables.sort()
     return tables.tree_sequence()
 
