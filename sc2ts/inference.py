@@ -11,6 +11,8 @@ import tsinfer
 import numpy as np
 import scipy.spatial.distance
 import scipy.cluster.hierarchy
+import zarr
+import numba
 
 from . import core
 from . import alignments
@@ -867,22 +869,55 @@ def push_up_reversions(ts, samples):
     return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
-def convert_tsinfer_sample_data(ts, genotypes):
-    # Note: this bit is actually quite slow, so it would be good to factor
-    # it out at some point and build the underlying zarr directly. May
-    # not be worthwhile doing though, if the tskit APIs are mature soon
-    # enough.
-    with tsinfer.SampleData(sequence_length=ts.sequence_length, compressor=None) as sd:
-        alleles = tuple(core.ALLELES)
-        for site, site_genotypes in zip(ts.sites(), genotypes):
-            sd.add_site(
-                site.position,
-                site_genotypes,
-                alleles=alleles,
-                ancestral_allele=alleles.index(site.ancestral_state),
-            )
+# NOTE: could definitely do better here by using int encoding instead of
+# strings, and then njit
+@numba.jit
+def get_indexes_of(array, values):
+    n = array.shape[0]
+    out = np.zeros(n, dtype=np.int64)
+    for j in range(n):
+        out[j] = values.index(array[j])
+    return out
 
-    logger.info(f"Built temporary sample data file")
+
+def convert_tsinfer_sample_data(ts, genotypes):
+    """
+    Doing this directly using using tsinfer's APIs was very slow because
+    of all the error checking etc going on. This circumvents the process.
+    """
+    alleles = tuple(core.ALLELES)
+    sd = tsinfer.SampleData(sequence_length=ts.sequence_length, compressor=None)
+    # for site, site_genotypes in zip(ts.sites(), genotypes):
+    #     sd.add_site(
+    #         site.position,
+    #         site_genotypes,
+    #         alleles=alleles,
+    #         ancestral_allele=alleles.index(site.ancestral_state),
+    #     )
+
+    # Let the API add one site to get the basic stuff in there.
+    sd.add_site(
+        0,
+        genotypes[0],
+        alleles=alleles,
+    )
+    sd.finalise()
+
+    ancestral_state = ts.tables.sites.ancestral_state.view("S1").astype(str)
+    ancestral_allele = get_indexes_of(ancestral_state, alleles)
+
+    def resize_copy(array, new_size):
+        x = array[0]
+        array.resize(new_size)
+        array[:] = [x] * new_size
+
+    data = zarr.open(store=sd.data.store)
+    data["sites/position"] = ts.sites_position
+    data["sites/time"] = np.zeros_like(ts.sites_position)
+    data["sites/genotypes"] = genotypes
+    data["sites/alleles"] = [alleles] * ts.num_sites
+    data["sites/ancestral_allele"] = ancestral_allele
+    resize_copy(data["sites/metadata"], ts.num_sites)
     return sd
 
 
@@ -904,7 +939,7 @@ def match_tsinfer(
     input_ts = ts
     if mirror_coordinates:
         ts = mirror_ts_coordinates(ts)
-        genotypes = reversed(genotypes)
+        genotypes = genotypes[::-1]
 
     sd = convert_tsinfer_sample_data(ts, genotypes)
 
