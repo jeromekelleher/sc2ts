@@ -4,9 +4,9 @@ Utilities for examining sc2ts output.
 import collections
 import warnings
 import datetime
-import json
 
 import tskit
+import tszip
 import numpy as np
 import pandas as pd
 import tqdm
@@ -705,11 +705,11 @@ class TreeInfo:
         ax2.set_ylim(0, 0.01)
 
 
-def examine_recombinant(strain, date, ts, alignment_store):
+def examine_recombinant(strain, ts, alignment_store):
     num_mismatches = 3
-    for mirror in [False, True]:
+    data = []
+    for mirror in [True, False]:
         sample = sc2ts.Sample({"strain": strain})
-        # print(f"Rerunning for {sample.strain} with mismatch={num_mismatches}")
         samples = sc2ts.match(
             samples=[sample],
             alignment_store=alignment_store,
@@ -721,28 +721,27 @@ def examine_recombinant(strain, date, ts, alignment_store):
         )
         assert len(samples) == 1
         sample = samples[0]
-        # datum = {
-        #     "num_mismatches": num_mismatches,
-        #     "mirror": mirror,
-        #     **sample.asdict(),
-        # }
-        print(strain, date, mirror, sample.breakpoints, sample.parents,
-                [str(mut) for mut in sample.mutations], sep="\t")
-        # data.append(datum)
-        # with open(datafile, "w") as f:
-        #     json.dump(data, f)
+        data.append(
+            {
+                "strain": strain,
+                "direction": ["backward", "forward"][int(not mirror)],
+                "breakpoints": sample.breakpoints,
+                "parents": sample.parents,
+                "mutations": [str(mut) for mut in sample.mutations],
+            }
+        )
+    return data
 
-def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
-    precision = 12
+
+def get_recombinant_samples(ts):
+    """
+    Returns the node IDS of recombinant samples (those that are the direct cause
+    of recombinants) from the specified trees. Only one causal strain
+    per recombinant node is returned, chosen arbitrarily.
+    """
     recomb_nodes = get_recombinants(ts)
-    print(recomb_nodes)
-    # strain = "India/GJ-GBRC160b/2020"
-    # strain_map = {ts.node(u).metadata["strain"]: u for u in ts.samples()}
-    # recomb_nodes = [strain_map[strain]]
-    print("Examining", len(recomb_nodes), "recombinants")
-
     tree = ts.first()
-    data = []
+    causal_samples = []
     for u in recomb_nodes:
         node = ts.node(u)
         recomb_date = node.metadata["date_added"]
@@ -751,43 +750,8 @@ def examine_recombinants(ts, alignment_store, daily_ts_prefix, datafile):
             if child.is_sample() and child.metadata["date"] == recomb_date:
                 edge = ts.edge(tree.edge(v))
                 assert edge.left == 0 and edge.right == ts.sequence_length
-                original_node = child
+                causal_sample = child
                 break
-
-        # original_node_id = node.metadata["mutations"][0][0]
-        # original_node_id = u
-        # original_node = ts.node(original_node_id)
-        date = original_node.metadata["date"]
-        previous_date = datetime.date.fromisoformat(date)
-        previous_date -= datetime.timedelta(days=1)
-        ts_path = f"{daily_ts_prefix}{previous_date}.ts"
-        # print(f"Got sequence for {date} finding base at {previous_date}")
-        # print("loading", ts_path)
-        base_ts = tskit.load(ts_path)
-        examine_recombinant(
-            original_node.metadata["strain"], date, base_ts, alignment_store)
-        # num_mismatches = 3
-        # for mirror in [True, False]:
-        #     sample = sc2ts.Sample(original_node.metadata)
-        #     # print(f"Rerunning for {sample.strain} with mismatch={num_mismatches}")
-        #     samples = sc2ts.match(
-        #         samples=[sample],
-        #         alignment_store=alignment_store,
-        #         base_ts=base_ts,
-        #         num_mismatches=num_mismatches,
-        #         precision=precision,
-        #         num_threads=0,
-        #         mirror_coordinates=mirror,
-        #     )
-        #     assert len(samples) == 1
-        #     sample = samples[0]
-        #     datum = {
-        #         "num_mismatches": num_mismatches,
-        #         "mirror": mirror,
-        #         **sample.asdict(),
-        #     }
-        #     print(u, date, mirror, sample.breakpoints, sample.parents,
-        #             [str(mut) for mut in sample.mutations], sep="\t")
-        #     data.append(datum)
-        #     # with open(datafile, "w") as f:
-        #     #     json.dump(data, f)
+        causal_samples.append(causal_sample.id)
+    assert len(causal_samples) == len(recomb_nodes)
+    return causal_samples
