@@ -14,8 +14,15 @@ def get_samples(ts, paths, mutations=None):
     if mutations is None:
         mutations = [[] for _ in paths]
 
+    # Translate from site IDs to positions
+    updated_mutations = []
+    for sample_mutations in mutations:
+        updated = [
+            (ts.sites_position[site], state) for (site, state) in sample_mutations
+        ]
+        updated_mutations.append(updated)
     samples = [sc2ts.Sample() for _ in paths]
-    sc2ts.update_path_info(samples, ts, paths, mutations)
+    sc2ts.update_path_info(samples, ts, paths, updated_mutations)
     return samples
 
 
@@ -98,6 +105,75 @@ class TestAddMatchingResults:
         assert ts2.num_mutations == 1
         var = next(ts2.variants())
         assert var.alleles[var.genotypes[0]] == "X"
+
+
+class TestMatchTsinfer:
+    def match_tsinfer(self, samples, ts, haplotypes, **kwargs):
+        assert len(samples) == len(haplotypes)
+        G = np.array(haplotypes).T
+        sc2ts.inference.match_tsinfer(samples=samples, ts=ts, genotypes=G, **kwargs)
+
+    @pytest.mark.parametrize("mirror", [False, True])
+    def test_match_reference(self, mirror):
+        ts = sc2ts.initial_ts()
+        tables = ts.dump_tables()
+        tables.sites.truncate(20)
+        ts = tables.tree_sequence()
+        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples[0].alignment = sc2ts.core.get_reference_sequence()
+        ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
+        h = ma.alignment[ts.sites_position.astype(int)]
+        self.match_tsinfer(samples, ts, [h], mirror_coordinates=mirror)
+        assert samples[0].breakpoints == [0, ts.sequence_length]
+        assert samples[0].parents == [ts.num_nodes - 1]
+        assert len(samples[0].mutations) == 0
+
+    @pytest.mark.parametrize("mirror", [False, True])
+    @pytest.mark.parametrize("site_id", [0, 10, 19])
+    def test_match_reference_one_mutation(self, mirror, site_id):
+        ts = sc2ts.initial_ts()
+        tables = ts.dump_tables()
+        tables.sites.truncate(20)
+        ts = tables.tree_sequence()
+        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples[0].alignment = sc2ts.core.get_reference_sequence()
+        ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
+        h = ma.alignment[ts.sites_position.astype(int)]
+        # Mutate to gap
+        h[site_id] = sc2ts.core.ALLELES.index("-")
+        self.match_tsinfer(samples, ts, [h], mirror_coordinates=mirror)
+        assert samples[0].breakpoints == [0, ts.sequence_length]
+        assert samples[0].parents == [ts.num_nodes - 1]
+        assert len(samples[0].mutations) == 1
+        mut = samples[0].mutations[0]
+        assert mut.site_id == site_id
+        assert mut.site_position == ts.sites_position[site_id]
+        assert mut.derived_state == "-"
+        assert mut.inherited_state == ts.site(site_id).ancestral_state
+        assert not mut.is_reversion
+        assert not mut.is_immediate_reversion
+
+    @pytest.mark.parametrize("mirror", [False, True])
+    @pytest.mark.parametrize("allele", range(5))
+    def test_match_reference_all_same(self, mirror, allele):
+        ts = sc2ts.initial_ts()
+        tables = ts.dump_tables()
+        tables.sites.truncate(20)
+        ts = tables.tree_sequence()
+        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples[0].alignment = sc2ts.core.get_reference_sequence()
+        ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
+        ref = ma.alignment[ts.sites_position.astype(int)]
+        h = np.zeros_like(ref) + allele
+        self.match_tsinfer(samples, ts, [h], mirror_coordinates=mirror)
+        assert samples[0].breakpoints == [0, ts.sequence_length]
+        assert samples[0].parents == [ts.num_nodes - 1]
+        muts = samples[0].mutations
+        assert len(muts) > 0
+        assert len(muts) == np.sum(ref != allele)
+        for site_id, mut in zip(np.where(ref != allele)[0], muts):
+            assert mut.site_id == site_id
+            assert mut.derived_state == sc2ts.core.ALLELES[allele]
 
 
 class TestMatchPathTs:
@@ -239,6 +315,33 @@ class TestMatchPathTs:
 
 
 class TestMirrorTsCoords:
+    def test_dense_sites_example(self):
+        tree = tskit.Tree.generate_balanced(2, span=10)
+        tables = tree.tree_sequence.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.sites.add_row(2, "C")
+        tables.sites.add_row(5, "-")
+        tables.sites.add_row(8, "G")
+        tables.sites.add_row(9, "T")
+        ts1 = tables.tree_sequence()
+        ts2 = sc2ts.inference.mirror_ts_coordinates(ts1)
+        assert ts2.num_sites == ts1.num_sites
+        assert list(ts2.sites_position) == [0, 1, 4, 7, 9]
+        assert "".join(site.ancestral_state for site in ts2.sites()) == "TG-CA"
+
+    def test_sparse_sites_example(self):
+        tree = tskit.Tree.generate_balanced(2, span=100)
+        tables = tree.tree_sequence.dump_tables()
+        tables.sites.add_row(10, "A")
+        tables.sites.add_row(12, "C")
+        tables.sites.add_row(15, "-")
+        tables.sites.add_row(18, "G")
+        tables.sites.add_row(19, "T")
+        ts1 = tables.tree_sequence()
+        ts2 = sc2ts.inference.mirror_ts_coordinates(ts1)
+        assert ts2.num_sites == ts1.num_sites
+        assert list(ts2.sites_position) == [80, 81, 84, 87, 89]
+        assert "".join(site.ancestral_state for site in ts2.sites()) == "TG-CA"
 
     def check_double_mirror(self, ts):
         mirror = sc2ts.inference.mirror_ts_coordinates(ts)
@@ -278,6 +381,17 @@ class TestMirrorTsCoords:
         ts = msprime.sim_mutations(ts, rate=0.1, random_seed=334)
         assert ts.num_sites > 2
         assert ts.num_trees > 2
+        self.check_double_mirror(ts)
+
+    def test_high_recomb_mutation(self):
+        # Example that's saturated for muts and recombs
+        ts = msprime.sim_ancestry(
+            10, sequence_length=10, recombination_rate=10, random_seed=1
+        )
+        assert ts.num_trees == 10
+        ts = msprime.sim_mutations(ts, rate=1, random_seed=1)
+        assert ts.num_sites == 10
+        assert ts.num_mutations > 10
         self.check_double_mirror(ts)
 
 
