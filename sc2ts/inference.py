@@ -469,6 +469,9 @@ def solve_num_mismatches(ts, k):
     """
     Return the low-level LS parameters corresponding to accepting
     k mismatches in favour of a single recombination.
+
+    NOTE! This is NOT taking into account the spatial distance along
+    the genome, and so is not a very good model in some ways.
     """
     m = ts.num_sites
     n = ts.num_nodes  # We can match against any node in tsinfer
@@ -483,6 +486,9 @@ def solve_num_mismatches(ts, k):
         assert mu < 0.5
         assert r < 0.5
 
+    # Add a tiny bit of extra mass for recombination so that we deterministically
+    # chose to recombine over k mutations
+    r += r * 0.01
     ls_recomb = np.full(m - 1, r)
     ls_mismatch = np.full(m, mu)
     return ls_recomb, ls_mismatch
