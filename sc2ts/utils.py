@@ -721,6 +721,10 @@ def pad_sites(ts):
 
 
 def examine_recombinant(strain, ts, alignment_store):
+    # We need to do this because tsinfer won't work on the mirrored
+    # coordinates unless we have all positions in the site-table.
+    # This is just an annoying detail of tsinfer's implementation.
+    ts = pad_sites(ts)
     num_mismatches = 3
     data = []
     for mirror in [True, False]:
