@@ -261,8 +261,13 @@ def match(
 ):
     logger.info(f"Start match for {len(samples)}")
 
+    # Note: there's not a lot of point in making the G matrix here,
+    # we should just pass on the encoded alignments to the matching
+    # algorithm directly through the Sample class, and let it
+    # do the low-level haplotype storage.
     G = np.zeros((base_ts.num_sites, len(samples)), dtype=np.int8)
     keep_sites = base_ts.sites_position.astype(int)
+    problematic_sites = core.get_problematic_sites()
 
     samples_iter = enumerate(samples)
     with tqdm.tqdm(
@@ -277,6 +282,11 @@ def match(
             sample.alignment = alignment
             logger.debug(f"Encoding alignment")
             ma = alignments.encode_and_mask(alignment)
+            # Always mask the problematic_sites as well. We need to do this
+            # for follow-up matching to inspect recombinants, as tsinfer
+            # needs us to keep all sites in the table when doing mirrored
+            # coordinates.
+            ma.alignment[problematic_sites] = -1
             G[:, j] = ma.alignment[keep_sites]
             sample.alignment_qc = ma.qc_summary()
             sample.masked_sites = ma.masked_sites
