@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from IPython.display import Markdown, HTML
 
 import sc2ts
+from . import core
 
 
 def get_recombinants(ts):
@@ -703,6 +704,20 @@ class TreeInfo:
         ax1.set_ylabel("Number of recombinant samples")
         ax2.set_ylabel("Fraction of samples recombinant")
         ax2.set_ylim(0, 0.01)
+
+
+def pad_sites(ts):
+    """
+    Fill in missing sites with the reference state.
+    """
+    ref = core.get_reference_sequence()
+    missing_sites = set(np.arange(1, len(ref)))
+    missing_sites -= set(ts.sites_position.astype(int))
+    tables = ts.dump_tables()
+    for pos in missing_sites:
+        tables.sites.add_row(pos, ref[pos])
+    tables.sort()
+    return tables.tree_sequence()
 
 
 def examine_recombinant(strain, date, ts, alignment_store):
