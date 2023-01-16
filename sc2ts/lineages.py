@@ -10,6 +10,7 @@ from tqdm.notebook import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
 import copy
+import time
 
 import sys
 sys.path.append("../")
@@ -275,10 +276,13 @@ class InferLineage:
 
 def impute_lineages(ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_only = False):
 
+    tic = time.time()
+
     inferred_lineages = InferLineage(ts.num_nodes)
     t = ts.first()
 
-    node_to_mut_dict = lineages.get_node_to_mut_dict(ts, ti, linmuts_dict)
+    print("Recording relevant mutations for each node...")
+    node_to_mut_dict = get_node_to_mut_dict(ts, ti, linmuts_dict)
 
     # Assigning "Recombinant" as the lineage for recombinant nodes that don't have a Pango designation
     inferred_lineages.record_recombinants(ts, ti)
@@ -291,6 +295,7 @@ def impute_lineages(ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_on
     else:
         target = ts.num_nodes - len(ti.recombinants)
 
+    print("Inferring lineages...")
     with tqdm(total = target - 1) as pbar:
         while inferred_lineages.total_inferred(ti) < target:
             impute_lineages_inheritance(inferred_lineages, ts, t, ti, node_to_mut_dict, linmuts_dict, df, ohe_encoder, clf_tree, internal_only, pbar)
@@ -298,7 +303,9 @@ def impute_lineages(ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_on
             # print("Imputed so far:", inferred_lineages.num_sample_imputed + inferred_lineages.num_intern_imputed, "out of possible", target)
     inferred_lineages.print_info(ts, ti, internal_only, target)
 
-    edited_ts = add_lineages_to_ts(il, ts)
+    edited_ts = add_lineages_to_ts(inferred_lineages, ts)
+
+    print("Time:", time.time() - tic)
 
     return inferred_lineages, edited_ts
 
