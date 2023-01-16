@@ -363,7 +363,7 @@ def impute_lineages_decisiontree(inferred_lineages, ts, t, ti, node_to_mut_dict,
     # print(str(inferred_lineages.change) + "...done")
 
 
-def add_lineages_to_ts(il, ts)
+def add_lineages_to_ts(il, ts):
     imputed_lineages = il.get_results()
     tables = ts.tables
     new_metadata = []
