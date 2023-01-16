@@ -740,12 +740,12 @@ def pad_sites(ts):
     return tables.tree_sequence()
 
 
-def examine_recombinant(strain, ts, alignment_store):
+def examine_recombinant(strain, ts, alignment_store, num_mismatches=3):
     # We need to do this because tsinfer won't work on the mirrored
     # coordinates unless we have all positions in the site-table.
     # This is just an annoying detail of tsinfer's implementation.
     ts = pad_sites(ts)
-    num_mismatches = 3
+    num_mismatches = num_mismatches
     data = []
     for mirror in [True, False]:
         sample = sc2ts.Sample({"strain": strain})
@@ -763,6 +763,7 @@ def examine_recombinant(strain, ts, alignment_store):
         data.append(
             {
                 "strain": strain,
+                "num_mismatches": num_mismatches,
                 "direction": ["backward", "forward"][int(not mirror)],
                 "breakpoints": sample.breakpoints,
                 "parents": sample.parents,
