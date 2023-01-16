@@ -754,23 +754,26 @@ def examine_recombinant(strain, ts, alignment_store):
 
 def get_recombinant_samples(ts):
     """
-    Returns the node IDS of recombinant samples (those that are the direct cause
-    of recombinants) from the specified trees. Only one causal strain
-    per recombinant node is returned, chosen arbitrarily.
+    Returns a map of recombinant nodes and their causal samples IDs.
+    Only one causal strain per recombinant node is returned, chosen arbitrarily.
     """
     recomb_nodes = get_recombinants(ts)
     tree = ts.first()
-    causal_samples = []
+    out = {}
     for u in recomb_nodes:
         node = ts.node(u)
         recomb_date = node.metadata["date_added"]
-        for v in tree.children(u):
+        causal_sample = -1
+        # Search the subtree for a causal sample.
+        for v in tree.nodes(u, order="levelorder"):
             child = ts.node(v)
             if child.is_sample() and child.metadata["date"] == recomb_date:
                 edge = ts.edge(tree.edge(v))
                 assert edge.left == 0 and edge.right == ts.sequence_length
                 causal_sample = child
                 break
-        causal_samples.append(causal_sample.id)
-    assert len(causal_samples) == len(recomb_nodes)
-    return causal_samples
+        assert causal_sample != -1
+        out[u] = causal_sample.id
+    assert len(set(out.values())) == len(recomb_nodes)
+    assert len(out) == len(recomb_nodes)
+    return out
