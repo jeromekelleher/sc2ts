@@ -264,8 +264,8 @@ class InferLineage:
         print("-"*30)
 
     def get_results(self):
-        all_lineages = np.array(self.num_nodes, dtype = object)
-        for i, lt, lp in ennumerate(zip(self.lineages_true, self.lineages_pred)):
+        all_lineages = [None] * self.num_nodes
+        for i, (lt, lp) in enumerate(zip(self.lineages_true, self.lineages_pred)):
             if lt is not None:
                 all_lineages[i] = lt
             else:
@@ -273,10 +273,12 @@ class InferLineage:
         return all_lineages
 
 
-def impute_lineages(ts, ti, linmuts_dict, node_to_mut_dict, df, ohe_encoder, clf_tree, internal_only = False):
+def impute_lineages(ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_only = False):
 
     inferred_lineages = InferLineage(ts.num_nodes)
     t = ts.first()
+
+    node_to_mut_dict = lineages.get_node_to_mut_dict(ts, ti, linmuts_dict)
 
     # Assigning "Recombinant" as the lineage for recombinant nodes that don't have a Pango designation
     inferred_lineages.record_recombinants(ts, ti)
@@ -296,7 +298,9 @@ def impute_lineages(ts, ti, linmuts_dict, node_to_mut_dict, df, ohe_encoder, clf
             # print("Imputed so far:", inferred_lineages.num_sample_imputed + inferred_lineages.num_intern_imputed, "out of possible", target)
     inferred_lineages.print_info(ts, ti, internal_only, target)
 
-    return inferred_lineages
+    edited_ts = add_lineages_to_ts(il, ts)
+
+    return inferred_lineages, edited_ts
 
 
 def impute_lineages_inheritance(inferred_lineages, ts, t, ti, node_to_mut_dict, linmuts_dict, df, ohe_encoder, clf_tree, internal_only, pbar):
@@ -359,5 +363,17 @@ def impute_lineages_decisiontree(inferred_lineages, ts, t, ti, node_to_mut_dict,
     # print(str(inferred_lineages.change) + "...done")
 
 
+def add_lineages_to_ts(il, ts)
+    imputed_lineages = il.get_results()
+    tables = ts.tables
+    new_metadata = []
+    for node in ts.nodes():
+        md = node.metadata
+        md['Imputed_lineage'] = imputed_lineages[node.id]
+        new_metadata.append(md)
+    validated_metadata = [tables.nodes.metadata_schema.validate_and_encode_row(row) for row in new_metadata]
+    tables.nodes.packset_metadata(validated_metadata)
+    edited_ts = tables.tree_sequence()
+    return edited_ts
 
 
