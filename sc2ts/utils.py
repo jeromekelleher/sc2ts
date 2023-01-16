@@ -380,7 +380,20 @@ class TreeInfo:
         )
 
     def recombinants_summary(self):
-        return self._collect_node_data(self.recombinants)
+        df = self._collect_node_data(self.recombinants)
+        sample_map = get_recombinant_samples(self.ts)
+        causal_strain = []
+        causal_pango = []
+        causal_date = []
+        for u in df.node:
+            md = self.nodes_metadata[sample_map[u]]
+            causal_strain.append(md["strain"])
+            causal_pango.append(md["Nextclade_pango"])
+            causal_date.append(md["date"])
+        df["causal_strain"] = causal_strain
+        df["causal_pango"] = causal_pango
+        df["causal_date"] = causal_date
+        return df
 
     def mutators_summary(self, threshold=10):
         mutator_nodes = np.where(self.nodes_num_mutations > threshold)[0]
@@ -417,15 +430,21 @@ class TreeInfo:
         return muts
 
     def _copying_table(self, node, edges):
-        variants = self.ts.variants(
-            samples=[node] + list(edges.parent), isolated_as_missing=False
-        )  # Can't have missing data here, so we're OK.
+        parent_cols = {}
+        samples = [node]
+        for edge in edges:
+            if edge.parent not in parent_cols:
+                parent_cols[edge.parent] = len(parent_cols) + 1
+                samples.append(edge.parent)
+
+        # Can't have missing data here, so we're OK.
+        variants = self.ts.variants(samples=samples, isolated_as_missing=False)
         mutations = self.node_mutations(node)
         header = (
             "<thead><tr>"
             + "<th>POS</th>"
             + "<th>REF</th>"
-            + "".join(f"<th>P{j}</th>" for j in range(len(edges)))
+            + "".join(f"<th>P{j}</th>" for j in range(len(parent_cols)))
             + "<th>C</th><th>MUTATION</th>"
             "</tr></thead>\n"
         )
@@ -434,14 +453,15 @@ class TreeInfo:
             pos = int(var.site.position)
             ancestral_state = var.site.ancestral_state
             if len(np.unique(var.genotypes)) > 1:
-                current_parent = np.searchsorted(edges.left, pos, side="right")
+                edge_index = np.searchsorted(edges.left, pos, side="right") - 1
+                parent_col = parent_cols[edges[edge_index].parent]
                 body += "<tr>"
                 body += f"<td>{pos}</td><td>{ancestral_state}</td>"
 
                 for j in range(1, len(var.genotypes)):
                     state = var.alleles[var.genotypes[j]]
                     style = ""
-                    if j == current_parent:
+                    if j == parent_col:
                         style = "border: 1px solid black; border-collapse: collapse;"
                         # state = f"<b>{state}</b>"
                     body += f"<td style='{style}'>{state}</td>"
