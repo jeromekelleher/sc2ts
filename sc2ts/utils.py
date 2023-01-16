@@ -3,9 +3,10 @@ Utilities for examining sc2ts output.
 """
 import collections
 import warnings
-import json
+import datetime
 
 import tskit
+import tszip
 import numpy as np
 import pandas as pd
 import tqdm
@@ -13,6 +14,15 @@ import matplotlib.pyplot as plt
 from IPython.display import Markdown, HTML
 
 import sc2ts
+from . import core
+
+
+def get_recombinants(ts):
+    partial_edges = np.logical_or(
+        ts.edges_left != 0, ts.edges_right != ts.sequence_length
+    )
+    recomb_nodes = np.unique(ts.edges_child[partial_edges])
+    return recomb_nodes
 
 
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
@@ -71,14 +81,6 @@ def max_descendant_samples(ts, show_progress=True):
                 u = tree.parent(u)
         tree.next()
     return num_samples
-
-
-def get_recombinants(ts):
-    partial_edges = np.logical_or(
-        ts.edges_left != 0, ts.edges_right != ts.sequence_length
-    )
-    recomb_nodes = np.unique(ts.edges_child[partial_edges])
-    return recomb_nodes
 
 
 class TreeInfo:
@@ -702,3 +704,76 @@ class TreeInfo:
         ax1.set_ylabel("Number of recombinant samples")
         ax2.set_ylabel("Fraction of samples recombinant")
         ax2.set_ylim(0, 0.01)
+
+
+def pad_sites(ts):
+    """
+    Fill in missing sites with the reference state.
+    """
+    ref = core.get_reference_sequence()
+    missing_sites = set(np.arange(1, len(ref)))
+    missing_sites -= set(ts.sites_position.astype(int))
+    tables = ts.dump_tables()
+    for pos in missing_sites:
+        tables.sites.add_row(pos, ref[pos])
+    tables.sort()
+    return tables.tree_sequence()
+
+
+def examine_recombinant(strain, ts, alignment_store):
+    # We need to do this because tsinfer won't work on the mirrored
+    # coordinates unless we have all positions in the site-table.
+    # This is just an annoying detail of tsinfer's implementation.
+    ts = pad_sites(ts)
+    num_mismatches = 3
+    data = []
+    for mirror in [True, False]:
+        sample = sc2ts.Sample({"strain": strain})
+        samples = sc2ts.match(
+            samples=[sample],
+            alignment_store=alignment_store,
+            base_ts=ts,
+            num_mismatches=num_mismatches,
+            precision=14,
+            num_threads=0,
+            mirror_coordinates=mirror,
+        )
+        assert len(samples) == 1
+        sample = samples[0]
+        data.append(
+            {
+                "strain": strain,
+                "direction": ["backward", "forward"][int(not mirror)],
+                "breakpoints": sample.breakpoints,
+                "parents": sample.parents,
+                "mutations": [str(mut) for mut in sample.mutations],
+            }
+        )
+    return data
+
+
+def get_recombinant_samples(ts):
+    """
+    Returns a map of recombinant nodes and their causal samples IDs.
+    Only one causal strain per recombinant node is returned, chosen arbitrarily.
+    """
+    recomb_nodes = get_recombinants(ts)
+    tree = ts.first()
+    out = {}
+    for u in recomb_nodes:
+        node = ts.node(u)
+        recomb_date = node.metadata["date_added"]
+        causal_sample = -1
+        # Search the subtree for a causal sample.
+        for v in tree.nodes(u, order="levelorder"):
+            child = ts.node(v)
+            if child.is_sample() and child.metadata["date"] == recomb_date:
+                edge = ts.edge(tree.edge(v))
+                assert edge.left == 0 and edge.right == ts.sequence_length
+                causal_sample = child
+                break
+        assert causal_sample != -1
+        out[u] = causal_sample.id
+    assert len(set(out.values())) == len(recomb_nodes)
+    assert len(out) == len(recomb_nodes)
+    return out
