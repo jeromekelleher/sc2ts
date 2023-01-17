@@ -327,8 +327,8 @@ def impute_lineages_inheritance(inferred_lineages, ts, t, ti, node_to_mut_dict, 
                 if inferred_lineages.check_node(n, ti):
                     # Try to inherit lineage from parent or children, if there is at least one edge
                     # without a mutation
-                    inferred_lineages.inherit_from_parent(ts, t, node_to_mut_dict)
                     inferred_lineages.inherit_from_children(ts, t, node_to_mut_dict)
+                    inferred_lineages.inherit_from_parent(ts, t, node_to_mut_dict)
                     inferred_lineages.update()
         # print(inferred_lineages.change, end="...")
         pbar.update(inferred_lineages.change)
