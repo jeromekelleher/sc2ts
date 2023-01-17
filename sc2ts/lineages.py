@@ -179,12 +179,17 @@ class InferLineage:
             self.lineages_true[node.id] = node.metadata['Nextclade_pango']
             
     def inherit_from_node(self,
-                          node):
+                          node,
+                          is_child = False):
         if 'Nextclade_pango' in node.metadata:
             self.lineages_pred[self.current_node.id] = node.metadata['Nextclade_pango']
             self.lineages_type[self.current_node.id] = 1
             self.linfound = True
-        elif self.lineages_pred[node.id] is not None:
+        elif is_child and not (self.lineages_pred[node.id] in [None, 'Recombinant']):
+            self.lineages_pred[self.current_node.id] = self.lineages_pred[node.id]
+            self.lineages_type[self.current_node.id] = 1
+            self.linfound = True
+        elif not is_child and self.lineages_pred[node.id] is not None:
             self.lineages_pred[self.current_node.id] = self.lineages_pred[node.id]
             self.lineages_type[self.current_node.id] = 1
             self.linfound = True
@@ -197,7 +202,7 @@ class InferLineage:
             for child_node_ind in t.children(self.current_node.id):
                 if child_node_ind not in mut_dict.names:
                     child_node = ts.node(child_node_ind)
-                    self.inherit_from_node(child_node)
+                    self.inherit_from_node(child_node, is_child = True)
                     if self.linfound:
                         break
                 
@@ -209,7 +214,7 @@ class InferLineage:
             if self.current_node.id not in mut_dict.names:
                 parent_node_ind = t.parent(self.current_node.id)
                 if parent_node_ind != -1:
-                    self.inherit_from_node(ts.node(parent_node_ind))
+                    self.inherit_from_node(ts.node(parent_node_ind), is_child = False)
     
     def update(self):
         if self.linfound:
@@ -322,8 +327,8 @@ def impute_lineages_inheritance(inferred_lineages, ts, t, ti, node_to_mut_dict, 
                 if inferred_lineages.check_node(n, ti):
                     # Try to inherit lineage from parent or children, if there is at least one edge
                     # without a mutation
-                    inferred_lineages.inherit_from_children(ts, t, node_to_mut_dict)
                     inferred_lineages.inherit_from_parent(ts, t, node_to_mut_dict)
+                    inferred_lineages.inherit_from_children(ts, t, node_to_mut_dict)
                     inferred_lineages.update()
         # print(inferred_lineages.change, end="...")
         pbar.update(inferred_lineages.change)
