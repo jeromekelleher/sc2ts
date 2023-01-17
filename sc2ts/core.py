@@ -1,5 +1,6 @@
 import pathlib
 import collections.abc
+import csv
 
 import pyfaidx
 import numpy as np
@@ -60,3 +61,12 @@ def get_reference_sequence():
 def get_problematic_sites():
     data_path = pathlib.Path("sc2ts/data")
     return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
+
+def get_gene_coordinates():
+    data_path = pathlib.Path("sc2ts/data")
+    d = {}
+    with open(data_path / "annotation.csv") as f:
+        reader = csv.DictReader(f, delimiter=',')
+        for row in reader:
+            d[row["gene"]] = (int(row["start"]), int(row["end"]))
+    return d
