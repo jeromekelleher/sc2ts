@@ -373,10 +373,21 @@ class TreeInfo:
                 strain = "Push debug missing"
         elif "date_added" in md:
             strain = f"Added {md['date_added']}"
+
+        pango = md.get("Nextclade_pango", None)
+        imputed_pango = md.get("Imputed_lineage", None)
+        if pango is not None:
+            if imputed_pango is not None and imputed_pango != pango:
+                pango = f"MISMATCH: {pango} != {imputed_pango}"
+        elif imputed_pango is not None:
+            pango = imputed_pango
+        else:
+            pango = ""
+
         return {
             "node": u,
             "strain": strain,
-            "pango": md.get("Nextclade_pango", ""),
+            "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
             "children": np.sum(self.ts.edges_parent == u),
             "descendants": self.nodes_max_descendant_samples[u] - 1,
@@ -705,29 +716,30 @@ class TreeInfo:
         return pd.DataFrame(data)
 
     def pango_recombinant_lineages_report(self):
-        tree = self.ts.first()
-        data = []
+        nodes = []
         for lineage in self.pango_lineage_samples.keys():
             if lineage.startswith("X"):
                 node = self.pango_lineage_samples[lineage][0]
-                node_summary = self._node_summary(node)
-                closest_recombinant, path_length = self._get_closest_recombinant(
-                    tree, node
-                )
-                sample_is_recombinant = False
-                if closest_recombinant != -1:
-                    recomb_date = self.ts.node(closest_recombinant).metadata[
-                        "date_added"
-                    ]
-                    sample_is_recombinant = recomb_date == str(node_summary["date"])
-                summary = {
-                    "recombinant": closest_recombinant,
-                    "total_samples": len(self.pango_lineage_samples[lineage]),
-                    "direct": sample_is_recombinant,
-                    "path_length": path_length,
-                    **node_summary,
-                }
-                data.append(summary)
+                nodes.append(node)
+        return self.recombinant_samples_report()
+
+    def recombinant_samples_report(self, nodes):
+        tree = self.ts.first()
+        data = []
+        for node in nodes:
+            node_summary = self._node_summary(node)
+            closest_recombinant, path_length = self._get_closest_recombinant(tree, node)
+            sample_is_recombinant = False
+            if closest_recombinant != -1:
+                recomb_date = self.ts.node(closest_recombinant).metadata["date_added"]
+                sample_is_recombinant = recomb_date == str(node_summary["date"])
+            summary = {
+                "recombinant": closest_recombinant,
+                "direct": sample_is_recombinant,
+                "path_length": path_length,
+                **node_summary,
+            }
+            data.append(summary)
         return pd.DataFrame(data)
 
     def _repr_html_(self):
