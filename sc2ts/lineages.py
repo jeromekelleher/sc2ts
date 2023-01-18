@@ -4,17 +4,11 @@ import tszip
 import json
 import numpy as np
 from collections import defaultdict
-import sklearn
 from sklearn import tree
 from tqdm.notebook import tqdm
-import matplotlib.pyplot as plt
 import pandas as pd
-import copy
 import time
 
-import sys
-sys.path.append("../")
-import sc2ts.utils
 
 class MutationContainer:
 
@@ -54,7 +48,12 @@ class MutationContainer:
         return self.positions[index], self.alts[index]
 
 
-def read_in_mutations(json_filepath):
+def read_in_mutations(json_filepath,
+                      verbose = False):
+    """
+    Read in lineage-defining mutations from COVIDCG input json file.
+    Assumes root lineage is B.
+    """
 
     with open(json_filepath, "r") as file:
         linmuts = json.load(file)
@@ -62,26 +61,29 @@ def read_in_mutations(json_filepath):
     # Read in lineage defining mutations
     linmuts_dict = MutationContainer()
     linmuts_dict.add_root('B')
-    check_multiallelic_sites = defaultdict(set) # will check how many multi-allelic sites there are
+    if verbose: check_multiallelic_sites = defaultdict(set) # will check how many multi-allelic sites there are
 
     for item in linmuts:
         if item['alt'] != "-" and item['ref'] != "-": # ignoring indels
             linmuts_dict.add_item(item['name'], item['pos'], item['alt'])
-            check_multiallelic_sites[item['pos']].add(item['ref'])
-            check_multiallelic_sites[item['pos']].add(item['alt'])
+            if verbose: check_multiallelic_sites[item['pos']].add(item['ref'])
+            if verbose: check_multiallelic_sites[item['pos']].add(item['alt'])
 
-    multiallelic_sites_count = 0
-    for value in check_multiallelic_sites.values():
-        if len(value) > 2:
-            multiallelic_sites_count += 1
-    print("Multiallelic sites:", multiallelic_sites_count, "out of", len(check_multiallelic_sites))
-    print("Number of lineages:", linmuts_dict.size)
+    if verbose:
+        multiallelic_sites_count = 0
+        for value in check_multiallelic_sites.values():
+            if len(value) > 2:
+                multiallelic_sites_count += 1
+        print("Multiallelic sites:", multiallelic_sites_count, "out of", len(check_multiallelic_sites))
+        print("Number of lineages:", linmuts_dict.size)
 
     return linmuts_dict
 
 
-# One hot encoder using pandas get_dummies() (seems much faster than scikit OneHotEncoder)
 class OHE_transform():
+    """
+    One hot encoder using pandas get_dummies() for dealing with categorical data (alleles at each position)
+    """
 
     def __init__(self):
         self.new_colnames = None
@@ -100,6 +102,9 @@ class OHE_transform():
 
 
 def read_in_mutations_json(json_filepath):
+    """
+    Read in COVIDCG json file of lineage-defining mutations into a pandas data frame
+    """
     df = pd.read_json(json_filepath)
     df = df.loc[df['ref'] != '-']
     df = df.loc[df['alt'] != '-']
@@ -111,8 +116,10 @@ def read_in_mutations_json(json_filepath):
     return df, df_ohe, ohe
 
 
-# Dictionary of {node : [(pos, alt) of all mutations just above this node]}
 def get_node_to_mut_dict(ts, ti, linmuts_dict):
+    """
+    Create dictionary of {node : [(pos, alt) of all mutations just above this node]}
+    """
     node_to_mut_dict = MutationContainer()
     with tqdm(total=ts.num_mutations) as pbar:
         for m in ts.mutations():
@@ -280,6 +287,10 @@ class InferLineage:
 
 
 def impute_lineages(ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_only = False):
+    """
+    Impute lineages for reconstructed internal nodes (if internal_only == True), or for
+    all nodes including the samples (if internal_only == False, can then calculate accuracy)
+    """
 
     tic = time.time()
 
@@ -316,6 +327,11 @@ def impute_lineages(ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_on
 
 
 def impute_lineages_inheritance(inferred_lineages, ts, t, ti, node_to_mut_dict, linmuts_dict, df, ohe_encoder, clf_tree, internal_only, pbar):
+    """
+    For each node for which a lineage has not yet been assigned, try and copy the lineage of the parent or
+    one of the children (if there are no lineage-defining mutations on the connecting edge).
+    This is run iteratively on the nodes until no further assignment is possible.
+    """
 
     # print("Inheriting lineages...", end="")
     # Need to loop through until all known lineages have been copied where possible
@@ -336,6 +352,11 @@ def impute_lineages_inheritance(inferred_lineages, ts, t, ti, node_to_mut_dict, 
 
 
 def impute_lineages_decisiontree(inferred_lineages, ts, t, ti, node_to_mut_dict, linmuts_dict, df, ohe_encoder, clf_tree, internal_only, target, pbar):
+    """
+    For each node, impute a lineage based on that of the parent node (if known or already imputed) plus
+    the lineage-defining mutations on the connecting edge. This uses the decision tree constructed using
+    COVIDCG lineage-defining mutations data.
+    """
 
     # Impute lineages for the rest of the nodes where possible (one pass)
     X = pd.DataFrame(index=range(target - inferred_lineages.total_inferred(ti)), columns=df.columns)
@@ -376,6 +397,9 @@ def impute_lineages_decisiontree(inferred_lineages, ts, t, ti, node_to_mut_dict,
 
 
 def add_lineages_to_ts(il, ts):
+    """
+    Adds imputed lineages to ts metadata (as 'Imputed_lineage').
+    """
     imputed_lineages = il.get_results()
     tables = ts.tables
     new_metadata = []
