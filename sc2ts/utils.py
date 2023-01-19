@@ -9,6 +9,7 @@ import tskit
 import tszip
 import numpy as np
 import pandas as pd
+from sklearn import tree
 from collections import defaultdict
 import tqdm
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ import networkx as nx
 
 import sc2ts
 from . import core
+from . import lineages
 
 
 def get_recombinants(ts):
@@ -873,3 +875,52 @@ def sample_subgraph(sample_node, ts, filepath=None):
         plt.savefig(filepath)
     else:
         plt.show()
+
+
+def imputation_setup(filepath, verbose=False):
+    """
+    Reads in json of lineage-defining mutations and constructs decision tree classifier
+    """
+    linmuts_dict = lineages.read_in_mutations(filepath)
+    df, df_ohe, ohe = lineages.read_in_mutations_json(filepath)
+
+    # Get decision tree
+    y = df_ohe.index  # lineage labels
+    clf = tree.DecisionTreeClassifier()
+    clf = clf.fit(df_ohe, y)
+
+    if verbose:
+        # Check tree works and that lineages-defining mutations are unique for each lineage
+        y_pred = clf.predict(df_ohe)
+        correct = incorrect = lineage_definition_issue = 0
+        for yy, yy_pred in zip(y, y_pred):
+            if yy == yy_pred:
+                correct += 1
+            else:
+                incorrect += 1
+                if linmuts_dict.get_mutations(yy) == linmuts_dict.get_mutations(
+                    yy_pred
+                ):
+                    lineage_definition_issue += 1
+                    print(yy_pred, "same mutations as", yy)
+        print(
+            "Correct:",
+            correct,
+            "incorrect:",
+            incorrect,
+            "of which due to lineage definition ambiguity:",
+            lineage_definition_issue,
+        )
+
+    return linmuts_dict, df, df_ohe, ohe, clf
+
+
+def lineage_imputation(filepath, ts, ti, internal_only=False, verbose=False):
+    """
+    Runs lineage imputation on input ts
+    """
+    linmuts_dict, df, df_ohe, ohe, clf = imputation_setup(filepath, verbose)
+    il, edited_ts = lineages.impute_lineages(
+        ts, ti, linmuts_dict, df, ohe, clf, internal_only
+    )
+    return il, edited_ts
