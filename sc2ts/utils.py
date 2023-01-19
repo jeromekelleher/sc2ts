@@ -802,7 +802,7 @@ def get_recombinant_samples(ts):
     return out
 
 
-def sample_subgraph(sample_node, ts, filepath = None):
+def sample_subgraph(sample_node, ts, filepath=None):
     """
     Draws out a subgraph of the ARG above the given sample, including
     all nodes and edges on the path to the nearest sample nodes (showing any recombinations on
@@ -817,8 +817,8 @@ def sample_subgraph(sample_node, ts, filepath = None):
     col_grey = "#BBBBBB"
 
     G = nx.DiGraph()
-    related_nodes = set((sample_node, ))
-    nodes_to_search = set((sample_node, ))
+    related_nodes = set((sample_node,))
+    nodes_to_search = set((sample_node,))
     nodelabels = {}
     nodecolours = {}
     edgelabels = defaultdict(set)
@@ -828,7 +828,7 @@ def sample_subgraph(sample_node, ts, filepath = None):
 
     while nodes_to_search:
         node = ts.node(nodes_to_search.pop())
-        nodelabels[node.id] = str(node.id) + '\n' + node.metadata['Imputed_lineage']
+        nodelabels[node.id] = str(node.id) + "\n" + node.metadata["Imputed_lineage"]
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
             for t in ts.trees():
@@ -843,33 +843,32 @@ def sample_subgraph(sample_node, ts, filepath = None):
                     edge = ts.edge(t.edge(node.id))
                     if edge.right - edge.left != ts.sequence_length:
                         nodecolours[node.id] = col_red
-                        edgelabels[(parent_node, node.id)].add((int(edge.left), int(edge.right)))
+                        edgelabels[(parent_node, node.id)].add(
+                            (int(edge.left), int(edge.right))
+                        )
         else:
             nodecolours[node.id] = col_blue
 
     for key, value in edgelabels.items():
-        edgelabels[key] = '\n'.join([str(v) for v in value])
+        edgelabels[key] = "\n".join([str(v) for v in value])
 
-
-    pos = nx.nx_agraph.graphviz_layout(G,
-                                       prog='dot')
+    pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
     dim_x = len(set(x for x, y in pos.values()))
     dim_y = len(set(y for x, y in pos.values()))
     fig = plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
-    nx.draw(G,
-            pos=pos,
-            with_labels=True,
-            labels=nodelabels,
-            node_color=[nodecolours[node] for node in G.nodes],
-            node_size=1600,
-            font_size=6)
-    nx.draw_networkx_edge_labels(G,
-                                 pos,
-                                 edge_labels=edgelabels,
-                                 label_pos=0.5,
-                                 rotate=False,
-                                 font_size=6)
+    nx.draw(
+        G,
+        pos=pos,
+        with_labels=True,
+        labels=nodelabels,
+        node_color=[nodecolours[node] for node in G.nodes],
+        node_size=1600,
+        font_size=6,
+    )
+    nx.draw_networkx_edge_labels(
+        G, pos, edge_labels=edgelabels, label_pos=0.5, rotate=False, font_size=6
+    )
     if filepath:
         plt.savefig(filepath)
     else:
