@@ -664,12 +664,30 @@ class TreeInfo:
         plt.xlabel("Number of mutations")
         plt.ylabel("Number of site")
 
+    def _add_genes_to_axis(self, ax):
+        genes = core.get_gene_coordinates()
+        mids = []
+        for j, (gene, (left, right)) in enumerate(genes.items()):
+            mids.append(left + (right - left) / 2)
+            # FIXME totally arbitrary choice of colours, use something better!
+            colour = "black"
+            if j % 2 == 1:
+                colour = "green"
+            ax.axvspan(left, right, color=colour, alpha=0.1, zorder=0)
+
+        ax2 = ax.secondary_xaxis("top")
+        ax2.tick_params(axis="x")
+        ax2.set_xticks(mids, minor=False)
+        ax2.set_xticklabels(list(genes.keys()), rotation="vertical")
+
     def plot_mutations_per_site(self, annotate_threshold=0.9):
-        plt.figure(figsize=(16, 4))
         count = self.sites_num_mutations
         pos = self.ts.sites_position
-        plt.plot(pos, count)
         zero_fraction = np.sum(count == 0) / self.ts.num_sites
+
+        fig, ax = plt.subplots(1, 1, figsize=(16, 4))
+        ax.plot(pos, count)
+        self._add_genes_to_axis(ax)
         plt.annotate(
             f"{zero_fraction * 100:.2f}% sites have 0 mutations",
             xy=(pos[0], np.max(count)),
@@ -685,10 +703,11 @@ class TreeInfo:
         plt.xlabel("Position on genome")
 
     def plot_masked_samples_per_site(self, annotate_threshold=0.5):
-        plt.figure(figsize=(16, 4))
+        fig, ax = plt.subplots(1, 1, figsize=(16, 4))
+        self._add_genes_to_axis(ax)
         count = self.sites_num_masked_samples
         pos = self.ts.sites_position
-        plt.plot(pos, count)
+        ax.plot(pos, count)
         threshold = np.max(count) * annotate_threshold
         # Show runs of sites exceeding threshold
         for v, start, length in zip(*find_runs(count > threshold)):

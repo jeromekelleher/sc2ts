@@ -45,9 +45,14 @@ class FastaReader(collections.abc.Mapping):
         return len(self.keys)
 
 
-__cached_reference = None
-
 data_path = pathlib.Path(__file__).parent / "data"
+
+
+def get_problematic_sites():
+    return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
+
+
+__cached_reference = None
 
 
 def get_reference_sequence():
@@ -58,14 +63,16 @@ def get_reference_sequence():
     return __cached_reference
 
 
-def get_problematic_sites():
-    return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
+__cached_genes = None
 
 
 def get_gene_coordinates():
-    d = {}
-    with open(data_path / "annotation.csv") as f:
-        reader = csv.DictReader(f, delimiter=",")
-        for row in reader:
-            d[row["gene"]] = (int(row["start"]), int(row["end"]))
-    return d
+    global __cached_genes
+    if __cached_genes is None:
+        d = {}
+        with open(data_path / "annotation.csv") as f:
+            reader = csv.DictReader(f, delimiter=",")
+            for row in reader:
+                d[row["gene"]] = (int(row["start"]), int(row["end"]))
+        __cached_genes = d
+    return __cached_genes
