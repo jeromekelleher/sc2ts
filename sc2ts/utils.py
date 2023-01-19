@@ -879,7 +879,9 @@ def sample_subgraph(sample_node, ts, filepath=None):
 
 def imputation_setup(filepath, verbose=False):
     """
-    Reads in json of lineage-defining mutations and constructs decision tree classifier
+    Reads in JSON of lineage-defining mutations and constructs decision tree classifier
+    JSON can be downloaded from covidcg.org -> 'Compare AA mutations' -> Download -> 'Consensus mutations'
+    (setting mutation type to 'NT' and consensus threshold to 0.9)
     """
     linmuts_dict = lineages.read_in_mutations(filepath)
     df, df_ohe, ohe = lineages.read_in_mutations_json(filepath)
