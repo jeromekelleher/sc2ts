@@ -9,12 +9,16 @@ import tskit
 import tszip
 import numpy as np
 import pandas as pd
+from sklearn import tree
+from collections import defaultdict
 import tqdm
 import matplotlib.pyplot as plt
 from IPython.display import Markdown, HTML
+import networkx as nx
 
 import sc2ts
 from . import core
+from . import lineages
 
 
 def get_recombinants(ts):
@@ -798,3 +802,127 @@ def get_recombinant_samples(ts):
     assert len(set(out.values())) == len(recomb_nodes)
     assert len(out) == len(recomb_nodes)
     return out
+
+
+def sample_subgraph(sample_node, ts, filepath=None):
+    """
+    Draws out a subgraph of the ARG above the given sample, including
+    all nodes and edges on the path to the nearest sample nodes (showing any recombinations on
+    the way)
+    """
+    col_green = "#228833"
+    col_red = "#EE6677"
+    col_purp = "#AA3377"
+    col_blue = "#66CCEE"
+    col_yellow = "#CCBB44"
+    col_indigo = "#4477AA"
+    col_grey = "#BBBBBB"
+
+    G = nx.DiGraph()
+    related_nodes = set((sample_node,))
+    nodes_to_search = set((sample_node,))
+    nodelabels = {}
+    nodecolours = {}
+    edgelabels = defaultdict(set)
+
+    G.add_node(sample_node)
+    nodecolours[sample_node] = col_green
+
+    while nodes_to_search:
+        node = ts.node(nodes_to_search.pop())
+        nodelabels[node.id] = str(node.id) + "\n" + node.metadata["Imputed_lineage"]
+        if (not node.is_sample()) or node.id == sample_node:
+            parent_node = None
+            for t in ts.trees():
+                if t.parent(node.id) != parent_node:
+                    parent_node = t.parent(node.id)
+                    nodes_to_search.add(parent_node)
+                    related_nodes.add(parent_node)
+                    if parent_node not in G.nodes:
+                        G.add_node(parent_node)
+                        nodecolours[parent_node] = col_grey
+                    G.add_edge(parent_node, node.id)
+                    edge = ts.edge(t.edge(node.id))
+                    if edge.right - edge.left != ts.sequence_length:
+                        nodecolours[node.id] = col_red
+                        edgelabels[(parent_node, node.id)].add(
+                            (int(edge.left), int(edge.right))
+                        )
+        else:
+            nodecolours[node.id] = col_blue
+
+    for key, value in edgelabels.items():
+        edgelabels[key] = "\n".join([str(v) for v in value])
+
+    pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+    dim_x = len(set(x for x, y in pos.values()))
+    dim_y = len(set(y for x, y in pos.values()))
+    fig = plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
+
+    nx.draw(
+        G,
+        pos=pos,
+        with_labels=True,
+        labels=nodelabels,
+        node_color=[nodecolours[node] for node in G.nodes],
+        node_size=1600,
+        font_size=6,
+    )
+    nx.draw_networkx_edge_labels(
+        G, pos, edge_labels=edgelabels, label_pos=0.5, rotate=False, font_size=6
+    )
+    if filepath:
+        plt.savefig(filepath)
+    else:
+        plt.show()
+
+
+def imputation_setup(filepath, verbose=False):
+    """
+    Reads in JSON of lineage-defining mutations and constructs decision tree classifier
+    JSON can be downloaded from covidcg.org -> 'Compare AA mutations' -> Download -> 'Consensus mutations'
+    (setting mutation type to 'NT' and consensus threshold to 0.9)
+    """
+    linmuts_dict = lineages.read_in_mutations(filepath)
+    df, df_ohe, ohe = lineages.read_in_mutations_json(filepath)
+
+    # Get decision tree
+    y = df_ohe.index  # lineage labels
+    clf = tree.DecisionTreeClassifier()
+    clf = clf.fit(df_ohe, y)
+
+    if verbose:
+        # Check tree works and that lineages-defining mutations are unique for each lineage
+        y_pred = clf.predict(df_ohe)
+        correct = incorrect = lineage_definition_issue = 0
+        for yy, yy_pred in zip(y, y_pred):
+            if yy == yy_pred:
+                correct += 1
+            else:
+                incorrect += 1
+                if linmuts_dict.get_mutations(yy) == linmuts_dict.get_mutations(
+                    yy_pred
+                ):
+                    lineage_definition_issue += 1
+                    print(yy_pred, "same mutations as", yy)
+        print(
+            "Correct:",
+            correct,
+            "incorrect:",
+            incorrect,
+            "of which due to lineage definition ambiguity:",
+            lineage_definition_issue,
+        )
+
+    return linmuts_dict, df, df_ohe, ohe, clf
+
+
+def lineage_imputation(filepath, ts, ti, internal_only=False, verbose=False):
+    """
+    Runs lineage imputation on input ts
+    """
+    linmuts_dict, df, df_ohe, ohe, clf = imputation_setup(filepath, verbose)
+    il, edited_ts = lineages.impute_lineages(
+        ts, ti, linmuts_dict, df, ohe, clf, internal_only
+    )
+    return il, edited_ts
