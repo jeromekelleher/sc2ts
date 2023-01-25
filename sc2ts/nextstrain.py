@@ -36,7 +36,18 @@ def add_node(nodes, js_node, parent):
     return nodes.add_row(flags=flags, time=time, metadata=metadata)
 
 
-def convert_nextstrain(document):
+def load_nextclade_json(path):
+    """
+    Read a json format nextclade file, e.g. from
+    https://raw.githubusercontent.com/nextstrain/nextclade_data/release/data/datasets/sars-cov-2/references/MN908947/versions/2021-06-25T00:00:00Z/files/tree.json
+    into a tree sequence 
+    """
+    with open(path, "rt") as file:
+        ts = convert_nextclade(json.load(file))
+    return ts
+
+
+def convert_nextclade(document):
     root = document["tree"]
     tables = tskit.TableCollection(29904)
     nodes = tables.nodes
@@ -119,11 +130,9 @@ def subset_to_intersection(tssc, tsnt):
     return tss1, tss2
 
 
-def get_nextstrain_intersection(nextstrain_file, ts_sc2ts):
+def get_nextclade_intersection(nextclade_file, ts_sc2ts):
 
-    with open(nextstrain_file) as f:
-        d = json.load(f)
-        ts_ns = convert_nextstrain(d)
+    ts_ns = load_nextclade_json(nextclade_file)
     tss_sc, tss_nt = subset_to_intersection(ts_sc2ts, ts_ns)
     assert tss_sc.num_samples >= tss_nt.num_samples
     assert list(tss_sc.samples()[: tss_nt.num_samples]) == list(tss_nt.samples())
