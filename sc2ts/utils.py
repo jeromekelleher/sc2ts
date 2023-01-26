@@ -680,6 +680,20 @@ class TreeInfo:
         ax2.set_xticks(mids, minor=False)
         ax2.set_xticklabels(list(genes.keys()), rotation="vertical")
 
+    def plot_diversity(self, xlim=None):
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8))
+        site_div = self.ts.diversity(windows="sites", mode="site")
+        branch_div = self.ts.diversity(windows="sites", mode="branch")
+        ax1.plot(self.ts.sites_position, site_div)
+        ax2.plot(self.ts.sites_position, branch_div)
+        ax2.set_xlabel("Genome position")
+        ax1.set_ylabel("Site diversity")
+        ax2.set_ylabel("Branch diversity")
+        for ax in [ax1, ax2]:
+            self._add_genes_to_axis(ax)
+            if xlim is not None:
+                ax.set_xlim(xlim)
+
     def plot_mutations_per_site(self, annotate_threshold=0.9):
         count = self.sites_num_mutations
         pos = self.ts.sites_position
