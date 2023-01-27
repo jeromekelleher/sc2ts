@@ -66,7 +66,7 @@ def max_descendant_samples(ts, show_progress=True):
     num_samples = np.zeros(ts.num_nodes, dtype=np.int32)
     iterator = tqdm.tqdm(
         tree.preorder(),
-        desc="Counting descendants",
+        desc="Counting descendants ",
         total=ts.num_nodes,
         disable=not show_progress,
     )
@@ -100,7 +100,7 @@ class TreeInfo:
         self.nodes_metadata = {}
         iterator = tqdm.tqdm(
             ts.nodes(),
-            desc="Indexing metadata   ",
+            desc="Indexing metadata    ",
             total=ts.num_nodes,
             disable=not show_progress,
         )
@@ -134,50 +134,6 @@ class TreeInfo:
 
         self.nodes_submission_delay = self.nodes_submission_date - self.nodes_date
 
-        # Mutation states
-        # https://github.com/tskit-dev/tskit/issues/2631
-        tables = ts.tables
-        assert np.all(
-            tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
-        )
-        derived_state = tables.mutations.derived_state.view("S1").astype(str)
-        assert np.all(
-            tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1)
-        )
-        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-        inherited_state = ancestral_state[ts.mutations_site]
-        mutations_with_parent = ts.mutations_parent != -1
-        parent = ts.mutations_parent[mutations_with_parent]
-        assert np.all(parent >= 0)
-        inherited_state[mutations_with_parent] = derived_state[parent]
-
-        # A mutation is a reversion if its derived state is equal to the
-        # inherited state of its parent
-        is_reversion = np.zeros(ts.num_mutations, dtype=bool)
-        is_reversion[mutations_with_parent] = (
-            inherited_state[ts.mutations_parent[mutations_with_parent]]
-            == derived_state[mutations_with_parent]
-        )
-        # An immediate reversion is one which occurs on the immediate
-        # parent in the tree.
-        is_immediate_reversion = np.zeros(ts.num_mutations, dtype=bool)
-        tree = ts.first()
-        for mut in np.where(is_reversion)[0]:
-            # This should be OK as the mutations are sorted.
-            tree.seek(ts.sites_position[ts.mutations_site[mut]])
-            node_parent = tree.parent(ts.mutations_node[mut])
-            if ts.mutations_node[ts.mutations_parent[mut]] == node_parent:
-                is_immediate_reversion[mut] = True
-
-        self.mutations_derived_state = derived_state
-        self.mutations_is_reversion = is_reversion
-        self.mutations_is_immediate_reversion = is_immediate_reversion
-        self.mutations_inherited_state = inherited_state
-        self.sites_ancestral_state = ancestral_state
-        assert np.all(self.mutations_inherited_state != self.mutations_derived_state)
-        self.mutations_position = self.ts.sites_position[self.ts.mutations_site].astype(
-            int
-        )
         self.sites_num_masked_samples = np.zeros(self.ts.num_sites, dtype=int)
         if ts.table_metadata_schemas.site.schema is not None:
             for site in ts.sites():
@@ -192,6 +148,8 @@ class TreeInfo:
             self.ts.mutations_node, minlength=self.ts.num_nodes
         )
 
+        self._compute_mutation_stats()
+
         # The number of samples per day in time-ago (i.e., the nodes_time units).
         self.num_samples_per_day = np.bincount(ts.nodes_time[samples].astype(int))
 
@@ -205,6 +163,106 @@ class TreeInfo:
         # # Corresponding sample-set names for this array
         # self.pango_lineage_keys = np.array(list(self.pango_lineage_samples.keys()))
 
+    def _compute_mutation_stats(self):
+        ts = self.ts
+
+        # Mutation states
+        # https://github.com/tskit-dev/tskit/issues/2631
+        tables = self.ts.tables
+        assert np.all(
+            tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
+        )
+        derived_state = tables.mutations.derived_state.view("S1").astype(str)
+        assert np.all(
+            tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1)
+        )
+        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+        del tables
+        inherited_state = ancestral_state[ts.mutations_site]
+        mutations_with_parent = ts.mutations_parent != -1
+
+        parent = ts.mutations_parent[mutations_with_parent]
+        assert np.all(parent >= 0)
+        inherited_state[mutations_with_parent] = derived_state[parent]
+        self.mutations_derived_state = derived_state
+        self.mutations_inherited_state = inherited_state
+
+        self.sites_ancestral_state = ancestral_state
+        assert np.all(self.mutations_inherited_state != self.mutations_derived_state)
+        self.mutations_position = self.ts.sites_position[self.ts.mutations_site].astype(
+            int
+        )
+
+        N = ts.num_mutations
+        # The number of samples that descend from this mutation
+        mutations_num_descendants = np.zeros(N, dtype=int)
+        # The number of samples that actually inherit this mutation
+        mutations_num_inheritors = np.zeros(N, dtype=int)
+        # The depth of the mutation tree - i.e., how long the chain of
+        # mutations is back to the ancestral state.
+        mutations_num_parents = np.zeros(N, dtype=int)
+        # A mutation is a reversion if its derived state is equal to the
+        # inherited state of its parent
+        is_reversion = np.zeros(ts.num_mutations, dtype=bool)
+        # An immediate reversion is one which occurs on the immediate
+        # parent in the tree.
+        is_immediate_reversion = np.zeros(ts.num_mutations, dtype=bool)
+        # Classify transitions and tranversions
+        mutations_is_transition = np.zeros(ts.num_mutations, dtype=bool)
+        mutations_is_transversion = np.zeros(ts.num_mutations, dtype=bool)
+        # TODO maybe we could derive these later rather than storing?
+        sites_num_transitions = np.zeros(ts.num_sites, dtype=int)
+        sites_num_transversions = np.zeros(ts.num_sites, dtype=int)
+
+        transitions = {("A", "G"), ("G", "A"), ("T", "C"), ("C", "T")}
+        transversions = set()
+        for b1 in "ACGT":
+            for b2 in "ACGT":
+                if b1 != b2 and (b1, b2) not in transitions:
+                    transversions.add((b1, b2))
+
+        tree = ts.first()
+        iterator = tqdm.tqdm(np.arange(N), desc="Classifying mutations")
+        for mut_id in iterator:
+            tree.seek(self.mutations_position[mut_id])
+            mutation_node = ts.mutations_node[mut_id]
+            descendants = tree.num_samples(mutation_node)
+            mutations_num_descendants[mut_id] = descendants
+            mutations_num_inheritors[mut_id] = descendants
+            # Subtract this number of descendants from the parent mutation. We are
+            # guaranteed to list parents mutations before their children
+            parent = ts.mutations_parent[mut_id]
+            if parent != -1:
+                mutations_num_inheritors[parent] -= descendants
+                is_reversion[mut_id] = inherited_state[parent] == derived_state[mut_id]
+                if ts.mutations_node[parent] == tree.parent(mutation_node):
+                    is_immediate_reversion[mut_id] = True
+
+            num_parents = 0
+            while parent != -1:
+                num_parents += 1
+                parent = ts.mutations_parent[parent]
+            mutations_num_parents[mut_id] = num_parents
+            # Ts/Tvs
+            key = (inherited_state[mut_id], derived_state[mut_id])
+            mutations_is_transition[mut_id] = key in transitions
+            mutations_is_transversion[mut_id] = key in transversions
+            site = ts.mutations_site[mut_id]
+            sites_num_transitions[site] += mutations_is_transition[mut_id]
+            sites_num_transversions[site] += mutations_is_transversion[mut_id]
+
+        # Note: no real good reason for not just using self.mutations_num_descendants
+        # etc above
+        self.mutations_num_descendants = mutations_num_descendants
+        self.mutations_num_inheritors = mutations_num_inheritors
+        self.mutations_num_parents = mutations_num_parents
+        self.mutations_is_reversion = is_reversion
+        self.mutations_is_immediate_reversion = is_immediate_reversion
+        self.mutations_is_transition = mutations_is_transition
+        self.mutations_is_transversion = mutations_is_transversion
+        self.sites_num_transitions = sites_num_transitions
+        self.sites_num_transversions = sites_num_transversions
+
     def summary(self):
         mc_nodes = np.sum(self.ts.nodes_flags == sc2ts.NODE_IS_MUTATION_OVERLAP)
         pr_nodes = np.sum(self.ts.nodes_flags == sc2ts.NODE_IS_REVERSION_PUSH)
@@ -215,6 +273,11 @@ class TreeInfo:
         sites_with_zero_muts = np.sum(self.sites_num_mutations == 0)
         latest_sample = self.nodes_date[samples[-1]]
         masked_sites_per_sample = self.nodes_num_masked_sites[samples]
+        non_samples = self.ts.nodes_flags != tskit.NODE_IS_SAMPLE
+        max_non_sample_mutations = np.max(self.nodes_num_mutations[non_samples])
+        insertions = np.sum(self.mutations_inherited_state == "-")
+        deletions = np.sum(self.mutations_derived_state == "-")
+
         data = [
             ("latest_sample", latest_sample),
             ("max_submission_delay", np.max(self.nodes_submission_delay[samples])),
@@ -228,10 +291,19 @@ class TreeInfo:
             ("recurrent", np.sum(self.ts.mutations_parent != -1)),
             ("reversions", np.sum(self.mutations_is_reversion)),
             ("immediate_reversions", np.sum(self.mutations_is_immediate_reversion)),
+            ("private_mutations", np.sum(self.mutations_num_descendants == 1)),
+            ("transitions", np.sum(self.mutations_is_transition)),
+            ("transversions", np.sum(self.mutations_is_transversion)),
+            ("insertions", insertions),
+            ("deletions", deletions),
+            ("max_mutations_parents", np.max(self.mutations_num_parents)),
             ("nodes_with_zero_muts", nodes_with_zero_muts),
             ("sites_with_zero_muts", sites_with_zero_muts),
             ("max_mutations_per_site", np.max(self.sites_num_mutations)),
+            ("mean_mutations_per_site", np.mean(self.sites_num_mutations)),
+            ("median_mutations_per_site", np.median(self.sites_num_mutations)),
             ("max_mutations_per_node", np.max(self.nodes_num_mutations)),
+            ("max_mutations_per_non_sample_node", max_non_sample_mutations),
             ("max_masked_sites_per_sample", np.max(masked_sites_per_sample)),
             ("mean_masked_sites_per_sample", np.mean(masked_sites_per_sample)),
             ("max_masked_samples_per_site", np.max(self.sites_num_masked_samples)),
@@ -358,26 +430,37 @@ class TreeInfo:
             data.append(self._node_summary(u))
         return pd.DataFrame(data)
 
+    def site_mutation_data(self, position):
+        site = self.ts.site(position=int(position))
+        data = []
+        for mut in site.mutations:
+            data.append(self._mutation_summary(mut.id))
+        return pd.DataFrame(data)
+
     def site_summary(self, position):
         site = self.ts.site(position=position)
-        mutations = site.mutations
         reversions = 0
         immediate_reversions = 0
-        transitions = collections.Counter()
-        for mut in mutations:
-            reversions += self.mutations_is_reversion[mut.id]
-            immediate_reversions += self.mutations_is_immediate_reversion[mut.id]
-            key = (self.mutations_inherited_state[mut.id], mut.derived_state)
-            transitions[key] += 1
+        state_changes = collections.Counter()
+        df_muts = self.site_mutation_data(position)
+        for _, row in df_muts.iterrows():
+            key = (row.inherited_state, row.derived_state)
+            state_changes[key] += 1
         data = [
             ("id", site.id),
             ("position", int(site.position)),
             ("ancestral_state", site.ancestral_state),
-            ("num_mutations", len(mutations)),
-            ("reversions", reversions),
-            ("immediate_reversions", immediate_reversions),
+            ("num_mutations", len(df_muts)),
+            ("private", np.sum(df_muts.descendants == 1)),
+            ("max_inheritors", np.max(df_muts.inheritors)),
+            ("reversions", np.sum(df_muts.is_reversion)),
+            ("immediate_reversions", np.sum(df_muts.is_immediate_reversion)),
+            ("transitions", np.sum(df_muts.is_transition)),
+            ("transversions", np.sum(df_muts.is_transversion)),
+            ("insertions", np.sum(df_muts.is_insertion)),
+            ("deletions", np.sum(df_muts.is_deletion)),
         ]
-        for (a, b), value in transitions.most_common():
+        for (a, b), value in state_changes.most_common():
             data.append((f"{a}>{b}", value))
         return pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
@@ -578,11 +661,18 @@ class TreeInfo:
         return {
             "site": self.mutations_position[mut_id],
             "node": self.ts.mutations_node[mut_id],
+            "descendants": self.mutations_num_descendants[mut_id],
+            "inheritors": self.mutations_num_inheritors[mut_id],
             "inherited_state": self.mutations_inherited_state[mut_id],
             "derived_state": self.mutations_derived_state[mut_id],
             "is_reversion": self.mutations_is_reversion[mut_id],
             "is_immediate_reversion": self.mutations_is_immediate_reversion[mut_id],
+            "is_transition": self.mutations_is_transition[mut_id],
+            "is_transversion": self.mutations_is_transversion[mut_id],
+            "is_insertion": self.mutations_inherited_state[mut_id] == "-",
+            "is_deletion": self.mutations_derived_state[mut_id] == "-",
             "parent": self.ts.mutations_parent[mut_id],
+            "num_parents": self.mutations_num_parents[mut_id],
             "time": self.ts.mutations_time[mut_id],
             "id": mut_id,
             "metadata": self.ts.mutation(mut_id).metadata,
@@ -693,6 +783,28 @@ class TreeInfo:
             self._add_genes_to_axis(ax)
             if xlim is not None:
                 ax.set_xlim(xlim)
+
+    def plot_ts_tv_per_site(self, annotate_threshold=0.9, xlim=None):
+        nonzero = self.sites_num_transversions != 0
+        ratio = (
+            self.sites_num_transitions[nonzero] / self.sites_num_transversions[nonzero]
+        )
+        pos = self.ts.sites_position[nonzero]
+
+        fig, ax = plt.subplots(1, 1, figsize=(16, 4))
+        ax.plot(pos, ratio)
+        self._add_genes_to_axis(ax)
+
+        threshold = np.max(ratio) * annotate_threshold
+        top_sites = np.where(ratio > threshold)[0]
+        for site in top_sites:
+            plt.annotate(
+                f"{int(pos[site])}", xy=(pos[site], ratio[site]), xycoords="data"
+            )
+        plt.ylabel("Ts/Tv")
+        plt.xlabel("Position on genome")
+        if xlim is not None:
+            plt.xlim(xlim)
 
     def plot_mutations_per_site(self, annotate_threshold=0.9):
         count = self.sites_num_mutations
