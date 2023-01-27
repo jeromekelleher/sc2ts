@@ -11,7 +11,6 @@ import re
 
 import numpy as np
 import tskit
-import tsconvert
 
 # https://github.com/nextstrain/nextclade_data/tree/release/data/datasets/sars-cov-2/references/MN908947/versions
 
@@ -42,7 +41,7 @@ def load_nextclade_json(path):
     """
     Read a json format nextclade file, e.g. from
     https://raw.githubusercontent.com/nextstrain/nextclade_data/release/data/datasets/sars-cov-2/references/MN908947/versions/2021-06-25T00:00:00Z/files/tree.json
-    into a tree sequence 
+    into a tree sequence
     """
     with open(path, "rt") as file:
         ts = convert_nextclade(json.load(file))
@@ -166,7 +165,6 @@ def get_mutation_path(ts, node):
     return depth_map
 
 
-
 def newick_from_nextstrain_with_comments(tree_string, min_edge_length):
     """
     Take a newick string from a nextstrain file with embedded comments (usually this
@@ -191,11 +189,15 @@ def newick_from_nextstrain_with_comments(tree_string, min_edge_length):
     tidied_string = re.sub(
         r"\[.*?\]",
         lambda match: match.group(0).replace("(", "").replace(")", ""),
-        tree_string
+        tree_string,
     )
     #
-    ts = tsconvert.from_newick(tidied_string,
-        min_edge_length = min_edge_length,
+    # Import this here to avoid needing to install tsconvert (which isn't on pip)
+    import tsconvert
+
+    ts = tsconvert.from_newick(
+        tidied_string,
+        min_edge_length=min_edge_length,
         node_name_key="strain",
     )
 
@@ -206,50 +208,60 @@ def newick_from_nextstrain_with_comments(tree_string, min_edge_length):
         if "comment" in m:
             parsed_comment = {
                 match.group(1).lstrip("&"): match.group(2)
-                for match in re.finditer("([^=]+)=([^=]+),(?=[^=]+?(=|$))", m["comment"])
+                for match in re.finditer(
+                    "([^=]+)=([^=]+),(?=[^=]+?(=|$))", m["comment"]
+                )
             }
             m["comment"] = parsed_comment
         if "strain" in m and m["strain"].startswith(prefix):
-            m["strain"] = m["strain"][len(prefix):]
+            m["strain"] = m["strain"][len(prefix) :]
         new_metadata.append(m)
     # inject the new node metadata back into the tree sequence
     tables = ts.dump_tables()
-    tables.nodes.metadata_schema = tskit.metadata.MetadataSchema({
-        "codec":"json",
-        "properties":{
-            "comment":{"description":"Comment from newick file","type":["object"]},
-            "strain":{"description":"Name from newick file","type":["string"]}},
-        "type":"object"
-    })
+    tables.nodes.metadata_schema = tskit.metadata.MetadataSchema(
+        {
+            "codec": "json",
+            "properties": {
+                "comment": {
+                    "description": "Comment from newick file",
+                    "type": ["object"],
+                },
+                "strain": {"description": "Name from newick file", "type": ["string"]},
+            },
+            "type": "object",
+        }
+    )
     tables.nodes.packset_metadata(
         [tables.nodes.metadata_schema.validate_and_encode_row(r) for r in new_metadata]
     )
-    
+
     # Check it looks like we are measuring time in years
     if tables.nodes.time.max() - tables.nodes.time.min() > 20:
         raise ValueError(
-            "Timescale assumed in years but this nextstrain tree covers > 20 time units")
+            "Timescale assumed in years but this nextstrain tree covers > 20 time units"
+        )
     tables.nodes.time = tables.nodes.time * 365  # TODO? correct for leap years?
     tables.time_units = "days"
-        
+
     return tables.tree_sequence()
+
 
 def extract_newick_from_nextstrain_nexus(path):
     """
     Nextstrain nexus files are the ones with clade membership annotations in the comments
     fields. This function extracts the newick string from the nexus file.
-    
+
     These can be downloaded from e.g. https://nextstrain.org/ncov/gisaid/global/all-time
     """
     with open(path) as file:
-        tree_line=""
+        tree_line = ""
         for line in file:
             if "begin trees;" in line:
                 tree_line = next(file)
                 assert "end;" in next(file)
                 break
         loc = tree_line.find("=")
-        tree_line = tree_line[loc+1:].strip()
+        tree_line = tree_line[loc + 1 :].strip()
         if loc < 0 or len(tree_line) == 0 or tree_line[-1] != ";":
             raise ValueError("Can't find a valid tree line in newick format")
         return tree_line
