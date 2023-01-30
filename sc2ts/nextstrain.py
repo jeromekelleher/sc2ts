@@ -96,10 +96,14 @@ def keep_sites(ts, positions):
     return tables.tree_sequence()
 
 
-def subset_to_intersection(tssc, tsnt, filter_sites=True):
+def subset_to_intersection(tssc, tsnt, filter_sites=True, **kwargs):
     """
     Returns the subset of the two tree sequences for the set of sample strains
     in both.
+    
+    **kwargs are sent to the `simplify` commands used. Note that if
+    `filter_nodes` is used, the samples in the returned subsets may not
+    have the same nodes IDs or even be in the same order.
     """
     assert tsnt.num_trees == 1
     strain_map1 = {tssc.node(u).metadata["strain"]: u for u in tssc.samples()}
@@ -123,8 +127,16 @@ def subset_to_intersection(tssc, tsnt, filter_sites=True):
     recombinants.sort(key=lambda u: -tssc.nodes_time[u])
     # print("Recombs:", recombinants)
 
-    tss1 = tssc.simplify(sc_samples + recombinants)
-    tss2 = tsnt.simplify([strain_map2[key] for key in intersection])
+    tss1 = tssc.simplify(
+        sc_samples + recombinants,
+        filter_sites=filter_sites,
+        **kwargs,
+    )
+    tss2 = tsnt.simplify(
+        [strain_map2[key] for key in intersection],
+        filter_sites=filter_sites,
+        **kwargs,
+    )
     if filter_sites:
         site_intersection = set(tss1.sites_position) & set(tss2.sites_position)
         tss1 = keep_sites(tss1, site_intersection)
