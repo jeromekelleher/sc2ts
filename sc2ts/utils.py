@@ -721,7 +721,7 @@ class TreeInfo:
             if lineage.startswith("X"):
                 node = self.pango_lineage_samples[lineage][0]
                 nodes.append(node)
-        return self.recombinant_samples_report()
+        return self.recombinant_samples_report(nodes)
 
     def recombinant_samples_report(self, nodes):
         tree = self.ts.first()
