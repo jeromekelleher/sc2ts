@@ -528,6 +528,16 @@ class TreeInfo:
         return muts
 
     def _copying_table(self, node, edges):
+        def css_cell(allele):
+            # function for the cell style - nucleotide colours faded from SNiPit
+            cols = {"A": "#869eb5", "T": "#adbda8", "C": "#d19394", "G": "#c3dde6"}
+            return (
+                ' style="border: 1px solid black; background-color: ' +
+                cols.get(allele, "white") +
+                '; border-collapse: collapse;"'
+            )
+        vrl = ' style="writing-mode: vertical-rl; transform: rotate(180deg)"'
+
         parent_cols = {}
         samples = [node]
         for edge in edges:
@@ -538,38 +548,39 @@ class TreeInfo:
         # Can't have missing data here, so we're OK.
         variants = self.ts.variants(samples=samples, isolated_as_missing=False)
         mutations = self.node_mutations(node)
-        header = (
-            "<thead><tr>"
-            + "<th>POS</th>"
-            + "<th>REF</th>"
-            + "".join(f"<th>P{j}</th>" for j in range(len(parent_cols)))
-            + "<th>C</th><th>MUTATION</th>"
-            "</tr></thead>\n"
-        )
-        body = "<tbody>\n"
+
+        positions = []
+        ref = []
+        parents = [[] for _ in range(len(parent_cols))]
+        child = []
+        extra_mut = []
         for var in variants:
-            pos = int(var.site.position)
-            ancestral_state = var.site.ancestral_state
             if len(np.unique(var.genotypes)) > 1:
+                pos = int(var.site.position)
+                positions.append(f'<td><span{vrl}>{pos}</span></td>')
+                ref.append(f"<td>{var.site.ancestral_state}</td>")
+                allele = var.alleles[var.genotypes[0]]
+                child.append(f"<td{css_cell(allele)}>{allele}</td>")
+                
                 edge_index = np.searchsorted(edges.left, pos, side="right") - 1
                 parent_col = parent_cols[edges[edge_index].parent]
-                body += "<tr>"
-                body += f"<td>{pos}</td><td>{ancestral_state}</td>"
 
                 for j in range(1, len(var.genotypes)):
-                    state = var.alleles[var.genotypes[j]]
-                    style = ""
-                    if j == parent_col:
-                        style = "border: 1px solid black; border-collapse: collapse;"
-                        # state = f"<b>{state}</b>"
-                    body += f"<td style='{style}'>{state}</td>"
+                    allele = var.alleles[var.genotypes[j]]
+                    css = (css_cell(allele) if j == parent_col else "")
+                    parents[j-1].append(f'<td{css}>{allele}</td>')
 
-                body += f"<td><b>{var.alleles[var.genotypes[0]]}</b></td><td>"
-                if pos in mutations:
-                    body += mutations[pos]
+                extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>") 
 
-                body += "</td><tr>\n"
-        return f"<table>{header}{body}</table>"
+        html = '<tr style="font-size: 70%"><th>pos</th>' + "".join(positions) + "</tr>"
+        html += "<tr><th>ref</th>" + "".join(ref) + "</tr>"
+        html += "<tr><th>P0</th>" + "".join(parents.pop(0)) + "</tr>"
+        html += "<tr><th>C</th>" + "".join(child) + "</tr>"
+        for i, parent in enumerate(parents):
+            html += f"<tr><th>P{i+1}</th>" + "".join(parents.pop(0)) + "</tr>"
+        html += '<tr style="font-size: 75%"><th>mut</th>' + "".join(extra_mut) + "</tr>"
+
+        return f"<table>{html}</table>"
 
     def _show_parent_copying(self, child):
         edge_list = [
