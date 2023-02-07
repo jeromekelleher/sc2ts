@@ -1,12 +1,17 @@
 import json
+import concurrent
 import logging
 import platform
 import random
 import pathlib
 import sys
 import contextlib
+import dataclasses
+import datetime
 
+import tqdm
 import tskit
+import tszip
 import tsinfer
 import click
 import daiquiri
@@ -283,6 +288,97 @@ def validate(alignment_db, ts_file, verbose):
         inference.validate(ts, alignment_store, show_progress=True)
 
 
+def examine_recombinant(work):
+    base_ts = tszip.decompress(work.ts_path)
+    with sc2ts.AlignmentStore(work.alignment_db) as a:
+        data = sc2ts.utils.examine_recombinant(
+            work.strain, base_ts, a, num_mismatches=work.num_mismatches
+        )
+    return data
+
+
+@dataclasses.dataclass(frozen=True)
+class Work:
+    strain: str
+    ts_path: str
+    num_mismatches: int
+    alignment_db: str
+    sample: int
+    recombinant: int
+
+
+@click.command()
+@click.argument("alignment_db")
+@click.argument("tsz_prefix")
+@click.argument("base_date")
+@click.argument("out_tsz")
+@click.option("--num-mismatches", default=3, type=float, help="num-mismatches")
+@click.option("-v", "--verbose", count=True)
+def annotate_recombinants(
+    alignment_db, tsz_prefix, base_date, out_tsz, num_mismatches, verbose
+):
+    """
+    Update recombinant nodes in the specified trees with additional
+    information about the matching process.
+    """
+    setup_logging(verbose)
+    ts = tszip.decompress(tsz_prefix + base_date + ".ts.tsz")
+
+    recomb_samples = sc2ts.utils.get_recombinant_samples(ts)
+
+    mismatches = [num_mismatches]
+
+    work = []
+    for recombinant, sample in recomb_samples.items():
+        md = ts.node(sample).metadata
+        date = md["date"]
+        previous_date = datetime.date.fromisoformat(date)
+        previous_date -= datetime.timedelta(days=1)
+        tsz_path = f"{tsz_prefix}{previous_date}.ts.tsz"
+        for num_mismatches in mismatches:
+            work.append(
+                Work(
+                    strain=md["strain"],
+                    ts_path=tsz_path,
+                    num_mismatches=num_mismatches,
+                    alignment_db=alignment_db,
+                    sample=sample,
+                    recombinant=recombinant,
+                )
+            )
+
+    results = {}
+    with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
+        future_to_work = {
+            executor.submit(examine_recombinant, item): item for item in work
+        }
+
+        bar = tqdm.tqdm(
+            concurrent.futures.as_completed(future_to_work), total=len(work)
+        )
+        for future in bar:
+            try:
+                data = future.result()
+            except Exception as exc:
+                print(f"Work item: {future_to_work[future]} raised exception!")
+                raise exc
+            work = future_to_work[future]
+            results[work.recombinant] = data
+
+    tables = ts.dump_tables()
+    # This is probably very inefficient as we're writing back the metadata column
+    # many times
+    for recomb_node, metadata in tqdm.tqdm(results.items(), desc="Updating metadata"):
+        row = tables.nodes[recomb_node]
+        d = row.metadata
+        d["match_info"] = json.dumps(metadata)
+        tables.nodes[recomb_node] = row.replace(metadata=d)
+
+    ts = tables.tree_sequence()
+    logging.info("Compressing output")
+    tszip.compress(ts, out_tsz)
+
+
 @click.version_option(core.__version__)
 @click.group()
 def cli():
@@ -297,3 +393,4 @@ cli.add_command(init)
 cli.add_command(extend)
 cli.add_command(daily_extend)
 cli.add_command(validate)
+cli.add_command(annotate_recombinants)

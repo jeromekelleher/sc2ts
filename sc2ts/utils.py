@@ -851,7 +851,7 @@ class TreeInfo:
         for v, start, length in zip(*find_runs(count > threshold)):
             if v:
                 end = start + length
-                x, y = int(pos[start]),int(pos[min(self.ts.num_sites - 1, end)])
+                x, y = int(pos[start]), int(pos[min(self.ts.num_sites - 1, end)])
                 plt.annotate(f"{x}-{y}", xy=(x, count[start]), xycoords="data")
 
         # problematic_sites = get_problematic_sites()
