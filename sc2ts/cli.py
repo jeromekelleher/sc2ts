@@ -283,7 +283,10 @@ def daily_extend(
 def validate(alignment_db, ts_file, verbose):
     setup_logging(verbose)
 
-    ts = tskit.load(ts_file)
+    if ts_file.endswith(".tsz"):
+        ts = tszip.decompress(ts_file)
+    else:
+        ts = tskit.load(ts_file)
     with sc2ts.AlignmentStore(alignment_db) as alignment_store:
         inference.validate(ts, alignment_store, show_progress=True)
 
