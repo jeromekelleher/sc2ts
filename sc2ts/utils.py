@@ -564,7 +564,6 @@ class TreeInfo:
                 
                 edge_index = np.searchsorted(edges.left, pos, side="right") - 1
                 parent_col = parent_cols[edges[edge_index].parent]
-
                 for j in range(1, len(var.genotypes)):
                     allele = var.alleles[var.genotypes[j]]
                     css = (css_cell(allele) if j == parent_col else "")
@@ -577,7 +576,7 @@ class TreeInfo:
         html += "<tr><th>P0</th>" + "".join(parents.pop(0)) + "</tr>"
         html += "<tr><th>C</th>" + "".join(child) + "</tr>"
         for i, parent in enumerate(parents):
-            html += f"<tr><th>P{i+1}</th>" + "".join(parents.pop(0)) + "</tr>"
+            html += f"<tr><th>P{i+1}</th>" + "".join(parent) + "</tr>"
         html += '<tr style="font-size: 75%"><th>mut</th>' + "".join(extra_mut) + "</tr>"
 
         return f"<table>{html}</table>"
