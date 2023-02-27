@@ -561,7 +561,7 @@ class TreeInfo:
                 ref.append(f"<td>{var.site.ancestral_state}</td>")
                 allele = var.alleles[var.genotypes[0]]
                 child.append(f"<td{css_cell(allele)}>{allele}</td>")
-                
+
                 edge_index = np.searchsorted(edges.left, pos, side="right") - 1
                 parent_col = parent_cols[edges[edge_index].parent]
                 for j in range(1, len(var.genotypes)):
@@ -569,7 +569,7 @@ class TreeInfo:
                     css = (css_cell(allele) if j == parent_col else "")
                     parents[j-1].append(f'<td{css}>{allele}</td>')
 
-                extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>") 
+                extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>")
 
         html = '<tr style="font-size: 70%"><th>pos</th>' + "".join(positions) + "</tr>"
         html += "<tr><th>ref</th>" + "".join(ref) + "</tr>"
@@ -775,6 +775,44 @@ class TreeInfo:
         plt.hist(self.sites_num_mutations, range(10), rwidth=0.9)
         plt.xlabel("Number of mutations")
         plt.ylabel("Number of site")
+
+
+    def plot_mutation_spectrum(self, min_inheritors=1):
+        counter = self.get_mutation_spectrum(min_inheritors)
+        fig, ax = plt.subplots(1, 1)
+        types = ["C>T", "G>A", "G>T", "G>C", "C>A", "T>A"]
+        rev_types = [t[::-1] for t in types]
+        x = range(len(types))
+        ax.bar(x, [counter[t] for t in types])
+        ax.bar(x, [-counter[t] for t in rev_types], bottom=0);
+
+        ax2 = ax.secondary_xaxis("top")
+        ax2.tick_params(axis="x")
+        ax2.set_xticks(x)
+
+        ax2.set_xticklabels(types);
+        ax.set_xticks(x)
+        ax.set_xticklabels(rev_types);
+
+
+        y = max(counter.values())
+        step = y / 10
+        for key in ["C>T", "G>T"]:
+            rev_key = key[::-1]
+            ratio = counter[key] / counter[rev_key]
+            text = f"{key} / {rev_key}={ratio:.2f}"
+            y -= step
+            ax.text(4, y, text)
+
+    def get_mutation_spectrum(self, min_inheritors=1):
+        keep = self.mutations_num_inheritors >= min_inheritors
+        inherited = self.mutations_inherited_state[keep]
+        derived = self.mutations_derived_state[keep]
+        sep = inherited.copy()
+        sep[:] = ">"
+        x = np.char.add(inherited, sep)
+        x = np.char.add(x, derived)
+        return collections.Counter(x)
 
     def _add_genes_to_axis(self, ax):
         genes = core.get_gene_coordinates()
