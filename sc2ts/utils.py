@@ -390,7 +390,7 @@ class TreeInfo:
             "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
             "children": np.sum(self.ts.edges_parent == u),
-            "descendants": self.nodes_max_descendant_samples[u] - 1,
+            "descendants": self.nodes_max_descendant_samples[u],
             "date": self.nodes_date[u],
             "delay": self.nodes_submission_delay[u],
             "qc": qc,
