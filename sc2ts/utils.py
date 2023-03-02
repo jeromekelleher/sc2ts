@@ -2,6 +2,7 @@
 Utilities for examining sc2ts output.
 """
 import collections
+import dataclasses
 import warnings
 import datetime
 
@@ -19,6 +20,25 @@ import networkx as nx
 import sc2ts
 from . import core
 from . import lineages
+
+
+@dataclasses.dataclass
+class Match:
+    breakpoints: list
+    parents: list
+    mutations: list
+
+
+@dataclasses.dataclass
+class Recombinant:
+    strain: str
+    matches: list
+    node: int = -1
+
+    def is_hmm_consistent(self):
+        return len(self.matches[0].parents) == len(self.matches[1].parents) and (
+            self.matches[0].mutations == self.matches[1].mutations
+        )
 
 
 def get_recombinants(ts):
@@ -342,7 +362,6 @@ class TreeInfo:
         return data
 
     def _node_summary(self, u, child_mutations=True):
-
         md = self.nodes_metadata[u]
         qc_map = {"good": "0", "mediocre": "1"}
         qc_fields = [
@@ -493,6 +512,51 @@ class TreeInfo:
         df["causal_date"] = causal_date
         return df
 
+    # TODO this is a strange name, but trying to differentiate from the
+    # summary function above.
+    def export_recombinants(self):
+        recombinants = []
+
+        def get_imputed_pango(u):
+            lineage = self.nodes_metadata[u]["Imputed_lineage"]
+            # Recombinant might be misleading, Unknown seems more accurate?
+            if lineage == "Recombinant":
+                return "Unknown"
+            return lineage
+
+        for u in self.recombinants:
+            md = self.nodes_metadata[u]
+            row = md["match_info"]
+            assert len(row) == 2
+            assert row[0]["strain"] == row[1]["strain"]
+            matches = []
+            for record in row:
+                matches.append(
+                    Match(
+                        breakpoints=record["breakpoints"],
+                        parents=record["parents"],
+                        mutations=record["mutations"],
+                    )
+                )
+            rec = Recombinant(row[0]["strain"], matches, node=u)
+            if len(rec.matches[0].parents) == 2 and rec.is_hmm_consistent():
+                left_parent = rec.matches[0].parents[0]
+                right_parent = rec.matches[0].parents[1]
+                record = {
+                    "node": u,
+                    "strain": rec.strain,
+                    "max_descendant_samples": self.nodes_max_descendant_samples[u],
+                    "lineage_left": get_imputed_pango(left_parent),
+                    "lineage_right": get_imputed_pango(right_parent),
+                    "interval_left": rec.matches[0].breakpoints[1],
+                    "interval_right": rec.matches[1].breakpoints[1],
+                    "num_mutations": len(rec.matches[0].mutations),
+                    "mutations": rec.matches[0].mutations,
+                }
+                recombinants.append(record)
+
+        return pd.DataFrame(recombinants)
+
     def mutators_summary(self, threshold=10):
         mutator_nodes = np.where(self.nodes_num_mutations > threshold)[0]
         df = self._collect_node_data(mutator_nodes)
@@ -532,10 +596,11 @@ class TreeInfo:
             # function for the cell style - nucleotide colours faded from SNiPit
             cols = {"A": "#869eb5", "T": "#adbda8", "C": "#d19394", "G": "#c3dde6"}
             return (
-                ' style="border: 1px solid black; background-color: ' +
-                cols.get(allele, "white") +
-                '; border-collapse: collapse;"'
+                ' style="border: 1px solid black; background-color: '
+                + cols.get(allele, "white")
+                + '; border-collapse: collapse;"'
             )
+
         vrl = ' style="writing-mode: vertical-rl; transform: rotate(180deg)"'
 
         parent_cols = {}
@@ -557,7 +622,7 @@ class TreeInfo:
         for var in variants:
             if len(np.unique(var.genotypes)) > 1:
                 pos = int(var.site.position)
-                positions.append(f'<td><span{vrl}>{pos}</span></td>')
+                positions.append(f"<td><span{vrl}>{pos}</span></td>")
                 ref.append(f"<td>{var.site.ancestral_state}</td>")
                 allele = var.alleles[var.genotypes[0]]
                 child.append(f"<td{css_cell(allele)}>{allele}</td>")
@@ -566,8 +631,8 @@ class TreeInfo:
                 parent_col = parent_cols[edges[edge_index].parent]
                 for j in range(1, len(var.genotypes)):
                     allele = var.alleles[var.genotypes[j]]
-                    css = (css_cell(allele) if j == parent_col else "")
-                    parents[j-1].append(f'<td{css}>{allele}</td>')
+                    css = css_cell(allele) if j == parent_col else ""
+                    parents[j - 1].append(f"<td{css}>{allele}</td>")
 
                 extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>")
 
@@ -776,7 +841,6 @@ class TreeInfo:
         plt.xlabel("Number of mutations")
         plt.ylabel("Number of site")
 
-
     def plot_mutation_spectrum(self, min_inheritors=1):
         counter = self.get_mutation_spectrum(min_inheritors)
         fig, ax = plt.subplots(1, 1)
@@ -784,16 +848,15 @@ class TreeInfo:
         rev_types = [t[::-1] for t in types]
         x = range(len(types))
         ax.bar(x, [counter[t] for t in types])
-        ax.bar(x, [-counter[t] for t in rev_types], bottom=0);
+        ax.bar(x, [-counter[t] for t in rev_types], bottom=0)
 
         ax2 = ax.secondary_xaxis("top")
         ax2.tick_params(axis="x")
         ax2.set_xticks(x)
 
-        ax2.set_xticklabels(types);
+        ax2.set_xticklabels(types)
         ax.set_xticks(x)
-        ax.set_xticklabels(rev_types);
-
+        ax.set_xticklabels(rev_types)
 
         y = max(counter.values())
         step = y / 10
