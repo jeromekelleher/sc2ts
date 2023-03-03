@@ -540,11 +540,14 @@ class TreeInfo:
                 )
             rec = Recombinant(row[0]["strain"], matches, node=u)
             if len(rec.matches[0].parents) == 2 and rec.is_hmm_consistent():
+                strain_node = self.strain_map[rec.strain]
+                strain_date = self.nodes_metadata[strain_node]["date"]
                 left_parent = rec.matches[0].parents[0]
                 right_parent = rec.matches[0].parents[1]
                 record = {
                     "node": u,
                     "strain": rec.strain,
+                    "strain_date": strain_date,
                     "max_descendant_samples": self.nodes_max_descendant_samples[u],
                     "lineage_left": get_imputed_pango(left_parent),
                     "lineage_right": get_imputed_pango(right_parent),
