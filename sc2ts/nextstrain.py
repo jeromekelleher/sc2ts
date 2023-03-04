@@ -178,7 +178,7 @@ def get_mutation_path(ts, node):
     return depth_map
 
 
-def newick_from_nextstrain_with_comments(tree_string, min_edge_length):
+def newick_from_nextstrain_with_comments(tree_string, **kwargs):
     """
     Take a newick string from a nextstrain file with embedded comments (usually this
     is extracted from a nexus file). Comments look like:
@@ -210,8 +210,8 @@ def newick_from_nextstrain_with_comments(tree_string, min_edge_length):
 
     ts = tsconvert.from_newick(
         tidied_string,
-        min_edge_length=min_edge_length,
         node_name_key="strain",
+        **kwargs,
     )
 
     # Split the comment string into a dictionary for each node
