@@ -27,6 +27,7 @@ class Match:
     breakpoints: list
     parents: list
     mutations: list
+    direction: list
 
 
 @dataclasses.dataclass
@@ -105,6 +106,40 @@ def max_descendant_samples(ts, show_progress=True):
                 u = tree.parent(u)
         tree.next()
     return num_samples
+
+def adjacent_mrca_info(ts, node_a, node_b, breakpoint):
+    """
+    Return info about the path to the mrca of node_a and node_b when travelling up the.
+    tree to the left of the the breakpoint and to the right of the breakpoint.
+    
+    Return ID of the MRCA and the number of nodes along both paths.
+    """
+    tree_b = ts.at(breakpoint)
+    tree_a = tree_b.copy()
+    tree_a.prev()
+    assert tree_a.index >= 0
+
+    node_times = ts.nodes_time
+    num_nodes_in_path = 0
+    while True:
+        if node_a == tskit.NULL or node_b == tskit.NULL:
+            return (tskit.NULL, tskit.NULL)
+        if node_times[node_a] == node_times[node_b]:
+            if node_a == node_b:
+                return (node_a, num_nodes_in_path)
+            else:
+                if tree_a.parent(node_a) < tree_b.parent(node_b):
+                    node_a = tree_a.parent(node_a)
+                else:
+                    node_b = tree_b.parent(node_b)
+                num_nodes_in_path += 1
+                    
+        elif node_times[node_a] < node_times[node_b]:
+            node_a = tree_a.parent(node_a)
+            num_nodes_in_path += 1
+        elif node_times[node_b] < node_times[node_a]:
+            node_b = tree_b.parent(node_b)
+            num_nodes_in_path += 1
 
 
 class TreeInfo:
@@ -514,7 +549,22 @@ class TreeInfo:
 
     # TODO this is a strange name, but trying to differentiate from the
     # summary function above.
-    def export_recombinants(self):
+    def export_recombinants(
+        self,
+        restrict_to_hmm_consistent=True,
+        max_num_parents=2,
+    ):
+        """
+        if max_num_parents == 2 then we return information about the left and right
+        parent lineages and the identity of the parental MRCA node. If
+        restrict_to_hmm_consistent is True, we return information about the number
+        of mutations and the number of parents (which will be the same in both HMM
+        directions). If both max_num_parents == 2 and restrict_to_hmm_consistent is True
+        we also return information about the left and right bounds of the breakpoint
+        between the two parents.
+        """
+        if max_num_parents < 2:
+            raise ValueError("Must have at least 2 parents in a recombination node")
         recombinants = []
 
         def get_imputed_pango(u):
@@ -524,7 +574,7 @@ class TreeInfo:
                 return "Unknown"
             return lineage
 
-        for u in self.recombinants:
+        for u in tqdm.tqdm(self.recombinants):
             md = self.nodes_metadata[u]
             row = md["match_info"]
             assert len(row) == 2
@@ -536,27 +586,58 @@ class TreeInfo:
                         breakpoints=record["breakpoints"],
                         parents=record["parents"],
                         mutations=record["mutations"],
+                        direction=record["direction"],
                     )
                 )
             rec = Recombinant(row[0]["strain"], matches, node=u)
-            if len(rec.matches[0].parents) == 2 and rec.is_hmm_consistent():
-                strain_node = self.strain_map[rec.strain]
-                strain_date = self.nodes_metadata[strain_node]["date"]
+            omit = restrict_to_hmm_consistent and not rec.is_hmm_consistent()
+            if len(rec.matches[0].parents) > max_num_parents or omit:
+                continue
+
+            forward = [i for i, m in enumerate(rec.matches) if m.direction == "forward"][0]
+            t_mrca = []
+            nodesep = []
+            # NB - the mrca calculation can only use the forward HMM match
+            for i in range(len(rec.matches[forward].parents) - 1):
+                parent_a = rec.matches[forward].parents[i]
+                parent_b = rec.matches[forward].parents[i + 1]
+                mrca_id, num_path_nodes = adjacent_mrca_info(
+                    self.ts, parent_a, parent_b, rec.matches[forward].breakpoints[i + 1])
+                if mrca_id == tskit.NULL:
+                    t_mrca = []
+                    nodesep = []
+                    break
+                t_mrca.append(self.ts.node(mrca_id).time)
+                nodesep.append(num_path_nodes)
+
+            strain_node = self.strain_map[rec.strain]
+            strain_date = self.nodes_metadata[strain_node]["date"]
+            record = {
+                "node": u,
+                "strain": rec.strain,
+                "strain_date": strain_date,
+                "max_descendant_samples": self.nodes_max_descendant_samples[u],
+            }
+
+            if restrict_to_hmm_consistent:
+                record["num_mutations"] = len(rec.matches[0].mutations)
+                record["mutations"] = rec.matches[0].mutations
+                record["num_parents"] = len(rec.matches[0].parents)
+            else:
+                record["HMM-consistent"] = rec.is_hmm_consistent()
+            if max_num_parents == 2:
                 left_parent = rec.matches[0].parents[0]
                 right_parent = rec.matches[0].parents[1]
-                record = {
-                    "node": u,
-                    "strain": rec.strain,
-                    "strain_date": strain_date,
-                    "max_descendant_samples": self.nodes_max_descendant_samples[u],
-                    "lineage_left": get_imputed_pango(left_parent),
-                    "lineage_right": get_imputed_pango(right_parent),
-                    "interval_left": rec.matches[0].breakpoints[1],
-                    "interval_right": rec.matches[1].breakpoints[1],
-                    "num_mutations": len(rec.matches[0].mutations),
-                    "mutations": rec.matches[0].mutations,
-                }
-                recombinants.append(record)
+                record["lineage_left"] = get_imputed_pango(left_parent)
+                record["lineage_right"] = get_imputed_pango(right_parent)
+                if restrict_to_hmm_consistent:
+                    record["interval_left"] = rec.matches[0].breakpoints[1]
+                    record["interval_right"] = rec.matches[1].breakpoints[1]
+                record["mrca_id"] = mrca_id
+            record["av_parent_tMRCA"] = np.mean(t_mrca)
+            record["av_parent_nodesep"] = np.mean(nodesep)
+
+            recombinants.append(record)
 
         return pd.DataFrame(recombinants)
 
