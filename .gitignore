@@ -1,3 +1,10 @@
+.DS_Store
+# Ingore the data files
+*.tsz
+*.nwk
+*.nex
+_version.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
