@@ -3,6 +3,7 @@ Utilities for examining sc2ts output.
 """
 import collections
 import dataclasses
+import operator
 import warnings
 import datetime
 
@@ -558,6 +559,107 @@ class TreeInfo:
 
         return pd.DataFrame(recombinants)
 
+    def export_recombination_node_breakpoints(self):
+        """
+        Make a dataframe with one row per recombination node breakpoint
+        Return info about the path to the mrca of left and right parents when travelling
+        up the tree to the left of the the breakpoint and to the right of the breakpoint.
+        
+        You can only list the breakpoints in recombination nodes that have 2 parents by
+        doing e.g. df.drop_duplicates('node', keep=False)
+        
+        """
+        # Note that it is more efficient to find the MRCA nodes in a single batch
+        # for all breakpoints, reusing the trees, rather than getting a new tree
+        # for each recombination node
+
+        # Sort recombinants by breakpoint location
+        forward_breakpoints = collections.defaultdict(list)
+        meta = self.nodes_metadata
+        for u in self.recombinants:
+            md = meta[u]
+            row = md["match_info"]
+            assert len(row) == 2
+            assert row[0]["strain"] == row[1]["strain"]
+            matches = {}
+            for record in row:
+                matches[record["direction"]] = Match(
+                    breakpoints=record["breakpoints"],
+                    parents=record["parents"],
+                    mutations=record["mutations"],
+                )
+            rec = Recombinant(row[0]["strain"], matches, node=u)
+            breaks = rec.matches["forward"].breakpoints[1:-1]
+            for i in range(len(breaks)):
+                forward_breakpoints[breaks[i]].append(
+                    (u, rec.is_hmm_consistent(), rec.matches["forward"].parents[i:i+2])
+                )
+        sorted_breakpoints = sorted(forward_breakpoints.keys())
+        tree_a_indexes = np.searchsorted(
+            self.ts.breakpoints(as_array=True),
+            sorted_breakpoints,
+            side='left',
+        ) - 1
+        tree_a_indexes = np.searchsorted(
+            self.ts.breakpoints(as_array=True),
+            sorted_breakpoints,
+            side='right',
+        ) - 1
+
+        causal_sample_map = get_recombinant_samples(self.ts)
+        tree_a = self.ts.first()    
+        tree_b = self.ts.first()
+        node_times = self.ts.nodes_time
+        data = []
+        for i_a, i_b, brk in zip(tree_a_indexes, tree_a_indexes, sorted_breakpoints):
+            tree_a.seek(i_a)
+            tree_b.seek(i_b)
+            for nd, hmm_cons, (left_parent, right_parent) in forward_breakpoints[brk]:
+                num_nodes_in_path = 0
+                node_a = left_parent
+                node_b = right_parent
+                while True:
+                    if node_a == tskit.NULL or node_b == tskit.NULL:
+                        break
+                    if node_times[node_a] == node_times[node_b]:
+                        if node_a == node_b:
+                            break
+                        else:
+                            if tree_a.parent(node_a) < tree_b.parent(node_b):
+                                node_a = tree_a.parent(node_a)
+                            else:
+                                node_b = tree_b.parent(node_b)
+                            num_nodes_in_path += 1
+                                
+                    elif node_times[node_a] < node_times[node_b]:
+                        node_a = tree_a.parent(node_a)
+                        num_nodes_in_path += 1
+                    elif node_times[node_b] < node_times[node_a]:
+                        node_b = tree_b.parent(node_b)
+                        num_nodes_in_path += 1
+                mrca = node_a
+                row = {
+                    "node": nd,
+                    "breakpoint": brk,
+                    "HMM_consistent": hmm_cons,
+                    "left_parent": left_parent,
+                    "left_parent_pango": meta[left_parent].get("Imputed_lineage", ""),
+                    "right_parent": right_parent,
+                    "right_parent_pango": meta[right_parent].get("Imputed_lineage", ""),
+                    "parents_mrca": mrca,
+                    "tmrca": np.nan,
+                    "tmrca_delta": np.nan,
+                    "nodes_between_parents": np.nan,
+                    # Pick one of the causal strains and report its Nextclade label
+                    "origin_nextclade_pango": meta[causal_sample_map[nd]]["Nextclade_pango"]
+                }
+                if mrca != tskit.NULL:
+                     row["tmrca"] = node_times[mrca]
+                     row["tmrca_delta"] = node_times[mrca] - node_times[nd]
+                     row["nodes_between_parents"] = num_nodes_in_path
+                data.append(row)
+        return pd.DataFrame(sorted(data, key=operator.itemgetter("node")))
+        
     def mutators_summary(self, threshold=10):
         mutator_nodes = np.where(self.nodes_num_mutations > threshold)[0]
         df = self._collect_node_data(mutator_nodes)
