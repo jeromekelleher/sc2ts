@@ -32,12 +32,12 @@ class Match:
 @dataclasses.dataclass
 class Recombinant:
     strain: str
-    matches: list
+    matches: dict
     node: int = -1
 
     def is_hmm_consistent(self):
-        return len(self.matches[0].parents) == len(self.matches[1].parents) and (
-            self.matches[0].mutations == self.matches[1].mutations
+        return len(self.matches["forward"].parents) == len(self.matches["backward"].parents) and (
+            self.matches["forward"].mutations == self.matches["backward"].mutations
         )
 
 
@@ -529,21 +529,19 @@ class TreeInfo:
             row = md["match_info"]
             assert len(row) == 2
             assert row[0]["strain"] == row[1]["strain"]
-            matches = []
+            matches = {}
             for record in row:
-                matches.append(
-                    Match(
-                        breakpoints=record["breakpoints"],
-                        parents=record["parents"],
-                        mutations=record["mutations"],
-                    )
+                matches[record["direction"]] = Match(
+                    breakpoints=record["breakpoints"],
+                    parents=record["parents"],
+                    mutations=record["mutations"],
                 )
             rec = Recombinant(row[0]["strain"], matches, node=u)
-            if len(rec.matches[0].parents) == 2 and rec.is_hmm_consistent():
+            if len(rec.matches["forward"].parents) == 2 and rec.is_hmm_consistent():
                 strain_node = self.strain_map[rec.strain]
                 strain_date = self.nodes_metadata[strain_node]["date"]
-                left_parent = rec.matches[0].parents[0]
-                right_parent = rec.matches[0].parents[1]
+                left_parent = rec.matches["forward"].parents[0]
+                right_parent = rec.matches["forward"].parents[1]
                 record = {
                     "node": u,
                     "strain": rec.strain,
@@ -551,10 +549,10 @@ class TreeInfo:
                     "max_descendant_samples": self.nodes_max_descendant_samples[u],
                     "lineage_left": get_imputed_pango(left_parent),
                     "lineage_right": get_imputed_pango(right_parent),
-                    "interval_left": rec.matches[0].breakpoints[1],
-                    "interval_right": rec.matches[1].breakpoints[1],
-                    "num_mutations": len(rec.matches[0].mutations),
-                    "mutations": rec.matches[0].mutations,
+                    "interval_left": rec.matches["backward"].breakpoints[1],
+                    "interval_right": rec.matches["backward"].breakpoints[1],
+                    "num_mutations": len(rec.matches["forward"].mutations),
+                    "mutations": rec.matches["forward"].mutations,
                 }
                 recombinants.append(record)
 
