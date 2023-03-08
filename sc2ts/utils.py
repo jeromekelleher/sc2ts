@@ -612,8 +612,8 @@ class TreeInfo:
         node_times = self.ts.nodes_time
         data = []
         for i_a, i_b, brk in zip(tree_a_indexes, tree_a_indexes, sorted_breakpoints):
-            tree_a.seek(i_a)
-            tree_b.seek(i_b)
+            tree_a.seek_index(i_a)
+            tree_b.seek_index(i_b)
             for nd, hmm_cons, (left_parent, right_parent) in forward_breakpoints[brk]:
                 num_nodes_in_path = 0
                 node_a = left_parent
@@ -641,7 +641,7 @@ class TreeInfo:
                 row = {
                     "node": nd,
                     "breakpoint": brk,
-                    "HMM_consistent": hmm_cons,
+                    "hmm_consistent": hmm_cons,
                     "left_parent": left_parent,
                     "left_parent_pango": meta[left_parent].get("Imputed_lineage", ""),
                     "right_parent": right_parent,
