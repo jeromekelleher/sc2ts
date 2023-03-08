@@ -606,7 +606,12 @@ class TreeInfo:
             side='right',
         ) - 1
 
+        # We could probably avoid using the get_recombinant_samples() function by 
+        # getting the recombinant "strain" (which is the strain which caused this
+        # recombination node to happen, and looking up the node ID for that
+        # strain. But this way should do it too
         causal_sample_map = get_recombinant_samples(self.ts)
+
         tree_a = self.ts.first()    
         tree_b = self.ts.first()
         node_times = self.ts.nodes_time
