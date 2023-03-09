@@ -642,6 +642,7 @@ class TreeInfo:
                         num_nodes_in_path += 1
                 mrca = node_a
                 row["node"] = nd
+                row["max_descendant_samples"] = self.nodes_max_descendant_samples[nd]
                 row["breakpoint"] = brk
                 row["hmm_consistent"] = hmm_cons
                 row["left_parent"] = l_parent
