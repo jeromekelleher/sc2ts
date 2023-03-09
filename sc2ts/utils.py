@@ -614,10 +614,13 @@ class TreeInfo:
         for i_a, i_b, brk in zip(tree_a_indexes, tree_b_indexes, sorted_breakpoints):
             tree_a.seek_index(i_a)
             tree_b.seek_index(i_b)
-            for nd, hmm_cons, (left_parent, right_parent) in forward_breakpoints[brk]:
+            for nd, hmm_cons, (l_parent, r_parent) in forward_breakpoints[brk]:
                 num_nodes_in_path = 0
-                node_a = left_parent
-                node_b = right_parent
+                node_a = l_parent
+                node_b = r_parent
+                row = {
+                    "in_arg": tree_a.parent(nd) == node_a and tree_b.parent(nd) == node_b
+                }
                 while True:
                     if node_a == tskit.NULL or node_b == tskit.NULL:
                         break
@@ -638,21 +641,20 @@ class TreeInfo:
                         node_b = tree_b.parent(node_b)
                         num_nodes_in_path += 1
                 mrca = node_a
-                row = {
-                    "node": nd,
-                    "breakpoint": brk,
-                    "hmm_consistent": hmm_cons,
-                    "left_parent": left_parent,
-                    "left_parent_pango": meta[left_parent].get("Imputed_lineage", ""),
-                    "right_parent": right_parent,
-                    "right_parent_pango": meta[right_parent].get("Imputed_lineage", ""),
-                    "parents_mrca": mrca,
-                    "tmrca": np.nan,
-                    "tmrca_delta": np.nan,
-                    "nodes_between_parents": np.nan,
-                    # Pick one of the causal strains and report its Nextclade label
-                    "origin_nextclade_pango": meta[causal_sample_map[nd]]["Nextclade_pango"]
-                }
+                row["node"] = nd
+                row["breakpoint"] = brk
+                row["hmm_consistent"] = hmm_cons
+                row["left_parent"] = l_parent
+                row["left_parent_pango"] = meta[l_parent].get("Imputed_lineage", "")
+                row["right_parent"] = r_parent
+                row["right_parent_pango"] = meta[r_parent].get("Imputed_lineage", "")
+                row["parents_mrca"] = mrca
+                row["tmrca"] = np.nan
+                row["tmrca_delta"] = np.nan
+                row["nodes_between_parents"] = np.nan
+                # Pick one of the causal strains and report its Nextclade label
+                row["origin_nextclade_pango"] = meta[causal_sample_map[nd]]["Nextclade_pango"]
+
                 if mrca != tskit.NULL:
                      row["tmrca"] = node_times[mrca]
                      row["tmrca_delta"] = node_times[mrca] - node_times[nd]
