@@ -17,10 +17,119 @@ import tqdm
 import matplotlib.pyplot as plt
 from IPython.display import Markdown, HTML
 import networkx as nx
+import numba
 
 import sc2ts
 from . import core
 from . import lineages
+
+
+@numba.njit
+def _get_root_path(parent, node):
+    u = node
+    path = []
+    while u != -1:
+        path.append(u)
+        u = parent[u]
+    return path
+
+
+def get_root_path(tree, node):
+    return _get_root_path(tree.parent_array, node)
+
+
+@numba.njit
+def _get_path_mrca(path1, path2, node_time):
+    j1 = 0
+    j2 = 0
+    while True:
+        if path1[j1] == path2[j2]:
+            return path1[j1]
+        elif node_time[path1[j1]] < node_time[path2[j2]]:
+            j1 += 1
+        elif node_time[path2[j2]] < node_time[path1[j1]]:
+            j2 += 1
+        else:
+            # Time is equal, but the nodes differ
+            j1 += 1
+            j2 += 1
+
+
+def get_path_mrca(path1, path2, node_time):
+    assert path1[-1] == path2[-1]
+    return _get_path_mrca(
+        np.array(path1, dtype=np.int32), np.array(path2, dtype=np.int32), node_time
+    )
+
+
+def get_recombinant_edges(ts):
+    """
+    Return the partial edges from the tree sequence grouped by child (which must
+    be flagged as a recombinant node).
+    """
+    partial_edges = np.where(
+        np.logical_or(ts.edges_left != 0, ts.edges_right != ts.sequence_length)
+    )[0]
+    edges = collections.defaultdict(list)
+    for edge_id in partial_edges:
+        edge = ts.edge(edge_id)
+        assert ts.nodes_flags[edge.child] == sc2ts.NODE_IS_RECOMBINANT
+        edges[edge.child].append(edge)
+
+    # Check that they are in order and completely cover the region
+    for child_edges in edges.values():
+        child_edges.sort(key=lambda e: e.left)
+        assert len(child_edges) >= 2
+        assert child_edges[0].left == 0
+        assert child_edges[-1].right == ts.sequence_length
+        last_edge = child_edges[0]
+        for edge in child_edges[1:]:
+            assert edge.left == last_edge.right
+            last_edge = edge
+    return edges
+
+
+def get_recombinant_mrca_table(ts):
+    """
+    Return a pandas data frame of the recombinant breakpoints from the
+    specified tree sequence. For each partial edge (which must have a
+    node marked as NODE_IS_RECOMBINANT as child), return a row in
+    the dataframe giving the breakpoint, the left parent, right parent
+    and the most recent common ancestor of these parent nodes.
+    """
+
+    recombinant_edges = get_recombinant_edges(ts)
+    # Split these up into adjacent pairs
+    breakpoint_pairs = []
+    for child, child_edges in recombinant_edges.items():
+        for j in range(len(child_edges) - 1):
+            assert child_edges[j].child == child
+            breakpoint_pairs.append((child_edges[j], child_edges[j + 1]))
+    assert len(breakpoint_pairs) >= len(recombinant_edges)
+
+    data = []
+    tree = ts.first()
+    for left_edge, right_edge in sorted(breakpoint_pairs, key=lambda x: x[1].left):
+        assert left_edge.right == right_edge.left
+        assert left_edge.child == right_edge.child
+        recombinant_node = left_edge.child
+        bp = left_edge.right
+        tree.seek(bp)
+        assert tree.interval.left == bp
+        left_path = get_root_path(tree, right_edge.parent)
+        tree.prev()
+        assert tree.interval.right == bp
+        right_path = get_root_path(tree, left_edge.parent)
+        mrca = get_path_mrca(left_path, right_path, ts.nodes_time)
+        row = {
+            "recombinant_node": recombinant_node,
+            "bp": bp,
+            "left_parent": left_edge.parent,
+            "right_parent": right_edge.parent,
+            "mrca": mrca,
+        }
+        data.append(row)
+    return pd.DataFrame(data)
 
 
 @dataclasses.dataclass
@@ -527,6 +636,7 @@ class TreeInfo:
 
         for u in self.recombinants:
             md = self.nodes_metadata[u]
+            print(u, md)
             row = md["match_info"]
             assert len(row) == 2
             assert row[0]["strain"] == row[1]["strain"]
@@ -569,112 +679,119 @@ class TreeInfo:
         doing e.g. df.drop_duplicates('node', keep=False)
 
         """
-        # Note that it is more efficient to find the MRCA nodes in a single batch
-        # for all breakpoints, reusing the trees, rather than getting a new tree
-        # for each recombination node
 
-        # Sort recombinants by breakpoint location
-        forward_breakpoints = collections.defaultdict(list)
-        meta = self.nodes_metadata
-        for u in self.recombinants:
-            md = meta[u]
-            row = md["match_info"]
-            assert len(row) == 2
-            assert row[0]["strain"] == row[1]["strain"]
-            matches = {}
-            for record in row:
-                matches[record["direction"]] = Match(
-                    breakpoints=record["breakpoints"],
-                    parents=record["parents"],
-                    mutations=record["mutations"],
-                )
-            rec = Recombinant(row[0]["strain"], matches, node=u)
-            breaks = rec.matches["forward"].breakpoints[1:-1]
-            for i in range(len(breaks)):
-                forward_breakpoints[breaks[i]].append(
-                    (
-                        u,
-                        rec.is_hmm_consistent(),
-                        rec.matches["forward"].parents[i : i + 2],
-                    )
-                )
-        sorted_breakpoints = sorted(forward_breakpoints.keys())
-        tree_a_indexes = (
-            np.searchsorted(
-                self.ts.breakpoints(as_array=True),
-                sorted_breakpoints,
-                side="left",
-            )
-            - 1
+        partial = np.logical_or(
+            self.ts.edges_left != 0, self.ts.edges_right != self.ts.sequence_length
         )
-        tree_b_indexes = (
-            np.searchsorted(
-                self.ts.breakpoints(as_array=True),
-                sorted_breakpoints,
-                side="right",
-            )
-            - 1
-        )
+        # for edge_id in partial:
+        #     left = self.
 
-        causal_sample_map = get_recombinant_samples(self.ts)
-        tree_a = self.ts.first()
-        tree_b = self.ts.first()
-        node_times = self.ts.nodes_time
-        data = []
-        for i_a, i_b, brk in zip(tree_a_indexes, tree_b_indexes, sorted_breakpoints):
-            tree_a.seek_index(i_a)
-            tree_b.seek_index(i_b)
-            for nd, hmm_cons, (l_parent, r_parent) in forward_breakpoints[brk]:
-                num_nodes_in_path = 0
-                node_a = l_parent
-                node_b = r_parent
-                row = {
-                    "in_arg": tree_a.parent(nd) == node_a
-                    and tree_b.parent(nd) == node_b
-                }
-                while True:
-                    if node_a == tskit.NULL or node_b == tskit.NULL:
-                        break
-                    if node_times[node_a] == node_times[node_b]:
-                        if node_a == node_b:
-                            break
-                        else:
-                            if tree_a.parent(node_a) < tree_b.parent(node_b):
-                                node_a = tree_a.parent(node_a)
-                            else:
-                                node_b = tree_b.parent(node_b)
-                            num_nodes_in_path += 1
+        print(partial_edges)
+        # for rec in self.recombinants:
+        #     print(self.ts.node(rec))
 
-                    elif node_times[node_a] < node_times[node_b]:
-                        node_a = tree_a.parent(node_a)
-                        num_nodes_in_path += 1
-                    elif node_times[node_b] < node_times[node_a]:
-                        node_b = tree_b.parent(node_b)
-                        num_nodes_in_path += 1
-                mrca = node_a
-                row["node"] = nd
-                row["max_descendant_samples"] = self.nodes_max_descendant_samples[nd]
-                row["breakpoint"] = brk
-                row["hmm_consistent"] = hmm_cons
-                row["left_parent"] = l_parent
-                row["left_parent_pango"] = meta[l_parent].get("Imputed_lineage", "")
-                row["right_parent"] = r_parent
-                row["right_parent_pango"] = meta[r_parent].get("Imputed_lineage", "")
-                row["parents_mrca"] = mrca
-                row["tmrca"] = np.nan
-                row["tmrca_delta"] = np.nan
-                row["nodes_between_parents"] = np.nan
-                # Pick one of the causal strains and report its Nextclade label
-                row["origin_nextclade_pango"] = meta[causal_sample_map[nd]][
-                    "Nextclade_pango"
-                ]
+    #         # Sort recombinants by breakpoint location
+    #         forward_breakpoints = collections.defaultdict(list)
+    #         meta = self.nodes_metadata
+    #         for u in self.recombinants:
+    #             md = meta[u]
+    #             row = md["match_info"]
+    #             assert len(row) == 2
+    #             assert row[0]["strain"] == row[1]["strain"]
+    #             matches = {}
+    #             for record in row:
+    #                 matches[record["direction"]] = Match(
+    #                     breakpoints=record["breakpoints"],
+    #                     parents=record["parents"],
+    #                     mutations=record["mutations"],
+    #                 )
+    #             rec = Recombinant(row[0]["strain"], matches, node=u)
+    #             breaks = rec.matches["forward"].breakpoints[1:-1]
+    #             for i in range(len(breaks)):
+    #                 forward_breakpoints[breaks[i]].append(
+    #                     (
+    #                         u,
+    #                         rec.is_hmm_consistent(),
+    #                         rec.matches["forward"].parents[i : i + 2],
+    #                     )
+    #                 )
+    #         sorted_breakpoints = sorted(forward_breakpoints.keys())
+    #         tree_a_indexes = (
+    #             np.searchsorted(
+    #                 self.ts.breakpoints(as_array=True),
+    #                 sorted_breakpoints,
+    #                 side="left",
+    #             )
+    #             - 1
+    #         )
+    #         tree_b_indexes = (
+    #             np.searchsorted(
+    #                 self.ts.breakpoints(as_array=True),
+    #                 sorted_breakpoints,
+    #                 side="right",
+    #             )
+    #             - 1
+    #         )
 
-                if mrca != tskit.NULL:
-                    row["tmrca"] = node_times[mrca]
-                    row["tmrca_delta"] = node_times[mrca] - node_times[nd]
-                    row["nodes_between_parents"] = num_nodes_in_path
-                data.append(row)
-        return pd.DataFrame(sorted(data, key=operator.itemgetter("node")))
+    #         causal_sample_map = get_recombinant_samples(self.ts)
+    #         tree_a = self.ts.first()
+    #         tree_b = self.ts.first()
+    #         node_times = self.ts.nodes_time
+    #         data = []
+    #         for i_a, i_b, brk in zip(tree_a_indexes, tree_b_indexes, sorted_breakpoints):
+    #             tree_a.seek_index(i_a)
+    #             tree_b.seek_index(i_b)
+    #             for nd, hmm_cons, (l_parent, r_parent) in forward_breakpoints[brk]:
+    #                 num_nodes_in_path = 0
+    #                 node_a = l_parent
+    #                 node_b = r_parent
+    #                 row = {
+    #                     "in_arg": tree_a.parent(nd) == node_a
+    #                     and tree_b.parent(nd) == node_b
+    #                 }
+    #                 while True:
+    #                     if node_a == tskit.NULL or node_b == tskit.NULL:
+    #                         break
+    #                     if node_times[node_a] == node_times[node_b]:
+    #                         if node_a == node_b:
+    #                             break
+    #                         else:
+    #                             if tree_a.parent(node_a) < tree_b.parent(node_b):
+    #                                 node_a = tree_a.parent(node_a)
+    #                             else:
+    #                                 node_b = tree_b.parent(node_b)
+    #                             num_nodes_in_path += 1
+
+    #                     elif node_times[node_a] < node_times[node_b]:
+    #                         node_a = tree_a.parent(node_a)
+    #                         num_nodes_in_path += 1
+    #                     elif node_times[node_b] < node_times[node_a]:
+    #                         node_b = tree_b.parent(node_b)
+    #                         num_nodes_in_path += 1
+    #                 mrca = node_a
+    #                 row["node"] = nd
+    #                 row["max_descendant_samples"] = self.nodes_max_descendant_samples[nd]
+    #                 row["breakpoint"] = brk
+    #                 row["hmm_consistent"] = hmm_cons
+    #                 row["left_parent"] = l_parent
+    #                 row["left_parent_pango"] = meta[l_parent].get("Imputed_lineage", "")
+    #                 row["right_parent"] = r_parent
+    #                 row["right_parent_pango"] = meta[r_parent].get("Imputed_lineage", "")
+    #                 row["parents_mrca"] = mrca
+    #                 row["tmrca"] = np.nan
+    #                 row["tmrca_delta"] = np.nan
+    #                 row["nodes_between_parents"] = np.nan
+    #                 # Pick one of the causal strains and report its Nextclade label
+    #                 row["origin_nextclade_pango"] = meta[causal_sample_map[nd]][
+    #                     "Nextclade_pango"
+    #                 ]
+
+    #                 if mrca != tskit.NULL:
+    #                     row["tmrca"] = node_times[mrca]
+    #                     row["tmrca_delta"] = node_times[mrca] - node_times[nd]
+    #                     row["nodes_between_parents"] = num_nodes_in_path
+    #                 data.append(row)
+    #         return pd.DataFrame(sorted(data, key=operator.itemgetter("node")))
 
     def mutators_summary(self, threshold=10):
         mutator_nodes = np.where(self.nodes_num_mutations > threshold)[0]
