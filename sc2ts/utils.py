@@ -600,7 +600,7 @@ class TreeInfo:
             sorted_breakpoints,
             side='left',
         ) - 1
-        tree_a_indexes = np.searchsorted(
+        tree_b_indexes = np.searchsorted(
             self.ts.breakpoints(as_array=True),
             sorted_breakpoints,
             side='right',
@@ -611,7 +611,7 @@ class TreeInfo:
         tree_b = self.ts.first()
         node_times = self.ts.nodes_time
         data = []
-        for i_a, i_b, brk in zip(tree_a_indexes, tree_a_indexes, sorted_breakpoints):
+        for i_a, i_b, brk in zip(tree_a_indexes, tree_b_indexes, sorted_breakpoints):
             tree_a.seek_index(i_a)
             tree_b.seek_index(i_b)
             for nd, hmm_cons, (left_parent, right_parent) in forward_breakpoints[brk]:
