@@ -116,10 +116,10 @@ def get_recombinant_mrca_table(ts):
         bp = left_edge.right
         tree.seek(bp)
         assert tree.interval.left == bp
-        left_path = get_root_path(tree, right_edge.parent)
+        right_path = get_root_path(tree, right_edge.parent)
         tree.prev()
         assert tree.interval.right == bp
-        right_path = get_root_path(tree, left_edge.parent)
+        left_path = get_root_path(tree, left_edge.parent)
         mrca = get_path_mrca(left_path, right_path, ts.nodes_time)
         row = {
             "recombinant_node": recombinant_node,
