@@ -1,10 +1,6 @@
-import tskit
-import tszip
-
 import json
 import numpy as np
 from collections import defaultdict
-from sklearn import tree
 from tqdm.notebook import tqdm
 import pandas as pd
 import time
@@ -137,7 +133,7 @@ def get_node_to_mut_dict(ts, ti, linmuts_dict):
 
 
 class InferLineage:
-    def __init__(self, num_nodes):
+    def __init__(self, num_nodes, true_lineage):
         self.lineages_true = [None] * num_nodes
         self.lineages_pred = [None] * num_nodes
         self.num_nodes = num_nodes
@@ -153,6 +149,8 @@ class InferLineage:
         self.change = 1
         self.current_node = None
         self.linfound = False
+        self.true_lineage = true_lineage
+        self.recombinants = None
 
     def reset(self):
         self.change = 0
@@ -177,20 +175,21 @@ class InferLineage:
     def record_recombinants(self, ts, ti):
         for r in ti.recombinants:
             r_node = ts.node(r)
-            if "Nextclade_pango" not in r_node.metadata:
+            if self.true_lineage not in r_node.metadata:
                 # Just recording that this is a recombinant lineage for which we don't have a Pango name
-                self.lineages_pred[r] = "Recombinant"
+                self.lineages_pred[r] = "Unknown"
+        self.recombinants = ti.recombinants
 
     def record_true_lineage(self, node):
-        if "Nextclade_pango" in node.metadata and self.lineages_true[node.id] is None:
-            self.lineages_true[node.id] = node.metadata["Nextclade_pango"]
+        if self.true_lineage in node.metadata and self.lineages_true[node.id] is None:
+            self.lineages_true[node.id] = node.metadata[self.true_lineage]
 
     def inherit_from_node(self, node, is_child=False):
-        if "Nextclade_pango" in node.metadata:
-            self.lineages_pred[self.current_node.id] = node.metadata["Nextclade_pango"]
+        if self.true_lineage in node.metadata:
+            self.lineages_pred[self.current_node.id] = node.metadata[self.true_lineage]
             self.lineages_type[self.current_node.id] = 1
             self.linfound = True
-        elif is_child and not (self.lineages_pred[node.id] in [None, "Recombinant"]):
+        elif is_child and not (self.lineages_pred[node.id] in [None, "Unknown"]):
             self.lineages_pred[self.current_node.id] = self.lineages_pred[node.id]
             self.lineages_type[self.current_node.id] = 1
             self.linfound = True
@@ -270,7 +269,7 @@ class InferLineage:
             elif ltype == 2:
                 type2 += 1
             if not internal_only:
-                if lt is not None and lp != "Recombinant":
+                if lt is not None and lp != "Unknown":
                     if lt == lp:
                         correct += 1
                     else:
@@ -309,13 +308,22 @@ class InferLineage:
         for i, (lt, lp) in enumerate(zip(self.lineages_true, self.lineages_pred)):
             if lt is not None:
                 all_lineages[i] = lt
+            elif i in self.recombinants:
+                all_lineages[i] = "Unknown (R)"
             else:
                 all_lineages[i] = lp
         return all_lineages
 
 
 def impute_lineages(
-    ts, ti, linmuts_dict, df, ohe_encoder, clf_tree, internal_only=False
+    ts,
+    ti,
+    node_to_mut_dict,
+    df,
+    ohe_encoder,
+    clf_tree,
+    true_lineage="Nextclade_pango",
+    internal_only=False,
 ):
     """
     Impute lineages for reconstructed internal nodes (if internal_only == True), or for
@@ -324,13 +332,10 @@ def impute_lineages(
 
     tic = time.time()
 
-    inferred_lineages = InferLineage(ts.num_nodes)
+    inferred_lineages = InferLineage(ts.num_nodes, true_lineage)
     t = ts.first()
 
-    print("Recording relevant mutations for each node...")
-    node_to_mut_dict = get_node_to_mut_dict(ts, ti, linmuts_dict)
-
-    # Assigning "Recombinant" as the lineage for recombinant nodes that don't have a Pango designation
+    # Assigning "Unknown" as the lineage for recombinant nodes that don't have a Pango designation
     inferred_lineages.record_recombinants(ts, ti)
 
     for n in ts.nodes():
@@ -352,10 +357,6 @@ def impute_lineages(
                 t,
                 ti,
                 node_to_mut_dict,
-                linmuts_dict,
-                df,
-                ohe_encoder,
-                clf_tree,
                 internal_only,
                 pbar,
             )
@@ -365,7 +366,6 @@ def impute_lineages(
                 t,
                 ti,
                 node_to_mut_dict,
-                linmuts_dict,
                 df,
                 ohe_encoder,
                 clf_tree,
@@ -380,7 +380,7 @@ def impute_lineages(
 
     print("Time:", time.time() - tic)
 
-    return inferred_lineages, edited_ts
+    return edited_ts
 
 
 def impute_lineages_inheritance(
@@ -389,10 +389,6 @@ def impute_lineages_inheritance(
     t,
     ti,
     node_to_mut_dict,
-    linmuts_dict,
-    df,
-    ohe_encoder,
-    clf_tree,
     internal_only,
     pbar,
 ):
@@ -426,7 +422,6 @@ def impute_lineages_decisiontree(
     t,
     ti,
     node_to_mut_dict,
-    linmuts_dict,
     df,
     ohe_encoder,
     clf_tree,
@@ -456,14 +451,14 @@ def impute_lineages_decisiontree(
                 if parent_node_ind != -1:
                     parent_node_md = ts.node(parent_node_ind).metadata
                     if (
-                        "Nextclade_pango" in parent_node_md
+                        inferred_lineages.true_lineage in parent_node_md
                         or inferred_lineages.lineages_pred[parent_node_ind] is not None
                     ):
                         # Check if we can now copy the parent's lineage
                         if n_ not in node_to_mut_dict.names or (
-                            "Nextclade_pango" not in parent_node_md
+                            inferred_lineages.true_lineage not in parent_node_md
                             and inferred_lineages.lineages_pred[parent_node_ind]
-                            == "Recombinant"
+                            == "Unknown"
                         ):
                             inferred_lineages.inherit_from_node(
                                 ts.node(parent_node_ind)
@@ -471,8 +466,10 @@ def impute_lineages_decisiontree(
                             inferred_lineages.update()
                         # If not, then add to dataframe for imputation
                         else:
-                            if "Nextclade_pango" in parent_node_md:
-                                parent_lineage = parent_node_md["Nextclade_pango"]
+                            if inferred_lineages.true_lineage in parent_node_md:
+                                parent_lineage = parent_node_md[
+                                    inferred_lineages.true_lineage
+                                ]
                             else:
                                 parent_lineage = inferred_lineages.lineages_pred[
                                     parent_node_ind
@@ -488,19 +485,20 @@ def impute_lineages_decisiontree(
         y = clf_tree.predict(ohe_encoder.transform(X))
         inferred_lineages.add_imputed_values(X_index, y)
     pbar.update(inferred_lineages.change)
-    # print(str(inferred_lineages.change) + "...done")
 
 
 def add_lineages_to_ts(il, ts):
     """
-    Adds imputed lineages to ts metadata (as 'Imputed_lineage').
+    Adds imputed lineages to ts metadata.
     """
     imputed_lineages = il.get_results()
     tables = ts.tables
     new_metadata = []
     for node in ts.nodes():
         md = node.metadata
-        md["Imputed_lineage"] = imputed_lineages[node.id]
+        if "Imputed_lineage" in md:
+            md.pop("Imputed_lineage")
+        md["Imputed_" + il.true_lineage] = imputed_lineages[node.id]
         new_metadata.append(md)
     validated_metadata = [
         tables.nodes.metadata_schema.validate_and_encode_row(row)

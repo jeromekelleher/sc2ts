@@ -920,7 +920,7 @@ class TreeInfo:
         html += "<tr><th>P0</th>" + "".join(parents.pop(0)) + "</tr>"
         html += "<tr><th>C</th>" + "".join(child) + "</tr>"
         for i, parent in enumerate(parents):
-            html += f"<tr><th>P{i+1}</th>" + "".join(parent) + "</tr>"
+            html += f"<tr><th>P{i + 1}</th>" + "".join(parent) + "</tr>"
         html += '<tr style="font-size: 75%"><th>mut</th>' + "".join(extra_mut) + "</tr>"
 
         return f"<table>{html}</table>"
@@ -1352,7 +1352,15 @@ def get_recombinant_samples(ts):
     return out
 
 
-def sample_subgraph(sample_node, ts, filepath=None):
+def sample_subgraph(
+    sample_node,
+    ts,
+    ti,
+    mutations_json_filepath,
+    expand_down=True,
+    imputation_source="Imputed_GISAID_lineage",
+    filepath=None,
+):
     """
     Draws out a subgraph of the ARG above the given sample, including
     all nodes and edges on the path to the nearest sample nodes (showing any recombinations on
@@ -1366,9 +1374,13 @@ def sample_subgraph(sample_node, ts, filepath=None):
     col_indigo = "#4477AA"
     col_grey = "#BBBBBB"
 
+    # Read in characteristic mutations info
+    linmuts_dict = lineages.read_in_mutations(mutations_json_filepath)
+
     G = nx.DiGraph()
-    related_nodes = set((sample_node,))
-    nodes_to_search = set((sample_node,))
+    related_nodes = defaultdict(set)
+    nodes_to_search_up = {sample_node}
+    nodes_to_search_down = set()
     nodelabels = {}
     nodecolours = {}
     edgelabels = defaultdict(set)
@@ -1376,36 +1388,88 @@ def sample_subgraph(sample_node, ts, filepath=None):
     G.add_node(sample_node)
     nodecolours[sample_node] = col_green
 
-    while nodes_to_search:
-        node = ts.node(nodes_to_search.pop())
-        nodelabels[node.id] = str(node.id) + "\n" + node.metadata["Imputed_lineage"]
+    while nodes_to_search_up:
+        node = ts.node(nodes_to_search_up.pop())
+        nodelabels[node.id] = str(node.id) + "\n" + node.metadata[imputation_source]
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
             for t in ts.trees():
                 if t.parent(node.id) != parent_node:
                     parent_node = t.parent(node.id)
-                    nodes_to_search.add(parent_node)
-                    related_nodes.add(parent_node)
+                    nodes_to_search_up.add(parent_node)
                     if parent_node not in G.nodes:
                         G.add_node(parent_node)
                         nodecolours[parent_node] = col_grey
                     G.add_edge(parent_node, node.id)
+                    related_nodes[node.id].add((parent_node, node.id))
                     edge = ts.edge(t.edge(node.id))
                     if edge.right - edge.left != ts.sequence_length:
                         nodecolours[node.id] = col_red
                         edgelabels[(parent_node, node.id)].add(
                             (int(edge.left), int(edge.right))
                         )
+            nodes_to_search_down.add(node.id)
         else:
             nodecolours[node.id] = col_blue
 
+    if expand_down:
+        while nodes_to_search_down:
+            node = ts.node(nodes_to_search_down.pop())
+            if (not node.is_sample()) or node.id == sample_node:
+                for t in ts.trees():
+                    for ch in t.children(node.id):
+                        ch_node = ts.node(ch)
+                        if ch not in G.nodes:
+                            G.add_node(ch)
+                            nodelabels[ch] = (
+                                str(ch_node.id)
+                                + "\n"
+                                + ch_node.metadata[imputation_source]
+                            )
+                            if ch_node.is_sample():
+                                nodecolours[ch] = col_blue
+                                if t.num_children(ch) > 0:
+                                    nodelabels[ch] += (
+                                        "\n+" + str(t.num_children(ch)) + " samples"
+                                    )
+                            else:
+                                nodecolours[ch] = col_grey
+                                nodes_to_search_down.add(ch)
+                        G.add_edge(node.id, ch)
+                        related_nodes[ch].add((node.id, ch))
+                        edge = ts.edge(t.edge(ch))
+                        if edge.right - edge.left != ts.sequence_length:
+                            nodecolours[ch] = col_red
+                            edgelabels[(node.id, ch)].add(
+                                (int(edge.left), int(edge.right))
+                            )
+            else:
+                nodecolours[node.id] = col_blue
+
+    edgelabels_ = {}
     for key, value in edgelabels.items():
-        edgelabels[key] = "\n".join([str(v) for v in value])
+        edgelabels_[key] = "\n".join([str(v) for v in value])
+
+    for m in ts.mutations():
+        if m.node in related_nodes:
+            includemut = False
+            pos = int(ts.site(m.site).position)
+            mutstr = str(pos)
+            if ti.mutations_is_reversion[m.id]:
+                mutstr += "R"
+            if pos in linmuts_dict.all_positions:
+                includemut = True
+            if includemut:
+                for edge in related_nodes[m.node]:
+                    if edge in edgelabels_:
+                        edgelabels_[edge] += "\n" + mutstr
+                    else:
+                        edgelabels_[edge] = "\n" + mutstr
 
     pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
     dim_x = len(set(x for x, y in pos.values()))
     dim_y = len(set(y for x, y in pos.values()))
-    fig = plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
+    plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
     nx.draw(
         G,
@@ -1417,7 +1481,7 @@ def sample_subgraph(sample_node, ts, filepath=None):
         font_size=6,
     )
     nx.draw_networkx_edge_labels(
-        G, pos, edge_labels=edgelabels, label_pos=0.5, rotate=False, font_size=6
+        G, pos, edge_labels=edgelabels_, label_pos=0.5, rotate=False, font_size=5
     )
     if filepath:
         plt.savefig(filepath)
@@ -1470,7 +1534,80 @@ def lineage_imputation(filepath, ts, ti, internal_only=False, verbose=False):
     Runs lineage imputation on input ts
     """
     linmuts_dict, df, df_ohe, ohe, clf = imputation_setup(filepath, verbose)
-    il, edited_ts = lineages.impute_lineages(
-        ts, ti, linmuts_dict, df, ohe, clf, internal_only
+    print("Recording relevant mutations for each node...")
+    node_to_mut_dict = lineages.get_node_to_mut_dict(ts, ti, linmuts_dict)
+    edited_ts = lineages.impute_lineages(
+        ts, ti, node_to_mut_dict, df, ohe, clf, "Nextclade_pango", internal_only
     )
-    return il, edited_ts
+    edited_ts = lineages.impute_lineages(
+        edited_ts, ti, node_to_mut_dict, df, ohe, clf, "GISAID_lineage", internal_only
+    )
+    return edited_ts
+
+
+def add_gisaid_lineages_to_ts(ts, node_gisaid_lineages, linmuts_dict):
+    """
+    Adds lineages from GISAID to ts metadata (as 'GISAID_lineage').
+    """
+    tables = ts.tables
+    new_metadata = []
+    ndiffs = 0
+    for node in ts.nodes():
+        md = node.metadata
+        if node_gisaid_lineages[node.id] is not None:
+            if node_gisaid_lineages[node.id] in linmuts_dict.names:
+                md["GISAID_lineage"] = str(node_gisaid_lineages[node.id])
+            else:
+                md["GISAID_lineage"] = md["Nextclade_pango"]
+                ndiffs += 1
+        new_metadata.append(md)
+    validated_metadata = [
+        tables.nodes.metadata_schema.validate_and_encode_row(row)
+        for row in new_metadata
+    ]
+    tables.nodes.packset_metadata(validated_metadata)
+    edited_ts = tables.tree_sequence()
+    print("Filling in missing GISAID lineages with Nextclade lineages:", ndiffs)
+    return edited_ts
+
+
+def check_lineages(
+    ts,
+    ti,
+    gisaid_data,
+    linmuts_dict,
+    diff_filehandle="lineage_disagreement",
+):
+    n_diffs = 0
+    total = 0
+    diff_file = diff_filehandle + ".csv"
+    node_gisaid_lineages = [None] * ts.num_nodes
+    with tqdm.tqdm(total=len(gisaid_data)) as pbar:
+        with open(diff_file, "w") as file:
+            file.write("sample_node,gisaid_epi_isl,gisaid_lineage,ts_lineage\n")
+            for gisaid_id, gisaid_lineage in gisaid_data:
+                if gisaid_id in ti.epi_isl_map:
+                    sample_node = ts.node(ti.epi_isl_map[gisaid_id])
+                    if gisaid_lineage != sample_node.metadata["Nextclade_pango"]:
+                        n_diffs += 1
+                        file.write(
+                            str(sample_node.id)
+                            + ","
+                            + gisaid_id
+                            + ","
+                            + gisaid_lineage
+                            + ","
+                            + sample_node.metadata["Nextclade_pango"]
+                            + "\n"
+                        )
+                    node_gisaid_lineages[sample_node.id] = gisaid_lineage
+                    total += 1
+                pbar.update(1)
+    print("ts number of samples:", ts.num_samples)
+    print("number matched to gisaid data:", total)
+    print("number of differences:", n_diffs)
+    print("proportion:", n_diffs / total)
+
+    edited_ts = add_gisaid_lineages_to_ts(ts, node_gisaid_lineages, linmuts_dict)
+
+    return edited_ts
