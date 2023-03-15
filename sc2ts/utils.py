@@ -1410,6 +1410,7 @@ def sample_subgraph(
                         )
             nodes_to_search_down.add(node.id)
         else:
+            nodelabels[node.id] += "\n" + node.metadata['gisaid_epi_isl']
             nodecolours[node.id] = col_blue
 
     if expand_down:
@@ -1428,9 +1429,10 @@ def sample_subgraph(
                             )
                             if ch_node.is_sample():
                                 nodecolours[ch] = col_blue
-                                if t.num_children(ch) > 0:
+                                nodelabels[ch] += "\n" + ch_node.metadata['gisaid_epi_isl']
+                                if t.num_samples(ch) > 1:
                                     nodelabels[ch] += (
-                                        "\n+" + str(t.num_children(ch)) + " samples"
+                                        "\n+" + str(t.num_samples(ch)-1) + " samples"
                                     )
                             else:
                                 nodecolours[ch] = col_grey
@@ -1444,6 +1446,7 @@ def sample_subgraph(
                                 (int(edge.left), int(edge.right))
                             )
             else:
+                nodelabels[node.id] += "\n" + node.metadata['gisaid_epi_isl']
                 nodecolours[node.id] = col_blue
 
     edgelabels_ = {}
@@ -1477,7 +1480,7 @@ def sample_subgraph(
         with_labels=True,
         labels=nodelabels,
         node_color=[nodecolours[node] for node in G.nodes],
-        node_size=1600,
+        node_size=2800,
         font_size=6,
     )
     nx.draw_networkx_edge_labels(
