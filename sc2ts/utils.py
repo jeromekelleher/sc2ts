@@ -1358,20 +1358,46 @@ def sample_subgraph(
     ti,
     mutations_json_filepath,
     expand_down=True,
-    imputation_source="Imputed_GISAID_lineage",
     filepath=None,
     *,
     ax=None,
+    ts_id_labels=None,
+    node_metadata_labels=None,
+    sample_metadata_labels=None,    
 ):
     """
     Draws out a subgraph of the ARG above the given sample, including all nodes and
     edges on the path to the nearest sample nodes (showing any recombinations on
     the way).
     
-    If `ax` is given, it should be a maptplotlib axis object on which to plot the
-    graph. This allows the graph to be placed as a subplot or the size and aspect ratio
-    to be adjusted.
+    # TODO - document the rest of the parameters
+    
+    :param plt.Axes ax: a matplotlib axis object on which to plot the graph.
+        This allows the graph to be placed as a subplot or the size and aspect ratio
+        to be adjusted. If ``None`` (default) plot to the current axis with some
+        sensible figsize defaults.
+    :param bool ts_id_labels: Should we label nodes with their tskit node ID? Default:
+        ``None``, treated as ``True``.
+    :param str node_metadata_labels: Should we label all nodes with a value from their
+        metadata: Default: ``None``, treated as ``"Imputed_GISAID_lineage"``. If ``""``,
+        do not plot any all-node metadata.
+    :param str sample_metadata_labels: Should we additionally label sample nodes with a
+        value from their metadata: Default: ``None``, treated as ``"gisaid_epi_isl"``.
+        Notes representing multiple samples will have a label saying "XXX samples".
+        If ``""``, do not plot any sample node metadata. If 
+
+    :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
+        ``{node_id : (x, y), ...}``
+    :rtype:  tuple(nx.DiGraph, dict)
+    
     """
+    if ts_id_labels is None:
+        ts_id_labels=True
+    if node_metadata_labels is None:
+        node_metadata_labels="Imputed_GISAID_lineage"
+    if sample_metadata_labels is None:
+        sample_metadata_labels="gisaid_epi_isl"
+        
     col_green = "#228833"
     col_red = "#EE6677"
     col_purp = "#AA3377"
@@ -1387,7 +1413,7 @@ def sample_subgraph(
     related_nodes = defaultdict(set)
     nodes_to_search_up = {sample_node}
     nodes_to_search_down = set()
-    nodelabels = {}
+    nodelabels = collections.defaultdict(list)
     nodecolours = {}
     edgelabels = defaultdict(set)
 
@@ -1396,7 +1422,11 @@ def sample_subgraph(
 
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
-        nodelabels[node.id] = str(node.id) + "\n" + node.metadata[imputation_source]
+        if ts_id_labels:
+            nodelabels[node.id].append(str(node.id))
+        if node_metadata_labels:
+             nodelabels[node.id].append(node.metadata[node_metadata_labels])
+
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
             for t in ts.trees():
@@ -1416,8 +1446,9 @@ def sample_subgraph(
                         )
             nodes_to_search_down.add(node.id)
         else:
-            nodelabels[node.id] += "\n" + node.metadata['gisaid_epi_isl']
             nodecolours[node.id] = col_blue
+            if sample_metadata_labels:
+                nodelabels[node.id].append(node.metadata[sample_metadata_labels])
 
     if expand_down:
         while nodes_to_search_down:
@@ -1428,18 +1459,19 @@ def sample_subgraph(
                         ch_node = ts.node(ch)
                         if ch not in G.nodes:
                             G.add_node(ch)
-                            nodelabels[ch] = (
-                                str(ch_node.id)
-                                + "\n"
-                                + ch_node.metadata[imputation_source]
-                            )
+                            if ts_id_labels:
+                                nodelabels[ch].append(str(ch_node.id))
+                            if node_metadata_labels:
+                                nodelabels[ch].append(
+                                    ch_node.metadata[node_metadata_labels])
                             if ch_node.is_sample():
                                 nodecolours[ch] = col_blue
-                                nodelabels[ch] += "\n" + ch_node.metadata['gisaid_epi_isl']
-                                if t.num_samples(ch) > 1:
-                                    nodelabels[ch] += (
-                                        "\n+" + str(t.num_samples(ch)-1) + " samples"
-                                    )
+                                if sample_metadata_labels:
+                                    nodelabels[ch].append(
+                                        ch_node.metadata[sample_metadata_labels])
+                                    if t.num_samples(ch) > 1:
+                                        nodelabels[ch].append(
+                                            str(t.num_samples(ch)-1) + " samples")
                             else:
                                 nodecolours[ch] = col_grey
                                 nodes_to_search_down.add(ch)
@@ -1452,8 +1484,11 @@ def sample_subgraph(
                                 (int(edge.left), int(edge.right))
                             )
             else:
-                nodelabels[node.id] += "\n" + node.metadata['gisaid_epi_isl']
                 nodecolours[node.id] = col_blue
+                if sample_metadata_labels:
+                    nodelabels[node.id].append(node.metadata[sample_metadata_labels])
+
+    nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
 
     edgelabels_ = {}
     for key, value in edgelabels.items():
