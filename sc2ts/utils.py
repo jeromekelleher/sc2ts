@@ -1361,9 +1361,11 @@ def sample_subgraph(
     filepath=None,
     *,
     ax=None,
+    node_size=None,
     ts_id_labels=None,
     node_metadata_labels=None,
-    sample_metadata_labels=None,    
+    sample_metadata_labels=None,
+    edge_labels=None,
 ):
     """
     Draws out a subgraph of the ARG above the given sample, including all nodes and
@@ -1376,6 +1378,8 @@ def sample_subgraph(
         This allows the graph to be placed as a subplot or the size and aspect ratio
         to be adjusted. If ``None`` (default) plot to the current axis with some
         sensible figsize defaults.
+    :param int node_size: The size of the node circles. Default:
+        ``None``, treated as 2800.
     :param bool ts_id_labels: Should we label nodes with their tskit node ID? Default:
         ``None``, treated as ``True``.
     :param str node_metadata_labels: Should we label all nodes with a value from their
@@ -1384,13 +1388,18 @@ def sample_subgraph(
     :param str sample_metadata_labels: Should we additionally label sample nodes with a
         value from their metadata: Default: ``None``, treated as ``"gisaid_epi_isl"``.
         Notes representing multiple samples will have a label saying "XXX samples".
-        If ``""``, do not plot any sample node metadata. If 
+        If ``""``, do not plot any sample node metadata.
+    :param dict edge_labels: a mapping of {(parent_id, child_id): "label")} with which
+        to label the edges. If ``None``, label with mutations. If ``{}``, do not plot
+        edge labels.
 
     :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
         ``{node_id : (x, y), ...}``
     :rtype:  tuple(nx.DiGraph, dict)
     
     """
+    if node_size is None:
+        node_size=2800
     if ts_id_labels is None:
         ts_id_labels=True
     if node_metadata_labels is None:
@@ -1490,25 +1499,26 @@ def sample_subgraph(
 
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
 
-    edgelabels_ = {}
-    for key, value in edgelabels.items():
-        edgelabels_[key] = "\n".join([str(v) for v in value])
-
-    for m in ts.mutations():
-        if m.node in related_nodes:
-            includemut = False
-            pos = int(ts.site(m.site).position)
-            mutstr = str(pos)
-            if ti.mutations_is_reversion[m.id]:
-                mutstr += "R"
-            if pos in linmuts_dict.all_positions:
-                includemut = True
-            if includemut:
-                for edge in related_nodes[m.node]:
-                    if edge in edgelabels_:
-                        edgelabels_[edge] += "\n" + mutstr
-                    else:
-                        edgelabels_[edge] = "\n" + mutstr
+    if edge_labels is None:
+        edge_labels = {}
+        for key, value in edgelabels.items():
+            edge_labels[key] = "\n".join([str(v) for v in value])
+    
+        for m in ts.mutations():
+            if m.node in related_nodes:
+                includemut = False
+                pos = int(ts.site(m.site).position)
+                mutstr = str(pos)
+                if ti.mutations_is_reversion[m.id]:
+                    mutstr += "R"
+                if pos in linmuts_dict.all_positions:
+                    includemut = True
+                if includemut:
+                    for edge in related_nodes[m.node]:
+                        if edge in edge_labels:
+                            edge_labels[edge] += "\n" + mutstr
+                        else:
+                            edge_labels[edge] = "\n" + mutstr
 
     pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
     if ax is None:
@@ -1523,12 +1533,14 @@ def sample_subgraph(
         with_labels=True,
         labels=nodelabels,
         node_color=[nodecolours[node] for node in G.nodes],
-        node_size=2800,
+        node_size=node_size,
         font_size=6,
     )
-    nx.draw_networkx_edge_labels(
-        G, pos, edge_labels=edgelabels_, label_pos=0.5, rotate=False, font_size=5
-    )
+    
+    if len(edge_labels) > 0:
+        nx.draw_networkx_edge_labels(
+            G, pos, edge_labels=edge_labels, label_pos=0.5, rotate=False, font_size=5
+        )
     if filepath:
         plt.savefig(filepath)
     else:
