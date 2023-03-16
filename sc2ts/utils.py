@@ -1366,6 +1366,7 @@ def sample_subgraph(
     node_metadata_labels=None,
     sample_metadata_labels=None,
     edge_labels=None,
+    node_label_replace=None,
 ):
     """
     Draws out a subgraph of the ARG above the given sample, including all nodes and
@@ -1392,6 +1393,11 @@ def sample_subgraph(
     :param dict edge_labels: a mapping of {(parent_id, child_id): "label")} with which
         to label the edges. If ``None``, label with mutations. If ``{}``, do not plot
         edge labels.
+    :param dict node_label_replace: A dict of ``{key: value}`` such that labels
+        containing the string ``key`` have that string replaced with ``value``. This
+        is primarily to be able to remove the word "Unknown" from the plot, by
+        specifying ``{"Unknown": "", "Unknown ": ""}``.
+        
 
     :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
         ``{node_id : (x, y), ...}``
@@ -1496,8 +1502,12 @@ def sample_subgraph(
                 nodecolours[node.id] = col_blue
                 if sample_metadata_labels:
                     nodelabels[node.id].append(node.metadata[sample_metadata_labels])
-
+            
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
+    if node_label_replace is not None:
+        for search, replace in node_label_replace.items():
+            for k, v in nodelabels.items():
+                nodelabels[k] = v.replace(search, replace)
 
     if edge_labels is None:
         edge_labels = {}
