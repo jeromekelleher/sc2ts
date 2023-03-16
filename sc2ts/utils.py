@@ -1360,11 +1360,17 @@ def sample_subgraph(
     expand_down=True,
     imputation_source="Imputed_GISAID_lineage",
     filepath=None,
+    *,
+    ax=None,
 ):
     """
-    Draws out a subgraph of the ARG above the given sample, including
-    all nodes and edges on the path to the nearest sample nodes (showing any recombinations on
-    the way)
+    Draws out a subgraph of the ARG above the given sample, including all nodes and
+    edges on the path to the nearest sample nodes (showing any recombinations on
+    the way).
+    
+    If `ax` is given, it should be a maptplotlib axis object on which to plot the
+    graph. This allows the graph to be placed as a subplot or the size and aspect ratio
+    to be adjusted.
     """
     col_green = "#228833"
     col_red = "#EE6677"
@@ -1470,13 +1476,15 @@ def sample_subgraph(
                         edgelabels_[edge] = "\n" + mutstr
 
     pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
-    dim_x = len(set(x for x, y in pos.values()))
-    dim_y = len(set(y for x, y in pos.values()))
-    plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
+    if ax is None:
+        dim_x = len(set(x for x, y in pos.values()))
+        dim_y = len(set(y for x, y in pos.values()))
+        plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
     nx.draw(
         G,
         pos=pos,
+        ax=ax,
         with_labels=True,
         labels=nodelabels,
         node_color=[nodecolours[node] for node in G.nodes],
@@ -1490,7 +1498,7 @@ def sample_subgraph(
         plt.savefig(filepath)
     else:
         plt.show()
-
+    return G, pos
 
 def imputation_setup(filepath, verbose=False):
     """
