@@ -1362,6 +1362,8 @@ def sample_subgraph(
     *,
     ax=None,
     node_size=None,
+    node_colours=None,
+    colour_metadata_key=None,
     ts_id_labels=None,
     node_metadata_labels=None,
     sample_metadata_labels=None,
@@ -1397,6 +1399,15 @@ def sample_subgraph(
         containing the string ``key`` have that string replaced with ``value``. This
         is primarily to be able to remove the word "Unknown" from the plot, by
         specifying ``{"Unknown": "", "Unknown ": ""}``.
+    :param dict node_colours: A dict mapping nodes to colour values. The keys of the
+        dictionary can be integer node IDs, strings, or None. If the key is a string,
+        it is compared to the value of ``node.metadata[colour_metadata_key]`` (see
+        below). If no relevant key exists, the fill colour is set to the value of
+        ``node_colours[None]``, or is set to empty if there is no key of ``None``.
+        However, if ``node_colours`` is itself ``None``, use the default colourscheme
+        which distinguishes between sample nodes, recombination nodes, and all others.
+    :param dict colour_metadata_key: A key in the metadata, to use when specifying
+        bespoke node colours. Default: ``None``, treated as "strain".
         
 
     :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
@@ -1412,7 +1423,8 @@ def sample_subgraph(
         node_metadata_labels="Imputed_GISAID_lineage"
     if sample_metadata_labels is None:
         sample_metadata_labels="gisaid_epi_isl"
-        
+    if colour_metadata_key is None:
+        colour_metadata_key = "strain"
     col_green = "#228833"
     col_red = "#EE6677"
     col_purp = "#AA3377"
@@ -1429,11 +1441,11 @@ def sample_subgraph(
     nodes_to_search_up = {sample_node}
     nodes_to_search_down = set()
     nodelabels = collections.defaultdict(list)
-    nodecolours = {}
+    default_nodecolours = {}
     edgelabels = defaultdict(set)
 
     G.add_node(sample_node)
-    nodecolours[sample_node] = col_green
+    default_nodecolours[sample_node] = col_green
 
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
@@ -1450,18 +1462,18 @@ def sample_subgraph(
                     nodes_to_search_up.add(parent_node)
                     if parent_node not in G.nodes:
                         G.add_node(parent_node)
-                        nodecolours[parent_node] = col_grey
+                        default_nodecolours[parent_node] = col_grey
                     G.add_edge(parent_node, node.id)
                     related_nodes[node.id].add((parent_node, node.id))
                     edge = ts.edge(t.edge(node.id))
                     if edge.right - edge.left != ts.sequence_length:
-                        nodecolours[node.id] = col_red
+                        default_nodecolours[node.id] = col_red
                         edgelabels[(parent_node, node.id)].add(
                             (int(edge.left), int(edge.right))
                         )
             nodes_to_search_down.add(node.id)
         else:
-            nodecolours[node.id] = col_blue
+            default_nodecolours[node.id] = col_blue
             if sample_metadata_labels:
                 nodelabels[node.id].append(node.metadata[sample_metadata_labels])
 
@@ -1480,7 +1492,7 @@ def sample_subgraph(
                                 nodelabels[ch].append(
                                     ch_node.metadata[node_metadata_labels])
                             if ch_node.is_sample():
-                                nodecolours[ch] = col_blue
+                                default_nodecolours[ch] = col_blue
                                 if sample_metadata_labels:
                                     nodelabels[ch].append(
                                         ch_node.metadata[sample_metadata_labels])
@@ -1488,18 +1500,18 @@ def sample_subgraph(
                                         nodelabels[ch].append(
                                             str(t.num_samples(ch)-1) + " samples")
                             else:
-                                nodecolours[ch] = col_grey
+                                default_nodecolours[ch] = col_grey
                                 nodes_to_search_down.add(ch)
                         G.add_edge(node.id, ch)
                         related_nodes[ch].add((node.id, ch))
                         edge = ts.edge(t.edge(ch))
                         if edge.right - edge.left != ts.sequence_length:
-                            nodecolours[ch] = col_red
+                            default_nodecolours[ch] = col_red
                             edgelabels[(node.id, ch)].add(
                                 (int(edge.left), int(edge.right))
                             )
             else:
-                nodecolours[node.id] = col_blue
+                default_nodecolours[node.id] = col_blue
                 if sample_metadata_labels:
                     nodelabels[node.id].append(node.metadata[sample_metadata_labels])
             
@@ -1536,13 +1548,29 @@ def sample_subgraph(
         dim_y = len(set(y for x, y in pos.values()))
         plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
+    fill_cols = []
+    if node_colours is None:
+        for u in G.nodes:
+            fill_cols.append(default_nodecolours[u])
+    else:
+        default_colour = node_colours.get(None, "None") 
+        for u in G.nodes:
+            try:
+                fill_cols.append(node_colours[u])
+            except KeyError:
+                md_val = ts.node(u).metadata.get(colour_metadata_key, None)
+                fill_cols.append(node_colours.get(md_val, default_colour))
+    
+    stroke_cols = [("black" if c == "None" else c) for c in fill_cols]
+
     nx.draw(
         G,
         pos=pos,
         ax=ax,
         with_labels=True,
         labels=nodelabels,
-        node_color=[nodecolours[node] for node in G.nodes],
+        node_color=fill_cols,
+        edgecolors=stroke_cols,
         node_size=node_size,
         font_size=6,
     )
