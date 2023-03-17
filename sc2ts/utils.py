@@ -1358,20 +1358,73 @@ def sample_subgraph(
     ti,
     mutations_json_filepath,
     expand_down=True,
-    imputation_source="Imputed_GISAID_lineage",
     filepath=None,
     *,
     ax=None,
+    node_size=None,
+    node_colours=None,
+    colour_metadata_key=None,
+    ts_id_labels=None,
+    node_metadata_labels=None,
+    sample_metadata_labels=None,
+    edge_labels=None,
+    node_label_replace=None,
 ):
     """
     Draws out a subgraph of the ARG above the given sample, including all nodes and
     edges on the path to the nearest sample nodes (showing any recombinations on
     the way).
     
-    If `ax` is given, it should be a maptplotlib axis object on which to plot the
-    graph. This allows the graph to be placed as a subplot or the size and aspect ratio
-    to be adjusted.
+    # TODO - document the rest of the parameters
+    
+    :param plt.Axes ax: a matplotlib axis object on which to plot the graph.
+        This allows the graph to be placed as a subplot or the size and aspect ratio
+        to be adjusted. If ``None`` (default) plot to the current axis with some
+        sensible figsize defaults.
+    :param int node_size: The size of the node circles. Default:
+        ``None``, treated as 2800.
+    :param bool ts_id_labels: Should we label nodes with their tskit node ID? Default:
+        ``None``, treated as ``True``.
+    :param str node_metadata_labels: Should we label all nodes with a value from their
+        metadata: Default: ``None``, treated as ``"Imputed_GISAID_lineage"``. If ``""``,
+        do not plot any all-node metadata.
+    :param str sample_metadata_labels: Should we additionally label sample nodes with a
+        value from their metadata: Default: ``None``, treated as ``"gisaid_epi_isl"``.
+        Notes representing multiple samples will have a label saying "XXX samples".
+        If ``""``, do not plot any sample node metadata.
+    :param dict edge_labels: a mapping of {(parent_id, child_id): "label")} with which
+        to label the edges. If ``None``, label with mutations. If ``{}``, do not plot
+        edge labels.
+    :param dict node_label_replace: A dict of ``{key: value}`` such that labels
+        containing the string ``key`` have that string replaced with ``value``. This
+        is primarily to be able to remove the word "Unknown" from the plot, by
+        specifying ``{"Unknown": "", "Unknown ": ""}``.
+    :param dict node_colours: A dict mapping nodes to colour values. The keys of the
+        dictionary can be integer node IDs, strings, or None. If the key is a string,
+        it is compared to the value of ``node.metadata[colour_metadata_key]`` (see
+        below). If no relevant key exists, the fill colour is set to the value of
+        ``node_colours[None]``, or is set to empty if there is no key of ``None``.
+        However, if ``node_colours`` is itself ``None``, use the default colourscheme
+        which distinguishes between sample nodes, recombination nodes, and all others.
+    :param dict colour_metadata_key: A key in the metadata, to use when specifying
+        bespoke node colours. Default: ``None``, treated as "strain".
+        
+
+    :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
+        ``{node_id : (x, y), ...}``
+    :rtype:  tuple(nx.DiGraph, dict)
+    
     """
+    if node_size is None:
+        node_size=2800
+    if ts_id_labels is None:
+        ts_id_labels=True
+    if node_metadata_labels is None:
+        node_metadata_labels="Imputed_GISAID_lineage"
+    if sample_metadata_labels is None:
+        sample_metadata_labels="gisaid_epi_isl"
+    if colour_metadata_key is None:
+        colour_metadata_key = "strain"
     col_green = "#228833"
     col_red = "#EE6677"
     col_purp = "#AA3377"
@@ -1387,16 +1440,20 @@ def sample_subgraph(
     related_nodes = defaultdict(set)
     nodes_to_search_up = {sample_node}
     nodes_to_search_down = set()
-    nodelabels = {}
-    nodecolours = {}
+    nodelabels = collections.defaultdict(list)
+    default_nodecolours = {}
     edgelabels = defaultdict(set)
 
     G.add_node(sample_node)
-    nodecolours[sample_node] = col_green
+    default_nodecolours[sample_node] = col_green
 
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
-        nodelabels[node.id] = str(node.id) + "\n" + node.metadata[imputation_source]
+        if ts_id_labels:
+            nodelabels[node.id].append(str(node.id))
+        if node_metadata_labels:
+             nodelabels[node.id].append(node.metadata[node_metadata_labels])
+
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
             for t in ts.trees():
@@ -1405,19 +1462,20 @@ def sample_subgraph(
                     nodes_to_search_up.add(parent_node)
                     if parent_node not in G.nodes:
                         G.add_node(parent_node)
-                        nodecolours[parent_node] = col_grey
+                        default_nodecolours[parent_node] = col_grey
                     G.add_edge(parent_node, node.id)
                     related_nodes[node.id].add((parent_node, node.id))
                     edge = ts.edge(t.edge(node.id))
                     if edge.right - edge.left != ts.sequence_length:
-                        nodecolours[node.id] = col_red
+                        default_nodecolours[node.id] = col_red
                         edgelabels[(parent_node, node.id)].add(
                             (int(edge.left), int(edge.right))
                         )
             nodes_to_search_down.add(node.id)
         else:
-            nodelabels[node.id] += "\n" + node.metadata['gisaid_epi_isl']
-            nodecolours[node.id] = col_blue
+            default_nodecolours[node.id] = col_blue
+            if sample_metadata_labels:
+                nodelabels[node.id].append(node.metadata[sample_metadata_labels])
 
     if expand_down:
         while nodes_to_search_down:
@@ -1428,52 +1486,61 @@ def sample_subgraph(
                         ch_node = ts.node(ch)
                         if ch not in G.nodes:
                             G.add_node(ch)
-                            nodelabels[ch] = (
-                                str(ch_node.id)
-                                + "\n"
-                                + ch_node.metadata[imputation_source]
-                            )
+                            if ts_id_labels:
+                                nodelabels[ch].append(str(ch_node.id))
+                            if node_metadata_labels:
+                                nodelabels[ch].append(
+                                    ch_node.metadata[node_metadata_labels])
                             if ch_node.is_sample():
-                                nodecolours[ch] = col_blue
-                                nodelabels[ch] += "\n" + ch_node.metadata['gisaid_epi_isl']
-                                if t.num_samples(ch) > 1:
-                                    nodelabels[ch] += (
-                                        "\n+" + str(t.num_samples(ch)-1) + " samples"
-                                    )
+                                default_nodecolours[ch] = col_blue
+                                if sample_metadata_labels:
+                                    nodelabels[ch].append(
+                                        ch_node.metadata[sample_metadata_labels])
+                                    if t.num_samples(ch) > 1:
+                                        nodelabels[ch].append(
+                                            str(t.num_samples(ch)-1) + " samples")
                             else:
-                                nodecolours[ch] = col_grey
+                                default_nodecolours[ch] = col_grey
                                 nodes_to_search_down.add(ch)
                         G.add_edge(node.id, ch)
                         related_nodes[ch].add((node.id, ch))
                         edge = ts.edge(t.edge(ch))
                         if edge.right - edge.left != ts.sequence_length:
-                            nodecolours[ch] = col_red
+                            default_nodecolours[ch] = col_red
                             edgelabels[(node.id, ch)].add(
                                 (int(edge.left), int(edge.right))
                             )
             else:
-                nodelabels[node.id] += "\n" + node.metadata['gisaid_epi_isl']
-                nodecolours[node.id] = col_blue
+                default_nodecolours[node.id] = col_blue
+                if sample_metadata_labels:
+                    nodelabels[node.id].append(node.metadata[sample_metadata_labels])
+            
+    nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
+    if node_label_replace is not None:
+        for search, replace in node_label_replace.items():
+            for k, v in nodelabels.items():
+                nodelabels[k] = v.replace(search, replace)
 
-    edgelabels_ = {}
-    for key, value in edgelabels.items():
-        edgelabels_[key] = "\n".join([str(v) for v in value])
-
-    for m in ts.mutations():
-        if m.node in related_nodes:
-            includemut = False
-            pos = int(ts.site(m.site).position)
-            mutstr = str(pos)
-            if ti.mutations_is_reversion[m.id]:
-                mutstr += "R"
-            if pos in linmuts_dict.all_positions:
-                includemut = True
-            if includemut:
-                for edge in related_nodes[m.node]:
-                    if edge in edgelabels_:
-                        edgelabels_[edge] += "\n" + mutstr
-                    else:
-                        edgelabels_[edge] = "\n" + mutstr
+    if edge_labels is None:
+        edge_labels = {}
+        for key, value in edgelabels.items():
+            edge_labels[key] = "\n".join([str(v) for v in value])
+    
+        for m in ts.mutations():
+            if m.node in related_nodes:
+                includemut = False
+                pos = int(ts.site(m.site).position)
+                mutstr = str(pos)
+                if ti.mutations_is_reversion[m.id]:
+                    mutstr += "R"
+                if pos in linmuts_dict.all_positions:
+                    includemut = True
+                if includemut:
+                    for edge in related_nodes[m.node]:
+                        if edge in edge_labels:
+                            edge_labels[edge] += "\n" + mutstr
+                        else:
+                            edge_labels[edge] = "\n" + mutstr
 
     pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
     if ax is None:
@@ -1481,19 +1548,37 @@ def sample_subgraph(
         dim_y = len(set(y for x, y in pos.values()))
         plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
+    fill_cols = []
+    if node_colours is None:
+        for u in G.nodes:
+            fill_cols.append(default_nodecolours[u])
+    else:
+        default_colour = node_colours.get(None, "None") 
+        for u in G.nodes:
+            try:
+                fill_cols.append(node_colours[u])
+            except KeyError:
+                md_val = ts.node(u).metadata.get(colour_metadata_key, None)
+                fill_cols.append(node_colours.get(md_val, default_colour))
+    
+    stroke_cols = [("black" if c == "None" else c) for c in fill_cols]
+
     nx.draw(
         G,
         pos=pos,
         ax=ax,
         with_labels=True,
         labels=nodelabels,
-        node_color=[nodecolours[node] for node in G.nodes],
-        node_size=2800,
+        node_color=fill_cols,
+        edgecolors=stroke_cols,
+        node_size=node_size,
         font_size=6,
     )
-    nx.draw_networkx_edge_labels(
-        G, pos, edge_labels=edgelabels_, label_pos=0.5, rotate=False, font_size=5
-    )
+    
+    if len(edge_labels) > 0:
+        nx.draw_networkx_edge_labels(
+            G, pos, edge_labels=edge_labels, label_pos=0.5, rotate=False, font_size=5
+        )
     if filepath:
         plt.savefig(filepath)
     else:
