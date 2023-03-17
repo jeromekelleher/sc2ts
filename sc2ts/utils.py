@@ -344,6 +344,9 @@ class TreeInfo:
             self.nodes_metadata[node.id] = md
             if node.is_sample():
                 self.epi_isl_map[md["gisaid_epi_isl"]] = node.id
+                if md["gisaid_epi_isl"] is not None:
+                    if '.' in md["gisaid_epi_isl"]:
+                        self.epi_isl_map[md["gisaid_epi_isl"].split('.')[0]] = node.id
                 self.strain_map[md["strain"]] = node.id
                 self.nodes_date[node.id] = md["date"]
                 self.nodes_submission_date[node.id] = md["date_submitted"]
@@ -1505,7 +1508,7 @@ def sample_subgraph(
                                         ch_node.metadata[sample_metadata_labels])
                                     if t.num_samples(ch) > 1:
                                         nodelabels[ch].append(
-                                            str(t.num_samples(ch)-1) + " samples")
+                                            "+" + str(t.num_samples(ch)-1) + " samples")
                             else:
                                 default_nodecolours[ch] = col_grey
                                 nodes_to_search_down.add(ch)
