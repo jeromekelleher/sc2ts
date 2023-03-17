@@ -345,8 +345,8 @@ class TreeInfo:
             if node.is_sample():
                 self.epi_isl_map[md["gisaid_epi_isl"]] = node.id
                 if md["gisaid_epi_isl"] is not None:
-                    if '.' in md["gisaid_epi_isl"]:
-                        self.epi_isl_map[md["gisaid_epi_isl"].split('.')[0]] = node.id
+                    if "." in md["gisaid_epi_isl"]:
+                        self.epi_isl_map[md["gisaid_epi_isl"].split(".")[0]] = node.id
                 self.strain_map[md["strain"]] = node.id
                 self.nodes_date[node.id] = md["date"]
                 self.nodes_submission_date[node.id] = md["date_submitted"]
@@ -729,7 +729,8 @@ class TreeInfo:
             key = "Imputed_" + pango_source
             if key not in self.nodes_metadata[u]:
                 raise ValueError(
-                    f"{key} not available. You may need to run the imputation pipeline")
+                    f"{key} not available. You may need to run the imputation pipeline"
+                )
             lineage = self.nodes_metadata[u]["Imputed_" + pango_source]
             return lineage
 
@@ -754,7 +755,8 @@ class TreeInfo:
                     parents=parents,
                     mutations=record["mutations"],
                     parent_imputed_lineages=[
-                        get_imputed_pango(x, self.pango_source) for x in parents],
+                        get_imputed_pango(x, self.pango_source) for x in parents
+                    ],
                 )
             breakpoints = [0]
             parents = []
@@ -770,11 +772,13 @@ class TreeInfo:
                 parents=parents,
                 mrcas=mrcas,
                 parent_imputed_lineages=[
-                    get_imputed_pango(x, self.pango_source) for x in parents],
+                    get_imputed_pango(x, self.pango_source) for x in parents
+                ],
             )
             causal_node = self.strain_map[strain]
             causal_lineage = self.nodes_metadata[causal_node].get(
-                    self.pango_source, "unknown")
+                self.pango_source, "unknown"
+            )
             rec = Recombinant(
                 causal_strain=strain,
                 causal_date=md["date_added"],
@@ -1384,9 +1388,9 @@ def sample_subgraph(
     Draws out a subgraph of the ARG above the given sample, including all nodes and
     edges on the path to the nearest sample nodes (showing any recombinations on
     the way).
-    
+
     # TODO - document the rest of the parameters
-    
+
     :param plt.Axes ax: a matplotlib axis object on which to plot the graph.
         This allows the graph to be placed as a subplot or the size and aspect ratio
         to be adjusted. If ``None`` (default) plot to the current axis with some
@@ -1418,21 +1422,21 @@ def sample_subgraph(
         which distinguishes between sample nodes, recombination nodes, and all others.
     :param dict colour_metadata_key: A key in the metadata, to use when specifying
         bespoke node colours. Default: ``None``, treated as "strain".
-        
+
 
     :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
         ``{node_id : (x, y), ...}``
     :rtype:  tuple(nx.DiGraph, dict)
-    
+
     """
     if node_size is None:
-        node_size=2800
+        node_size = 2800
     if ts_id_labels is None:
-        ts_id_labels=True
+        ts_id_labels = True
     if node_metadata_labels is None:
-        node_metadata_labels="Imputed_GISAID_lineage"
+        node_metadata_labels = "Imputed_GISAID_lineage"
     if sample_metadata_labels is None:
-        sample_metadata_labels="gisaid_epi_isl"
+        sample_metadata_labels = "gisaid_epi_isl"
     if colour_metadata_key is None:
         colour_metadata_key = "strain"
     col_green = "#228833"
@@ -1462,7 +1466,7 @@ def sample_subgraph(
         if ts_id_labels:
             nodelabels[node.id].append(str(node.id))
         if node_metadata_labels:
-             nodelabels[node.id].append(node.metadata[node_metadata_labels])
+            nodelabels[node.id].append(node.metadata[node_metadata_labels])
 
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
@@ -1500,15 +1504,20 @@ def sample_subgraph(
                                 nodelabels[ch].append(str(ch_node.id))
                             if node_metadata_labels:
                                 nodelabels[ch].append(
-                                    ch_node.metadata[node_metadata_labels])
+                                    ch_node.metadata[node_metadata_labels]
+                                )
                             if ch_node.is_sample():
                                 default_nodecolours[ch] = col_blue
                                 if sample_metadata_labels:
                                     nodelabels[ch].append(
-                                        ch_node.metadata[sample_metadata_labels])
+                                        ch_node.metadata[sample_metadata_labels]
+                                    )
                                     if t.num_samples(ch) > 1:
                                         nodelabels[ch].append(
-                                            "+" + str(t.num_samples(ch)-1) + " samples")
+                                            "+"
+                                            + str(t.num_samples(ch) - 1)
+                                            + " samples"
+                                        )
                             else:
                                 default_nodecolours[ch] = col_grey
                                 nodes_to_search_down.add(ch)
@@ -1524,7 +1533,7 @@ def sample_subgraph(
                 default_nodecolours[node.id] = col_blue
                 if sample_metadata_labels:
                     nodelabels[node.id].append(node.metadata[sample_metadata_labels])
-            
+
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
     if node_label_replace is not None:
         for search, replace in node_label_replace.items():
@@ -1535,7 +1544,7 @@ def sample_subgraph(
         edge_labels = {}
         for key, value in edgelabels.items():
             edge_labels[key] = "\n".join([str(v) for v in value])
-    
+
         for m in ts.mutations():
             if m.node in related_nodes:
                 includemut = False
@@ -1563,14 +1572,14 @@ def sample_subgraph(
         for u in G.nodes:
             fill_cols.append(default_nodecolours[u])
     else:
-        default_colour = node_colours.get(None, "None") 
+        default_colour = node_colours.get(None, "None")
         for u in G.nodes:
             try:
                 fill_cols.append(node_colours[u])
             except KeyError:
                 md_val = ts.node(u).metadata.get(colour_metadata_key, None)
                 fill_cols.append(node_colours.get(md_val, default_colour))
-    
+
     stroke_cols = [("black" if c == "None" else c) for c in fill_cols]
 
     nx.draw(
@@ -1584,7 +1593,7 @@ def sample_subgraph(
         node_size=node_size,
         font_size=6,
     )
-    
+
     if len(edge_labels) > 0:
         nx.draw_networkx_edge_labels(
             G, pos, edge_labels=edge_labels, label_pos=0.5, rotate=False, font_size=5
@@ -1594,6 +1603,7 @@ def sample_subgraph(
     else:
         plt.show()
     return G, pos
+
 
 def imputation_setup(filepath, verbose=False):
     """
