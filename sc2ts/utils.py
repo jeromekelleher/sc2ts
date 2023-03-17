@@ -1540,6 +1540,7 @@ def sample_subgraph(
             for k, v in nodelabels.items():
                 nodelabels[k] = v.replace(search, replace)
 
+    mut_nodes = set()
     if edge_labels is None:
         edge_labels = {}
         for key, value in edgelabels.items():
@@ -1547,6 +1548,7 @@ def sample_subgraph(
 
         for m in ts.mutations():
             if m.node in related_nodes:
+                mut_nodes.add(m.node)
                 includemut = False
                 pos = int(ts.site(m.site).position)
                 mutstr = str(pos)
@@ -1560,6 +1562,18 @@ def sample_subgraph(
                             edge_labels[edge] += "\n" + mutstr
                         else:
                             edge_labels[edge] = "\n" + mutstr
+
+    unary_nodes_to_remove = set()
+    for k, d in G.degree():
+        if d == 2 and k not in mut_nodes:
+            G.add_edge(*G.predecessors(k), *G.successors(k))
+            if (k, *G.successors(k)) in edge_labels:
+                edge_labels[(*G.predecessors(k), *G.successors(k))] = edge_labels.pop(
+                    (k, *G.successors(k))
+                )
+            unary_nodes_to_remove.add(k)
+    [G.remove_node(k) for k in unary_nodes_to_remove]
+    nodelabels = {k: v for k, v in nodelabels.items() if k not in unary_nodes_to_remove}
 
     pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
     if ax is None:
