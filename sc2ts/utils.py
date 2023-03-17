@@ -314,8 +314,10 @@ def max_descendant_samples(ts, show_progress=True):
 
 
 class TreeInfo:
-    def __init__(self, ts, show_progress=True):
+    def __init__(self, ts, show_progress=True, pango_source="Nextclade_pango"):
+        # Can current set pango_source to "Nextclade_pango" or "GISAID_lineage"
         self.ts = ts
+        self.pango_source = pango_source
         self.epi_isl_map = {}
         self.strain_map = {}
         self.recombinants = get_recombinants(ts)
@@ -345,7 +347,7 @@ class TreeInfo:
                 self.strain_map[md["strain"]] = node.id
                 self.nodes_date[node.id] = md["date"]
                 self.nodes_submission_date[node.id] = md["date_submitted"]
-                pango = md["Nextclade_pango"]
+                pango = md.get(pango_source, "unknown")
                 self.pango_lineage_samples[pango].append(node.id)
                 if "sc2ts_qc" in md:
                     qc = md["sc2ts_qc"]
@@ -599,8 +601,8 @@ class TreeInfo:
         elif "date_added" in md:
             strain = f"Added {md['date_added']}"
 
-        pango = md.get("Nextclade_pango", None)
-        imputed_pango = md.get("Imputed_lineage", None)
+        pango = md.get(self.pango_source, None)
+        imputed_pango = md.get("Imputed_" + self.pango_source, None)
         if pango is not None:
             if imputed_pango is not None and imputed_pango != pango:
                 pango = f"MISMATCH: {pango} != {imputed_pango}"
@@ -719,11 +721,13 @@ class TreeInfo:
         return df
 
     def combine_recombinant_info(self):
-        def get_imputed_pango(u):
-            lineage = self.nodes_metadata[u]["Imputed_lineage"]
-            # Recombinant might be misleading, Unknown seems more accurate?
-            if lineage == "Recombinant":
-                return "Unknown"
+        def get_imputed_pango(u, pango_source):
+            # Can set pango_source to "Nextclade_pango" or "GISAID_lineage"
+            key = "Imputed_" + pango_source
+            if key not in self.nodes_metadata[u]:
+                raise ValueError(
+                    f"{key} not available. You may need to run the imputation pipeline")
+            lineage = self.nodes_metadata[u]["Imputed_" + pango_source]
             return lineage
 
         df_arg = sc2ts.utils.get_recombinant_mrca_table(self.ts)
@@ -746,7 +750,8 @@ class TreeInfo:
                     breakpoints=record["breakpoints"],
                     parents=parents,
                     mutations=record["mutations"],
-                    parent_imputed_lineages=[get_imputed_pango(x) for x in parents],
+                    parent_imputed_lineages=[
+                        get_imputed_pango(x, self.pango_source) for x in parents],
                 )
             breakpoints = [0]
             parents = []
@@ -761,10 +766,12 @@ class TreeInfo:
                 breakpoints=breakpoints,
                 parents=parents,
                 mrcas=mrcas,
-                parent_imputed_lineages=[get_imputed_pango(x) for x in parents],
+                parent_imputed_lineages=[
+                    get_imputed_pango(x, self.pango_source) for x in parents],
             )
             causal_node = self.strain_map[strain]
-            causal_lineage = self.nodes_metadata[causal_node]["Nextclade_pango"]
+            causal_lineage = self.nodes_metadata[causal_node].get(
+                    self.pango_source, "unknown")
             rec = Recombinant(
                 causal_strain=strain,
                 causal_date=md["date_added"],
