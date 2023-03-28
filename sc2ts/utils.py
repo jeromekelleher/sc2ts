@@ -1614,7 +1614,7 @@ def sample_subgraph(
         )
     if filepath:
         plt.savefig(filepath)
-    else:
+    elif ax is None:
         plt.show()
     return G, pos
 
