@@ -3,6 +3,7 @@ Utilities for examining sc2ts output.
 """
 import collections
 import dataclasses
+import itertools
 import operator
 import warnings
 import datetime
@@ -242,6 +243,15 @@ class Recombinant:
             == bck.parent_imputed_lineages
             == arg.parent_imputed_lineages
         )
+
+    def fwd_bkwd_hmm_parents(self):
+        """
+        Returns successive tuples of (forward parent 1, backward parent 1), etc
+        """
+        for parents in itertools.zip_longest(
+            self.hmm_runs["forward"].parents, self.hmm_runs["backward"].parents
+        ):
+            yield np.array(parents)
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -830,13 +840,35 @@ class TreeInfo:
         break, and their MRCA.
 
         Recombinants with multiple breaks are represented by multiple rows.
-        You can only list the breakpoints in recombination nodes that have 2 parents by
+        You can list the breakpoints in recombination nodes that have only 2 parents by
         doing e.g. df.drop_duplicates('node', keep=False)
         """
+        def _mut_dist(mapped_ts, node_map, u1, u2):
+            if u1 == u2:
+                return 0
+            try:
+                ts_simp = mapped_ts.simplify(node_map[[u1, u2]])
+                return np.isin(ts_simp.mutations_node, ts_simp.samples()).sum()
+            except IndexError:
+                return np.inf
         recombs = self.combine_recombinant_info()
+        hmm_parents = [
+            parent
+            for rec in recombs
+            for dir in ("forward", "backward")
+            for parent in rec.hmm_runs[dir].parents
+        ]
+        # Collect parents to create a simplified ts for fast mutation checking
+        parent_ts, parent_map = self.ts.simplify(np.unique(hmm_parents), map_nodes=True)
+
         data = []
         for rec in recombs:
             arg = rec.arg_info
+            if rec.is_path_length_consistent():
+                fwd_bkwd_hmm_parents = iter(rec.fwd_bkwd_hmm_parents())
+            else:
+                fwd_bkwd_hmm_parents = itertools.repeat([None, None])
+            mut_dist = _mut_dist(parent_ts, parent_map, *next(fwd_bkwd_hmm_parents))
             for j in range(len(arg.parents) - 1):
                 row = rec.data_summary()
                 mrca = arg.mrcas[j]
@@ -847,6 +879,9 @@ class TreeInfo:
                 row["right_parent_imputed_lineage"] = arg.parent_imputed_lineages[j + 1]
                 row["mrca"] = mrca
                 row["mrca_date"] = self.nodes_date[mrca]
+                new_dist = _mut_dist(parent_ts, parent_map, *next(fwd_bkwd_hmm_parents))
+                row["fwd_bck_parents_max_mut_dist"] = max(new_dist, mut_dist)
+                mut_dist = new_dist
                 data.append(row)
         return pd.DataFrame(sorted(data, key=operator.itemgetter("node")))
 
