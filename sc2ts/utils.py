@@ -1429,6 +1429,19 @@ def sample_subgraph(
     :rtype:  tuple(nx.DiGraph, dict)
 
     """
+    def sort_edgelabel(s):
+        """
+        Edge labels are mutations (integer strings, but can have the last char as "R"),
+        or edge intervals such as "≥0\n<1000"
+        """
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                return int(s[:-1])  # Snip off a trailing R
+            except ValueError:
+                return -1  # return first in sort
+            
     if node_size is None:
         node_size = 2800
     if ts_id_labels is None:
@@ -1483,7 +1496,7 @@ def sample_subgraph(
                     if edge.right - edge.left != ts.sequence_length:
                         default_nodecolours[node.id] = col_red
                         edgelabels[(parent_node, node.id)].add(
-                            (int(edge.left), int(edge.right))
+                            f"≥{int(edge.left)}\n<{int(edge.right)}"
                         )
             nodes_to_search_down.add(node.id)
         else:
@@ -1526,7 +1539,7 @@ def sample_subgraph(
                         if edge.right - edge.left != ts.sequence_length:
                             default_nodecolours[ch] = col_red
                             edgelabels[(node.id, ch)].add(
-                                (int(edge.left), int(edge.right))
+                                f"≥{int(edge.left)}\n<{int(edge.right)}"
                             )
             else:
                 default_nodecolours[node.id] = col_blue
@@ -1540,11 +1553,11 @@ def sample_subgraph(
                 nodelabels[k] = v.replace(search, replace)
 
     mut_nodes = set()
-    if edge_labels is None:
+    if edge_labels is not None:
+        # Place user-provided edge labels in the middle of the edge
+        edge_labels = {k:(v, "mid") for k, v in edge_labels.items()}
+    else:
         edge_labels = {}
-        for key, value in edgelabels.items():
-            edge_labels[key] = "\n".join([str(v) for v in value])
-
         for m in ts.mutations():
             if m.node in related_nodes:
                 mut_nodes.add(m.node)
@@ -1557,10 +1570,14 @@ def sample_subgraph(
                     includemut = True
                 if includemut:
                     for edge in related_nodes[m.node]:
-                        if edge in edge_labels:
-                            edge_labels[edge] += "\n" + mutstr
-                        else:
-                            edge_labels[edge] = "\n" + mutstr
+                        edgelabels[edge].add(mutstr)
+        for key, value in edgelabels.items():
+            sorted_labels = sorted(value, key=sort_edgelabel)
+            if sorted_labels[0].startswith("≥"):  # child is a recombination node
+                edge_labels[key] = ("\n".join(sorted_labels), "parent")
+            else:
+                # Placing mutations near the child end of the edge avoids label clashes
+                edge_labels[key] = ("\n".join(sorted_labels), "child")
 
     unary_nodes_to_remove = set()
     for k, d in G.degree():
@@ -1607,10 +1624,23 @@ def sample_subgraph(
         font_size=6,
     )
 
-    if len(edge_labels) > 0:
-        nx.draw_networkx_edge_labels(
-            G, pos, edge_labels=edge_labels, label_pos=0.5, rotate=False, font_size=5
-        )
+    edge_label_pos = collections.defaultdict(dict)
+    for k, (label, placement) in edge_labels.items():
+        edge_label_pos[placement][k] = label
+    
+    positions = {"child": 0.25, "mid": 0.5, "parent": 0.75}
+    vert_align = {"child": "bottom", "mid": "center", "parent": "top"}
+    for placement, labels in edge_label_pos.items():
+        if len(labels) > 0:
+            nx.draw_networkx_edge_labels(
+                G,
+                pos,
+                edge_labels=labels,
+                label_pos=positions[placement],
+                verticalalignment=vert_align[placement],
+                rotate=False,
+                font_size=5
+            )
     if filepath:
         plt.savefig(filepath)
     elif ax is None:
