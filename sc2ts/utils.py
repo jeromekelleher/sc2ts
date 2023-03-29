@@ -1397,8 +1397,9 @@ def sample_subgraph(
         sensible figsize defaults.
     :param int node_size: The size of the node circles. Default:
         ``None``, treated as 2800.
-    :param bool ts_id_labels: Should we label nodes with their tskit node ID? Default:
-        ``None``, treated as ``True``.
+    :param bool ts_id_labels: Should we label nodes with their tskit node ID? If
+        ``None``, show the node ID only for sample nodes. If ``True``, show
+        it for all nodes. If ``False``, do not show. Default: ``None``.
     :param str node_metadata_labels: Should we label all nodes with a value from their
         metadata: Default: ``None``, treated as ``"Imputed_GISAID_lineage"``. If ``""``,
         do not plot any all-node metadata.
@@ -1444,8 +1445,6 @@ def sample_subgraph(
             
     if node_size is None:
         node_size = 2800
-    if ts_id_labels is None:
-        ts_id_labels = True
     if node_metadata_labels is None:
         node_metadata_labels = "Imputed_GISAID_lineage"
     if sample_metadata_labels is None:
@@ -1476,7 +1475,7 @@ def sample_subgraph(
 
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
-        if ts_id_labels:
+        if ts_id_labels or (ts_id_labels is None and node.is_sample()):
             nodelabels[node.id].append(str(node.id))
         if node_metadata_labels:
             nodelabels[node.id].append(node.metadata[node_metadata_labels])
@@ -1513,7 +1512,10 @@ def sample_subgraph(
                         ch_node = ts.node(ch)
                         if ch not in G.nodes:
                             G.add_node(ch)
-                            if ts_id_labels:
+                            if (
+                                ts_id_labels or
+                                (ts_id_labels is None and ch_node.is_sample())
+                            ):
                                 nodelabels[ch].append(str(ch_node.id))
                             if node_metadata_labels:
                                 nodelabels[ch].append(
