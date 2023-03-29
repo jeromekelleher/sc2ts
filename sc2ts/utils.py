@@ -1512,12 +1512,11 @@ def sample_subgraph(
                                     nodelabels[ch].append(
                                         ch_node.metadata[sample_metadata_labels]
                                     )
-                                    if t.num_samples(ch) > 1:
-                                        nodelabels[ch].append(
-                                            "+"
-                                            + str(t.num_samples(ch) - 1)
-                                            + " samples"
-                                        )
+                                if t.num_samples(ch) > 1:
+                                    n = t.num_samples(ch) - 1
+                                    nodelabels[ch].append(
+                                        f"+{n} sample{'s' if n == 1 else ''}"
+                                    )
                             else:
                                 default_nodecolours[ch] = col_grey
                                 nodes_to_search_down.add(ch)
