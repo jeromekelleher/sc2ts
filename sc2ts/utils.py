@@ -1476,7 +1476,7 @@ def sample_subgraph(
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
         if ts_id_labels or (ts_id_labels is None and node.is_sample()):
-            nodelabels[node.id].append(str(node.id))
+            nodelabels[node.id].append(f"tsk{node.id}")
         if node_metadata_labels:
             nodelabels[node.id].append(node.metadata[node_metadata_labels])
 
@@ -1516,7 +1516,7 @@ def sample_subgraph(
                                 ts_id_labels or
                                 (ts_id_labels is None and ch_node.is_sample())
                             ):
-                                nodelabels[ch].append(str(ch_node.id))
+                                nodelabels[ch].append(f"tsk{ch_node.id}")
                             if node_metadata_labels:
                                 nodelabels[ch].append(
                                     ch_node.metadata[node_metadata_labels]
