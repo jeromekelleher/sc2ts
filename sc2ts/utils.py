@@ -6,6 +6,7 @@ import dataclasses
 import operator
 import warnings
 import datetime
+import logging
 
 import tskit
 import tszip
@@ -1369,8 +1370,8 @@ def get_recombinant_samples(ts):
 def sample_subgraph(
     sample_node,
     ts,
-    ti,
-    mutations_json_filepath,
+    ti=None,
+    mutations_json_filepath=None,
     expand_down=True,
     filepath=None,
     *,
@@ -1389,12 +1390,31 @@ def sample_subgraph(
     edges on the path to the nearest sample nodes (showing any recombinations on
     the way).
 
-    # TODO - document the rest of the parameters
+    .. warning::
+        If expanding down, some nodes may produce a very large subgraph. To check
+        on this before actully plotting (which may appear to stall your computer),
+        set ``expand_down`` to False and the logging level to "info" or above, e.g.
+        via ``logging.basicConfig(level=logging.INFO)``, in which case the number of
+        nodes that would have been produced by expanding down will be output in the
+        logging stream.
 
+    :param int sample_node: The focal sample node from which to construct the subgraph.
+    :param tskit.TreeSequence ts: The tree sequence to use.
+    :param TreeInfo ti: The TreeInfo instance associated with the tree sequence. If
+        ``None`` calculate the TreeInfo within this function. However, as
+        calculating the TreeInfo class takes some time, if you have it calculated
+        already, it is far more efficient to pass it in here.
+    :param str mutations_json_filepath: The path to a list of mutations (only relevant
+        if ``edge_labels`` is ``None``). If provided, only mutations in this file will
+        be listed on edges of the plot, with others shown as "+N mutations". If ``None``
+        (default), list all mutations.
+    :param bool expand_down: Should we traverse down from ancestors of the focal node
+        until we hit a sample. See warning above. 
+    :param str filepath: If given, save the plot to this file path.
     :param plt.Axes ax: a matplotlib axis object on which to plot the graph.
         This allows the graph to be placed as a subplot or the size and aspect ratio
         to be adjusted. If ``None`` (default) plot to the current axis with some
-        sensible figsize defaults.
+        sensible figsize defaults, calling ``plt.show()`` once done.
     :param int node_size: The size of the node circles. Default:
         ``None``, treated as 2800.
     :param bool ts_id_labels: Should we label nodes with their tskit node ID? If
@@ -1442,7 +1462,9 @@ def sample_subgraph(
             return np.inf  # put at the end
         else:
             return float(s[1:-1])
-            
+
+    if ti is None:
+        ti = sc2ts.TreeInfo(ts)
     if node_size is None:
         node_size = 2800
     if node_metadata_labels is None:
@@ -1460,7 +1482,9 @@ def sample_subgraph(
     col_grey = "#BBBBBB"
 
     # Read in characteristic mutations info
-    linmuts_dict = lineages.read_in_mutations(mutations_json_filepath)
+    linmuts_dict = None
+    if mutations_json_filepath is not None:
+        linmuts_dict = lineages.read_in_mutations(mutations_json_filepath)
 
     G = nx.DiGraph()
     related_nodes = defaultdict(set)
@@ -1503,38 +1527,43 @@ def sample_subgraph(
             if sample_metadata_labels:
                 nodelabels[node.id].append(node.metadata[sample_metadata_labels])
 
-    if expand_down:
+    down_nodes = set()
+    if expand_down or logging.isEnabledFor(logging.INFO):
         while nodes_to_search_down:
             node = ts.node(nodes_to_search_down.pop())
             if (not node.is_sample()) or node.id == sample_node:
                 for t in ts.trees():
                     for ch in t.children(node.id):
+                        if ch in G.nodes:
+                            continue
+                        down_nodes.add(ch)
+                        if not expand_down:
+                            continue
+                        G.add_node(ch)
                         ch_node = ts.node(ch)
-                        if ch not in G.nodes:
-                            G.add_node(ch)
-                            if node_metadata_labels:
+                        if node_metadata_labels:
+                            nodelabels[ch].append(
+                                ch_node.metadata[node_metadata_labels]
+                            )
+                        if (
+                            ts_id_labels or
+                            (ts_id_labels is None and ch_node.is_sample())
+                        ):
+                            nodelabels[ch].append(f"tsk{ch_node.id}")
+                        if ch_node.is_sample():
+                            default_nodecolours[ch] = col_blue
+                            if sample_metadata_labels:
                                 nodelabels[ch].append(
-                                    ch_node.metadata[node_metadata_labels]
+                                    ch_node.metadata[sample_metadata_labels]
                                 )
-                            if (
-                                ts_id_labels or
-                                (ts_id_labels is None and ch_node.is_sample())
-                            ):
-                                nodelabels[ch].append(f"tsk{ch_node.id}")
-                            if ch_node.is_sample():
-                                default_nodecolours[ch] = col_blue
-                                if sample_metadata_labels:
-                                    nodelabels[ch].append(
-                                        ch_node.metadata[sample_metadata_labels]
-                                    )
-                                if t.num_samples(ch) > 1:
-                                    n = t.num_samples(ch) - 1
-                                    nodelabels[ch].append(
-                                        f"+{n} sample{'' if n == 1 else 's'}"
-                                    )
-                            else:
-                                default_nodecolours[ch] = col_grey
-                                nodes_to_search_down.add(ch)
+                            if t.num_samples(ch) > 1:
+                                n = t.num_samples(ch) - 1
+                                nodelabels[ch].append(
+                                    f"+{n} sample{'' if n == 1 else 's'}"
+                                )
+                        else:
+                            default_nodecolours[ch] = col_grey
+                            nodes_to_search_down.add(ch)
                         G.add_edge(node.id, ch)
                         related_nodes[ch].add((node.id, ch))
                         edge = ts.edge(t.edge(ch))
@@ -1547,6 +1576,7 @@ def sample_subgraph(
                 default_nodecolours[node.id] = col_blue
                 if sample_metadata_labels:
                     nodelabels[node.id].append(node.metadata[sample_metadata_labels])
+    logging.info(f"Expanding down involves {len(down_nodes)} nodes")
 
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
     if node_label_replace is not None:
@@ -1574,7 +1604,7 @@ def sample_subgraph(
                     mutstr = f"{inherited_state.lower()}{pos}{m.derived_state.lower()}"
                 else:
                     mutstr = f"{inherited_state.upper()}{pos}{m.derived_state.upper()}"
-                if pos in linmuts_dict.all_positions:
+                if linmuts_dict is None or pos in linmuts_dict.all_positions:
                     includemut = True
                 for edge in related_nodes[m.node]:
                     if includemut:
@@ -1593,6 +1623,7 @@ def sample_subgraph(
                 # Placing mutations near the child end of the edge avoids label clashes
                 edge_labels[key] = ("\n".join(sorted_labels), "child")
 
+    # Shouldn't need this once https://github.com/jeromekelleher/sc2ts/issues/132 fixed
     unary_nodes_to_remove = set()
     for k, d in G.degree():
         if d == 2 and k not in mut_nodes:
