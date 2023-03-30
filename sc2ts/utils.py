@@ -1515,7 +1515,7 @@ def sample_subgraph(
                                 if t.num_samples(ch) > 1:
                                     n = t.num_samples(ch) - 1
                                     nodelabels[ch].append(
-                                        f"+{n} sample{'s' if n == 1 else ''}"
+                                        f"+{n} sample{'' if n == 1 else 's'}"
                                     )
                             else:
                                 default_nodecolours[ch] = col_grey
