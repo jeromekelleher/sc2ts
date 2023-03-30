@@ -1645,6 +1645,9 @@ def sample_subgraph(
     positions = {"child": 0.25, "mid": 0.5, "parent": 0.75}
     vert_align = {"child": "bottom", "mid": "center", "parent": "top"}
     for placement, labels in edge_label_pos.items():
+        font_color = "k"
+        if all([l[0] in ('≥', '<') for lab in labels.values() for l in lab.split("\n")]):
+            font_color = "darkred"
         if len(labels) > 0:
             nx.draw_networkx_edge_labels(
                 G,
@@ -1652,6 +1655,7 @@ def sample_subgraph(
                 edge_labels=labels,
                 label_pos=positions[placement],
                 verticalalignment=vert_align[placement],
+                font_color=font_color,
                 rotate=False,
                 font_size=5
             )
