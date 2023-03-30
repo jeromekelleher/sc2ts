@@ -1435,13 +1435,13 @@ def sample_subgraph(
         Edge labels are mutations (integer strings, but can have the last char as "R"),
         or edge intervals such as "≥0\n<1000"
         """
-        try:
-            return int(s)
-        except ValueError:
-            try:
-                return int(s[:-1])  # Snip off a trailing R
-            except ValueError:
-                return -1  # return first in sort
+        if s[0] == "≥" and "\n" in s:
+            # put at the start, ordered by first number
+            return float(s[1:s.find("\n")]) - ts.sequence_length 
+        elif s[0] == "+":
+            return np.inf  # put at the end
+        else:
+            return float(s[1:-1])
             
     if node_size is None:
         node_size = 2800
@@ -1475,10 +1475,10 @@ def sample_subgraph(
 
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
-        if ts_id_labels or (ts_id_labels is None and node.is_sample()):
-            nodelabels[node.id].append(f"tsk{node.id}")
         if node_metadata_labels:
             nodelabels[node.id].append(node.metadata[node_metadata_labels])
+        if ts_id_labels or (ts_id_labels is None and node.is_sample()):
+            nodelabels[node.id].append(f"tsk{node.id}")
 
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
@@ -1512,15 +1512,15 @@ def sample_subgraph(
                         ch_node = ts.node(ch)
                         if ch not in G.nodes:
                             G.add_node(ch)
+                            if node_metadata_labels:
+                                nodelabels[ch].append(
+                                    ch_node.metadata[node_metadata_labels]
+                                )
                             if (
                                 ts_id_labels or
                                 (ts_id_labels is None and ch_node.is_sample())
                             ):
                                 nodelabels[ch].append(f"tsk{ch_node.id}")
-                            if node_metadata_labels:
-                                nodelabels[ch].append(
-                                    ch_node.metadata[node_metadata_labels]
-                                )
                             if ch_node.is_sample():
                                 default_nodecolours[ch] = col_blue
                                 if sample_metadata_labels:
@@ -1559,20 +1559,32 @@ def sample_subgraph(
         # Place user-provided edge labels in the middle of the edge
         edge_labels = {k:(v, "mid") for k, v in edge_labels.items()}
     else:
-        edge_labels = {}
+        mutation_suffix = collections.defaultdict(set)
         for m in ts.mutations():
             if m.node in related_nodes:
                 mut_nodes.add(m.node)
                 includemut = False
                 pos = int(ts.site(m.site).position)
-                mutstr = str(pos)
+                if m.parent==tskit.NULL:
+                    inherited_state = ts.site(m.site).ancestral_state
+                else:
+                    inherited_state = ts.mutation(m.parent).derived_state 
+                
                 if ti.mutations_is_reversion[m.id]:
-                    mutstr += "R"
+                    mutstr = f"{inherited_state.lower()}{pos}{m.derived_state.lower()}"
+                else:
+                    mutstr = f"{inherited_state.upper()}{pos}{m.derived_state.upper()}"
                 if pos in linmuts_dict.all_positions:
                     includemut = True
-                if includemut:
-                    for edge in related_nodes[m.node]:
+                for edge in related_nodes[m.node]:
+                    if includemut:
                         edgelabels[edge].add(mutstr)
+                    else:
+                        mutation_suffix[edge].add(mutstr)
+        for key, value in mutation_suffix.items():
+            edgelabels[key].add(f"+{len(value)} mutation{'' if len(value)==1 else 's'}")
+
+        edge_labels = {}
         for key, value in edgelabels.items():
             sorted_labels = sorted(value, key=sort_edgelabel)
             if sorted_labels[0].startswith("≥"):  # child is a recombination node
