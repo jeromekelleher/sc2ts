@@ -1632,7 +1632,8 @@ def sample_subgraph(
     # Shouldn't need this once https://github.com/jeromekelleher/sc2ts/issues/132 fixed
     unary_nodes_to_remove = set()
     for k, d in G.degree():
-        if d == 2 and k not in mut_nodes:
+        flags = ts.node(k).flags
+        if d == 2 and k not in mut_nodes and not (flags & sc2ts.NODE_IS_RECOMBINANT):
             G.add_edge(*G.predecessors(k), *G.successors(k))
             if (k, *G.successors(k)) in edge_labels:
                 edge_labels[(*G.predecessors(k), *G.successors(k))] = edge_labels.pop(
