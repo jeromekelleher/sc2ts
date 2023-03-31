@@ -16,6 +16,7 @@ from sklearn import tree
 from collections import defaultdict
 import tqdm
 import matplotlib.pyplot as plt
+from matplotlib import colors
 from IPython.display import Markdown, HTML
 import networkx as nx
 import numba
@@ -1384,6 +1385,7 @@ def sample_subgraph(
     sample_metadata_labels=None,
     edge_labels=None,
     node_label_replace=None,
+    node_positions=None,
 ):
     """
     Draws out a subgraph of the ARG above the given sample, including all nodes and
@@ -1428,7 +1430,8 @@ def sample_subgraph(
         Notes representing multiple samples will have a label saying "XXX samples".
         If ``""``, do not plot any sample node metadata.
     :param dict edge_labels: a mapping of {(parent_id, child_id): "label")} with which
-        to label the edges. If ``None``, label with mutations. If ``{}``, do not plot
+        to label the edges. If ``None``, label with mutations or (if above a
+        recombination node) with the edge interval. If ``{}``, do not plot
         edge labels.
     :param dict node_label_replace: A dict of ``{key: value}`` such that labels
         containing the string ``key`` have that string replaced with ``value``. This
@@ -1443,6 +1446,9 @@ def sample_subgraph(
         which distinguishes between sample nodes, recombination nodes, and all others.
     :param dict colour_metadata_key: A key in the metadata, to use when specifying
         bespoke node colours. Default: ``None``, treated as "strain".
+    :param dict node_positions: A dictionary of ``node_id: [x, y]`` positions, for
+        example obtained in a previous call to this function. If ``None`` (default)
+        calculate the positions using ``nx_agraph.graphviz_layout(..., prog="dot")``.
 
 
     :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
@@ -1453,11 +1459,11 @@ def sample_subgraph(
     def sort_edgelabel(s):
         """
         Edge labels are mutations (integer strings, but can have the last char as "R"),
-        or edge intervals such as "≥0\n<1000"
+        or edge intervals such as "0…1000"
         """
-        if s[0] == "≥" and "\n" in s:
+        if "…" in s:
             # put at the start, ordered by first number
-            return float(s[1:s.find("\n")]) - ts.sequence_length 
+            return float(s[0:s.find("…")]) - ts.sequence_length 
         elif s[0] == "+":
             return np.inf  # put at the end
         else:
@@ -1519,7 +1525,7 @@ def sample_subgraph(
                     if edge.right - edge.left != ts.sequence_length:
                         default_nodecolours[node.id] = col_red
                         edgelabels[(parent_node, node.id)].add(
-                            f"≥{int(edge.left)}\n<{int(edge.right)}"
+                            f"{int(edge.left)}…{int(edge.right)}"
                         )
             nodes_to_search_down.add(node.id)
         else:
@@ -1570,7 +1576,7 @@ def sample_subgraph(
                         if edge.right - edge.left != ts.sequence_length:
                             default_nodecolours[ch] = col_red
                             edgelabels[(node.id, ch)].add(
-                                f"≥{int(edge.left)}\n<{int(edge.right)}"
+                                f"{int(edge.left)}…{int(edge.right)}"
                             )
             else:
                 default_nodecolours[node.id] = col_blue
@@ -1617,7 +1623,7 @@ def sample_subgraph(
         edge_labels = {}
         for key, value in edgelabels.items():
             sorted_labels = sorted(value, key=sort_edgelabel)
-            if sorted_labels[0].startswith("≥"):  # child is a recombination node
+            if "…" in sorted_labels[0]:  # child is a recombination node
                 edge_labels[key] = ("\n".join(sorted_labels), "parent")
             else:
                 # Placing mutations near the child end of the edge avoids label clashes
@@ -1636,10 +1642,11 @@ def sample_subgraph(
     [G.remove_node(k) for k in unary_nodes_to_remove]
     nodelabels = {k: v for k, v in nodelabels.items() if k not in unary_nodes_to_remove}
 
-    pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+    if node_positions is None:
+        node_positions = nx.nx_agraph.graphviz_layout(G, prog="dot")
     if ax is None:
-        dim_x = len(set(x for x, y in pos.values()))
-        dim_y = len(set(y for x, y in pos.values()))
+        dim_x = len(set(x for x, y in node_positions.values()))
+        dim_y = len(set(y for x, y in node_positions.values()))
         plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
     fill_cols = []
@@ -1659,15 +1666,26 @@ def sample_subgraph(
 
     nx.draw(
         G,
-        pos=pos,
+        node_positions,
         ax=ax,
-        with_labels=True,
-        labels=nodelabels,
         node_color=fill_cols,
         edgecolors=stroke_cols,
         node_size=node_size,
-        font_size=6,
     )
+    black_labels = {}
+    white_labels = {}
+    for node, col in zip(list(G), fill_cols):
+        if node in nodelabels:
+            if np.mean(colors.ColorConverter.to_rgb(col)) < 0.2:
+                white_labels[node] = nodelabels[node]
+            else:
+                black_labels[node] = nodelabels[node]
+    if black_labels:
+        nx.draw_networkx_labels(
+            G, node_positions, labels=black_labels, font_size=6, font_color="k")
+    if white_labels:
+        nx.draw_networkx_labels(
+            G, node_positions, labels=white_labels, font_size=6, font_color="w")
 
     edge_label_pos = collections.defaultdict(dict)
     for k, (label, placement) in edge_labels.items():
@@ -1677,12 +1695,13 @@ def sample_subgraph(
     vert_align = {"child": "bottom", "mid": "center", "parent": "top"}
     for placement, labels in edge_label_pos.items():
         font_color = "k"
-        if all([l[0] in ('≥', '<') for lab in labels.values() for l in lab.split("\n")]):
+        if placement == "child":
+            # These are mutations
             font_color = "darkred"
         if len(labels) > 0:
             nx.draw_networkx_edge_labels(
                 G,
-                pos,
+                node_positions,
                 edge_labels=labels,
                 label_pos=positions[placement],
                 verticalalignment=vert_align[placement],
@@ -1694,7 +1713,7 @@ def sample_subgraph(
         plt.savefig(filepath)
     elif ax is None:
         plt.show()
-    return G, pos
+    return G, node_positions
 
 
 def imputation_setup(filepath, verbose=False):
