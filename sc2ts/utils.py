@@ -1534,7 +1534,7 @@ def sample_subgraph(
                 nodelabels[node.id].append(node.metadata[sample_metadata_labels])
 
     down_nodes = set()
-    if expand_down or logging.isEnabledFor(logging.INFO):
+    if expand_down or logging.getLogger().isEnabledFor(logging.INFO):
         while nodes_to_search_down:
             node = ts.node(nodes_to_search_down.pop())
             if (not node.is_sample()) or node.id == sample_node:
