@@ -6,6 +6,7 @@ import dataclasses
 import operator
 import warnings
 import datetime
+import logging
 
 import tskit
 import tszip
@@ -15,6 +16,7 @@ from sklearn import tree
 from collections import defaultdict
 import tqdm
 import matplotlib.pyplot as plt
+from matplotlib import colors
 from IPython.display import Markdown, HTML
 import networkx as nx
 import numba
@@ -1369,8 +1371,8 @@ def get_recombinant_samples(ts):
 def sample_subgraph(
     sample_node,
     ts,
-    ti,
-    mutations_json_filepath,
+    ti=None,
+    mutations_json_filepath=None,
     expand_down=True,
     filepath=None,
     *,
@@ -1383,22 +1385,43 @@ def sample_subgraph(
     sample_metadata_labels=None,
     edge_labels=None,
     node_label_replace=None,
+    node_positions=None,
 ):
     """
     Draws out a subgraph of the ARG above the given sample, including all nodes and
     edges on the path to the nearest sample nodes (showing any recombinations on
     the way).
 
-    # TODO - document the rest of the parameters
+    .. warning::
+        If expanding down, some nodes may produce a very large subgraph. To check
+        on this before actully plotting (which may appear to stall your computer),
+        set ``expand_down`` to False and the logging level to "info" or above, e.g.
+        via ``logging.basicConfig(level=logging.INFO)``, in which case the number of
+        nodes that would have been produced by expanding down will be output in the
+        logging stream.
 
+    :param int sample_node: The focal sample node from which to construct the subgraph.
+    :param tskit.TreeSequence ts: The tree sequence to use.
+    :param TreeInfo ti: The TreeInfo instance associated with the tree sequence. If
+        ``None`` calculate the TreeInfo within this function. However, as
+        calculating the TreeInfo class takes some time, if you have it calculated
+        already, it is far more efficient to pass it in here.
+    :param str mutations_json_filepath: The path to a list of mutations (only relevant
+        if ``edge_labels`` is ``None``). If provided, only mutations in this file will
+        be listed on edges of the plot, with others shown as "+N mutations". If ``None``
+        (default), list all mutations.
+    :param bool expand_down: Should we traverse down from ancestors of the focal node
+        until we hit a sample. See warning above. 
+    :param str filepath: If given, save the plot to this file path.
     :param plt.Axes ax: a matplotlib axis object on which to plot the graph.
         This allows the graph to be placed as a subplot or the size and aspect ratio
         to be adjusted. If ``None`` (default) plot to the current axis with some
-        sensible figsize defaults.
+        sensible figsize defaults, calling ``plt.show()`` once done.
     :param int node_size: The size of the node circles. Default:
         ``None``, treated as 2800.
-    :param bool ts_id_labels: Should we label nodes with their tskit node ID? Default:
-        ``None``, treated as ``True``.
+    :param bool ts_id_labels: Should we label nodes with their tskit node ID? If
+        ``None``, show the node ID only for sample nodes. If ``True``, show
+        it for all nodes. If ``False``, do not show. Default: ``None``.
     :param str node_metadata_labels: Should we label all nodes with a value from their
         metadata: Default: ``None``, treated as ``"Imputed_GISAID_lineage"``. If ``""``,
         do not plot any all-node metadata.
@@ -1407,7 +1430,8 @@ def sample_subgraph(
         Notes representing multiple samples will have a label saying "XXX samples".
         If ``""``, do not plot any sample node metadata.
     :param dict edge_labels: a mapping of {(parent_id, child_id): "label")} with which
-        to label the edges. If ``None``, label with mutations. If ``{}``, do not plot
+        to label the edges. If ``None``, label with mutations or (if above a
+        recombination node) with the edge interval. If ``{}``, do not plot
         edge labels.
     :param dict node_label_replace: A dict of ``{key: value}`` such that labels
         containing the string ``key`` have that string replaced with ``value``. This
@@ -1422,6 +1446,9 @@ def sample_subgraph(
         which distinguishes between sample nodes, recombination nodes, and all others.
     :param dict colour_metadata_key: A key in the metadata, to use when specifying
         bespoke node colours. Default: ``None``, treated as "strain".
+    :param dict node_positions: A dictionary of ``node_id: [x, y]`` positions, for
+        example obtained in a previous call to this function. If ``None`` (default)
+        calculate the positions using ``nx_agraph.graphviz_layout(..., prog="dot")``.
 
 
     :return: The networkx Digraph and the positions of nodes in the digraph as a dict of
@@ -1429,10 +1456,23 @@ def sample_subgraph(
     :rtype:  tuple(nx.DiGraph, dict)
 
     """
+    def sort_edgelabel(s):
+        """
+        Edge labels are mutations (integer strings, but can have the last char as "R"),
+        or edge intervals such as "0…1000"
+        """
+        if "…" in s:
+            # put at the start, ordered by first number
+            return float(s[0:s.find("…")]) - ts.sequence_length 
+        elif s[0] == "+":
+            return np.inf  # put at the end
+        else:
+            return float(s[1:-1])
+
+    if ti is None:
+        ti = sc2ts.TreeInfo(ts)
     if node_size is None:
         node_size = 2800
-    if ts_id_labels is None:
-        ts_id_labels = True
     if node_metadata_labels is None:
         node_metadata_labels = "Imputed_GISAID_lineage"
     if sample_metadata_labels is None:
@@ -1448,7 +1488,9 @@ def sample_subgraph(
     col_grey = "#BBBBBB"
 
     # Read in characteristic mutations info
-    linmuts_dict = lineages.read_in_mutations(mutations_json_filepath)
+    linmuts_dict = None
+    if mutations_json_filepath is not None:
+        linmuts_dict = lineages.read_in_mutations(mutations_json_filepath)
 
     G = nx.DiGraph()
     related_nodes = defaultdict(set)
@@ -1463,10 +1505,10 @@ def sample_subgraph(
 
     while nodes_to_search_up:
         node = ts.node(nodes_to_search_up.pop())
-        if ts_id_labels:
-            nodelabels[node.id].append(str(node.id))
         if node_metadata_labels:
             nodelabels[node.id].append(node.metadata[node_metadata_labels])
+        if ts_id_labels or (ts_id_labels is None and node.is_sample()):
+            nodelabels[node.id].append(f"tsk{node.id}")
 
         if (not node.is_sample()) or node.id == sample_node:
             parent_node = None
@@ -1483,7 +1525,7 @@ def sample_subgraph(
                     if edge.right - edge.left != ts.sequence_length:
                         default_nodecolours[node.id] = col_red
                         edgelabels[(parent_node, node.id)].add(
-                            (int(edge.left), int(edge.right))
+                            f"{int(edge.left)}…{int(edge.right)}"
                         )
             nodes_to_search_down.add(node.id)
         else:
@@ -1491,47 +1533,56 @@ def sample_subgraph(
             if sample_metadata_labels:
                 nodelabels[node.id].append(node.metadata[sample_metadata_labels])
 
-    if expand_down:
+    down_nodes = set()
+    if expand_down or logging.getLogger().isEnabledFor(logging.INFO):
         while nodes_to_search_down:
             node = ts.node(nodes_to_search_down.pop())
             if (not node.is_sample()) or node.id == sample_node:
                 for t in ts.trees():
                     for ch in t.children(node.id):
+                        if ch in G.nodes:
+                            continue
+                        down_nodes.add(ch)
+                        if not expand_down:
+                            continue
+                        G.add_node(ch)
                         ch_node = ts.node(ch)
-                        if ch not in G.nodes:
-                            G.add_node(ch)
-                            if ts_id_labels:
-                                nodelabels[ch].append(str(ch_node.id))
-                            if node_metadata_labels:
+                        if node_metadata_labels:
+                            nodelabels[ch].append(
+                                ch_node.metadata[node_metadata_labels]
+                            )
+                        if (
+                            ts_id_labels or
+                            (ts_id_labels is None and ch_node.is_sample())
+                        ):
+                            nodelabels[ch].append(f"tsk{ch_node.id}")
+                        if ch_node.is_sample():
+                            default_nodecolours[ch] = col_blue
+                            if sample_metadata_labels:
                                 nodelabels[ch].append(
-                                    ch_node.metadata[node_metadata_labels]
+                                    ch_node.metadata[sample_metadata_labels]
                                 )
-                            if ch_node.is_sample():
-                                default_nodecolours[ch] = col_blue
-                                if sample_metadata_labels:
-                                    nodelabels[ch].append(
-                                        ch_node.metadata[sample_metadata_labels]
-                                    )
-                                if t.num_samples(ch) > 1:
-                                    n = t.num_samples(ch) - 1
-                                    nodelabels[ch].append(
-                                        f"+{n} sample{'' if n == 1 else 's'}"
-                                    )
-                            else:
-                                default_nodecolours[ch] = col_grey
-                                nodes_to_search_down.add(ch)
+                            if t.num_samples(ch) > 1:
+                                n = t.num_samples(ch) - 1
+                                nodelabels[ch].append(
+                                    f"+{n} sample{'' if n == 1 else 's'}"
+                                )
+                        else:
+                            default_nodecolours[ch] = col_grey
+                            nodes_to_search_down.add(ch)
                         G.add_edge(node.id, ch)
                         related_nodes[ch].add((node.id, ch))
                         edge = ts.edge(t.edge(ch))
                         if edge.right - edge.left != ts.sequence_length:
                             default_nodecolours[ch] = col_red
                             edgelabels[(node.id, ch)].add(
-                                (int(edge.left), int(edge.right))
+                                f"{int(edge.left)}…{int(edge.right)}"
                             )
             else:
                 default_nodecolours[node.id] = col_blue
                 if sample_metadata_labels:
                     nodelabels[node.id].append(node.metadata[sample_metadata_labels])
+    logging.info(f"Expanding down involves {len(down_nodes)} nodes")
 
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
     if node_label_replace is not None:
@@ -1540,31 +1591,49 @@ def sample_subgraph(
                 nodelabels[k] = v.replace(search, replace)
 
     mut_nodes = set()
-    if edge_labels is None:
-        edge_labels = {}
-        for key, value in edgelabels.items():
-            edge_labels[key] = "\n".join([str(v) for v in value])
-
+    if edge_labels is not None:
+        # Place user-provided edge labels in the middle of the edge
+        edge_labels = {k:(v, "mid") for k, v in edge_labels.items()}
+    else:
+        mutation_suffix = collections.defaultdict(set)
         for m in ts.mutations():
             if m.node in related_nodes:
                 mut_nodes.add(m.node)
                 includemut = False
                 pos = int(ts.site(m.site).position)
-                mutstr = str(pos)
+                if m.parent==tskit.NULL:
+                    inherited_state = ts.site(m.site).ancestral_state
+                else:
+                    inherited_state = ts.mutation(m.parent).derived_state 
+                
                 if ti.mutations_is_reversion[m.id]:
-                    mutstr += "R"
-                if pos in linmuts_dict.all_positions:
+                    mutstr = f"{inherited_state.lower()}{pos}{m.derived_state.lower()}"
+                else:
+                    mutstr = f"{inherited_state.upper()}{pos}{m.derived_state.upper()}"
+                if linmuts_dict is None or pos in linmuts_dict.all_positions:
                     includemut = True
-                if includemut:
-                    for edge in related_nodes[m.node]:
-                        if edge in edge_labels:
-                            edge_labels[edge] += "\n" + mutstr
-                        else:
-                            edge_labels[edge] = "\n" + mutstr
+                for edge in related_nodes[m.node]:
+                    if includemut:
+                        edgelabels[edge].add(mutstr)
+                    else:
+                        mutation_suffix[edge].add(mutstr)
+        for key, value in mutation_suffix.items():
+            edgelabels[key].add(f"+{len(value)} mutation{'' if len(value)==1 else 's'}")
 
+        edge_labels = {}
+        for key, value in edgelabels.items():
+            sorted_labels = sorted(value, key=sort_edgelabel)
+            if "…" in sorted_labels[0]:  # child is a recombination node
+                edge_labels[key] = ("\n".join(sorted_labels), "parent")
+            else:
+                # Placing mutations near the child end of the edge avoids label clashes
+                edge_labels[key] = ("\n".join(sorted_labels), "child")
+
+    # Shouldn't need this once https://github.com/jeromekelleher/sc2ts/issues/132 fixed
     unary_nodes_to_remove = set()
     for k, d in G.degree():
-        if d == 2 and k not in mut_nodes:
+        flags = ts.node(k).flags
+        if d == 2 and k not in mut_nodes and not (flags & sc2ts.NODE_IS_RECOMBINANT):
             G.add_edge(*G.predecessors(k), *G.successors(k))
             if (k, *G.successors(k)) in edge_labels:
                 edge_labels[(*G.predecessors(k), *G.successors(k))] = edge_labels.pop(
@@ -1574,10 +1643,11 @@ def sample_subgraph(
     [G.remove_node(k) for k in unary_nodes_to_remove]
     nodelabels = {k: v for k, v in nodelabels.items() if k not in unary_nodes_to_remove}
 
-    pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+    if node_positions is None:
+        node_positions = nx.nx_agraph.graphviz_layout(G, prog="dot")
     if ax is None:
-        dim_x = len(set(x for x, y in pos.values()))
-        dim_y = len(set(y for x, y in pos.values()))
+        dim_x = len(set(x for x, y in node_positions.values()))
+        dim_y = len(set(y for x, y in node_positions.values()))
         plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
     fill_cols = []
@@ -1597,25 +1667,54 @@ def sample_subgraph(
 
     nx.draw(
         G,
-        pos=pos,
+        node_positions,
         ax=ax,
-        with_labels=True,
-        labels=nodelabels,
         node_color=fill_cols,
         edgecolors=stroke_cols,
         node_size=node_size,
-        font_size=6,
     )
+    black_labels = {}
+    white_labels = {}
+    for node, col in zip(list(G), fill_cols):
+        if node in nodelabels:
+            if np.mean(colors.ColorConverter.to_rgb(col)) < 0.2:
+                white_labels[node] = nodelabels[node]
+            else:
+                black_labels[node] = nodelabels[node]
+    if black_labels:
+        nx.draw_networkx_labels(
+            G, node_positions, labels=black_labels, font_size=6, font_color="k")
+    if white_labels:
+        nx.draw_networkx_labels(
+            G, node_positions, labels=white_labels, font_size=6, font_color="w")
 
-    if len(edge_labels) > 0:
-        nx.draw_networkx_edge_labels(
-            G, pos, edge_labels=edge_labels, label_pos=0.5, rotate=False, font_size=5
-        )
+    edge_label_pos = collections.defaultdict(dict)
+    for k, (label, placement) in edge_labels.items():
+        edge_label_pos[placement][k] = label
+    
+    positions = {"child": 0.25, "mid": 0.5, "parent": 0.75}
+    vert_align = {"child": "bottom", "mid": "center", "parent": "top"}
+    for placement, labels in edge_label_pos.items():
+        font_color = "k"
+        if placement == "child":
+            # These are mutations
+            font_color = "darkred"
+        if len(labels) > 0:
+            nx.draw_networkx_edge_labels(
+                G,
+                node_positions,
+                edge_labels=labels,
+                label_pos=positions[placement],
+                verticalalignment=vert_align[placement],
+                font_color=font_color,
+                rotate=False,
+                font_size=5
+            )
     if filepath:
         plt.savefig(filepath)
     elif ax is None:
         plt.show()
-    return G, pos
+    return G, node_positions
 
 
 def imputation_setup(filepath, verbose=False):
