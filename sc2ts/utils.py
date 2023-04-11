@@ -1625,8 +1625,12 @@ def plot_subgraph(
         mutation_labels[key].add(
             ("" if len(mutation_labels[key]) == 0 else "+") + f"{len(value)}"
         )
+
+    multiline_mutation_labels = False
     for key, value in mutation_labels.items():
         mutation_labels[key] = "\n".join(sorted(value, key=sort_mutation_label))
+        if len(value) > 1:
+            multiline_mutation_labels = True
 
     if edge_labels is None:
         for pc in G.edges():
@@ -1677,7 +1681,7 @@ def plot_subgraph(
     if ax is None:
         dim_x = len(set(x for x, y in node_positions.values()))
         dim_y = len(set(y for x, y in node_positions.values()))
-        plt.figure(1, figsize=(dim_x * 1.5, dim_y * 1.1))
+        fig, ax = plt.subplots(1, 1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
     # parent-child dist
     av_y = np.mean([node_positions[u][1] - node_positions[v][1] for u, v in G.edges()])
@@ -1700,7 +1704,7 @@ def plot_subgraph(
                 hypotenuse = np.sqrt(dx**2 + dy**2)
                 dx *= dy / hypotenuse
                 dy *= dy / hypotenuse
-                (ax or plt).plot(
+                ax.plot(
                     [node_positions[child][0], node_positions[child][0] + dx],
                     [node_positions[child][1], node_positions[child][1] + dy],
                     marker="",
@@ -1724,7 +1728,7 @@ def plot_subgraph(
                 hypotenuse = np.sqrt(dx**2 + dy**2)
                 dx *= dy / hypotenuse
                 dy *= dy / hypotenuse
-                (ax or plt).plot(
+                ax.plot(
                     [node_positions[parent][0], node_positions[parent][0] + dx],
                     [node_positions[parent][1], node_positions[parent][1] - dy],
                     marker="",
@@ -1807,9 +1811,30 @@ def plot_subgraph(
             font_size=node_font_size,
             font_color="w",
         )
+    av_dy = np.median([
+        # We could use the minimum y diff here, but then could be susceptible to
+        # pathological cases where the y diff is very small.
+        np.abs(node_positions[u][1] - node_positions[v][1])
+        for u, v in G.edges
+    ])
+    ax_height = np.diff(ax.get_ylim())
+    height_pts = ax.get_position().transformed(ax.get_figure().transFigure).height*72/ax.get_figure().dpi
+    node_height = np.sqrt(node_size)/height_pts * ax_height
+    if multiline_mutation_labels:
+        # Bottom align mutations: useful when there are multiple lines of mutations
+        mut_pos = node_height/2/av_dy
+        mut_v_align = "bottom"
+    else:
+        # Center align mutations, still placed near the child if possible
+        font_height = edge_font_size / height_pts * ax_height
+        mut_pos = (node_height / 2 + font_height/2)/av_dy
+        if mut_pos > 0.5:
+            # Never go further up the line than the middle
+            mut_pos = 0.5
+        mut_v_align = "center"
 
     for name, (labels, position, valign, halign) in {
-        "mutations": [mutation_labels, 0.3, "bottom", "center"],
+        "mutations": [mutation_labels, mut_pos, mut_v_align, "center"],
         "user": [edge_labels, 0.5, "center", "center"],
         "intervals_l": [interval_labels["lft"], 0.6, "top", "right"],
         "intervals_m": [interval_labels["mid"], 0.6, "top", "center"],
