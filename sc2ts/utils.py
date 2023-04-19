@@ -1400,7 +1400,12 @@ def detach_singleton_recombinants(ts, filter_nodes=False):
     # All of these should be samples, because they were defined via single edges above a sample
     assert len(np.setdiff1d(bad_samples, ts.samples())) == 0
     keep = np.setdiff1d(ts.samples(), bad_samples)
-    return ts.simplify(keep, keep_unary=True, filter_nodes=filter_nodes)
+    return ts.simplify(
+        keep,
+        keep_unary=True,
+        filter_sites=False,
+        filter_nodes=filter_nodes,
+    )
 
 
 def node_path_to_samples(
