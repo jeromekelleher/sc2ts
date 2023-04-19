@@ -1576,11 +1576,11 @@ def plot_subgraph(
             nodelabels[u].append(node.metadata[node_metadata_labels])
         if ts_id_labels or (ts_id_labels is None and node.is_sample()):
             nodelabels[u].append(f"tsk{node.id}")
-        if node.is_sample() and out_deg == 0:
-            # Only show number of descendants if it is a tip sample
-            tip_samples[u] = 0
+        if node.is_sample():
             if sample_metadata_labels:
                 nodelabels[u].append(node.metadata[sample_metadata_labels])
+            if out_deg == 0: # Only show num descendants for tip samples
+                tip_samples[u] = 0
     for tree in ts.trees():
         for u in tip_samples.keys():
             # This is't quite right - it show the max num descendants, not the
