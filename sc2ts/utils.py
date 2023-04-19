@@ -1683,16 +1683,17 @@ def plot_subgraph(
         dim_y = len(set(y for x, y in node_positions.values()))
         fig, ax = plt.subplots(1, 1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
-    # parent-child dist
-    av_y = np.mean([node_positions[u][1] - node_positions[v][1] for u, v in G.edges()])
-    # aspect_ratio = np.divide(*np.ptp([[x, y] for x, y in node_positions.values()], axis=0))
-    aspect_ratio = 1.0
 
     if exterior_edges is not None:
         # Draw a short dotted line above nodes with extra parent edges to show that more
         # topology exists above them. For simplicity we assume when calculating how to
         # space the lines that no other parent edges from this node have been plotted.
         # Parent edges are sorted by child id, so we can use this to groupby
+
+        # parent-child dist
+        av_y = np.mean([node_positions[u][1] - node_positions[v][1] for u, v in G.edges()])
+        # aspect_ratio = np.divide(*np.ptp([[x, y] for x, y in node_positions.values()], axis=0))
+        aspect_ratio = 1.0
         for child, edges in itertools.groupby(
             exterior_edges[0], key=lambda e: ts.edge(e).child
         ):
