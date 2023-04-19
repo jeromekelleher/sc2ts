@@ -5,44 +5,7 @@ import tskit
 import msprime
 
 import sc2ts
-
-
-# NOTE: the current API in which we update the Sample objects is
-# really horrible and we need to refactor to make it more testable.
-# This function is a symptom of that.
-def get_samples(ts, paths, mutations=None):
-    if mutations is None:
-        mutations = [[] for _ in paths]
-
-    # Translate from site IDs to positions
-    updated_mutations = []
-    for sample_mutations in mutations:
-        updated = [
-            (ts.sites_position[site], state) for (site, state) in sample_mutations
-        ]
-        updated_mutations.append(updated)
-    samples = [sc2ts.Sample() for _ in paths]
-    sc2ts.update_path_info(samples, ts, paths, updated_mutations)
-    return samples
-
-
-def example_binary(n):
-    base = sc2ts.initial_ts()
-    tables = base.dump_tables()
-    tree = tskit.Tree.generate_balanced(n, span=base.sequence_length)
-    binary_tables = tree.tree_sequence.dump_tables()
-    binary_tables.nodes.time += 1
-    tables.nodes.time += np.max(binary_tables.nodes.time) + 1
-    binary_tables.edges.child += len(tables.nodes)
-    binary_tables.edges.parent += len(tables.nodes)
-    for node in binary_tables.nodes:
-        tables.nodes.append(node.replace(metadata={}))
-    for edge in binary_tables.edges:
-        tables.edges.append(edge)
-    # FIXME brittle
-    tables.edges.add_row(0, base.sequence_length, parent=1, child=tree.root + 2)
-    tables.sort()
-    return tables.tree_sequence()
+import util
 
 
 class TestAddMatchingResults:
@@ -64,8 +27,8 @@ class TestAddMatchingResults:
         #     ┊ ┏┻┓ ┊
         # 1.00┊ 2 3 ┊
         #     0   29904
-        ts = example_binary(2)
-        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        ts = util.example_binary(2)
+        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
         ts2 = self.add_matching_results(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
@@ -80,10 +43,10 @@ class TestAddMatchingResults:
         #     ┊ ┏┻┓ ┊
         # 1.00┊ 2 3 ┊
         #     0   29904
-        ts = example_binary(2)
+        ts = util.example_binary(2)
         L = ts.sequence_length
         x = L / 2
-        samples = get_samples(ts, [[(0, x, 2), (x, L, 3)]])
+        samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
         ts2 = self.add_matching_results(samples, ts, "2021")
         assert ts2.num_trees == 2
         assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
@@ -94,7 +57,7 @@ class TestAddMatchingResults:
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()
         ts = sc2ts.increment_time("2020-01-01", ts)
-        samples = get_samples(
+        samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
         )
         ts2 = self.add_matching_results(samples, ts)
@@ -119,7 +82,7 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
         samples[0].alignment = sc2ts.core.get_reference_sequence()
         ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
@@ -135,7 +98,7 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
         samples[0].alignment = sc2ts.core.get_reference_sequence()
         ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
@@ -160,7 +123,7 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
         samples[0].alignment = sc2ts.core.get_reference_sequence()
         ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
         ref = ma.alignment[ts.sites_position.astype(int)]
@@ -189,7 +152,7 @@ class TestMatchPathTs:
 
     def test_one_sample(self):
         ts = sc2ts.initial_ts()
-        samples = get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
         ts2 = self.match_path_ts(samples, ts)
         assert ts2.num_trees == 1
         tree = ts2.first()
@@ -229,7 +192,7 @@ class TestMatchPathTs:
         tables.sort()
         ts = tables.tree_sequence()
 
-        samples = get_samples(
+        samples = util.get_samples(
             ts, [[(0, ts.sequence_length, c)]], mutations=[[(0, "G"), (1, "G")]]
         )
         ts2 = self.match_path_ts(samples, ts)
@@ -246,7 +209,7 @@ class TestMatchPathTs:
 
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()
-        samples = get_samples(
+        samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(100, "X")]]
         )
         ts2 = self.match_path_ts(samples, ts)
@@ -260,7 +223,7 @@ class TestMatchPathTs:
     def test_two_sample_one_mutation_each(self):
         ts = sc2ts.initial_ts()
 
-        samples = get_samples(
+        samples = util.get_samples(
             ts,
             [[(0, ts.sequence_length, 1)], [(0, ts.sequence_length, 1)]],
             mutations=[[(100, "X")], [(200, "Y")]],
@@ -282,7 +245,7 @@ class TestMatchPathTs:
     @pytest.mark.parametrize("num_mutations", range(1, 6))
     def test_one_sample_k_mutations(self, num_mutations):
         ts = sc2ts.initial_ts()
-        samples = get_samples(
+        samples = util.get_samples(
             ts,
             [[(0, ts.sequence_length, 1)]],
             mutations=[[(j, f"{j}") for j in range(num_mutations)]],
@@ -393,19 +356,6 @@ class TestMirrorTsCoords:
         assert ts.num_sites == 10
         assert ts.num_mutations > 10
         self.check_double_mirror(ts)
-
-
-# NOTE should probably be in a different file as this is a util function
-class TestPadSites:
-    def check_site_padding(self, ts):
-        ts = sc2ts.utils.pad_sites(ts)
-        ref = sc2ts.core.get_reference_sequence()
-        assert ts.num_sites == len(ref) - 1
-        ancestral_state = ts.tables.sites.ancestral_state.view("S1").astype(str)
-        assert np.all(ancestral_state == ref[1:])
-
-    def test_initial(self):
-        self.check_site_padding(sc2ts.initial_ts())
 
 
 # # @pytest.fixture
