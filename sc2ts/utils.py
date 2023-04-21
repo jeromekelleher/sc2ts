@@ -841,6 +841,7 @@ class TreeInfo:
         for rec in recombs:
             arg = rec.arg_info
             for j in range(len(arg.parents) - 1):
+                assert arg.breakpoints[j + 1] in rec.hmm_runs["forward"].breakpoints
                 row = rec.data_summary()
                 mrca = arg.mrcas[j]
                 row["breakpoint"] = arg.breakpoints[j + 1]
@@ -1369,6 +1370,44 @@ def get_recombinant_samples(ts):
     return out
 
 
+def detach_singleton_recombinants(ts, filter_nodes=False):
+    """
+    Return a new tree sequence where recombinant samples that are the sole
+    descendant of a recombination node have been marked as non-samples,
+    causing those nodes and the recombination nodes above them
+    to be detached from the topology.
+
+    In order to ensure that that node IDs remain stable, by default,
+    detached nodes are *not* filtered from the resulting tree sequence. To
+    remove the nodes completely, set filter_nodes=True (but note that
+    this may render invalid any node IDs used within the tree sequence's
+    metadata).
+    """
+
+    is_sample_leaf = np.zeros(ts.num_nodes, dtype=bool)
+    is_sample_leaf[ts.samples()] = True
+    is_sample_leaf[ts.edges_parent] = False
+    # parent IDs of sample leaves
+    sample_leaf_parents = ts.edges_parent[np.isin(ts.edges_child, np.flatnonzero(is_sample_leaf))]
+    # get repeated parent IDs, one for each edge leading to the parent
+    sample_leaf_parents = ts.edges_parent[np.isin(ts.edges_parent, sample_leaf_parents)]
+    sample_leaf_parents, counts = np.unique(sample_leaf_parents, return_counts=True)
+    single_sample_leaf_parents = sample_leaf_parents[counts == 1]
+    # Find the ones that are also recombination nodes
+    re_nodes = np.flatnonzero(ts.nodes_flags & sc2ts.NODE_IS_RECOMBINANT)
+    single_sample_leaf_re = np.intersect1d(re_nodes, single_sample_leaf_parents)
+    bad_samples = ts.edges_child[np.isin(ts.edges_parent, single_sample_leaf_re)]
+    # All of these should be samples, because they were defined via single edges above a sample
+    assert len(np.setdiff1d(bad_samples, ts.samples())) == 0
+    keep = np.setdiff1d(ts.samples(), bad_samples)
+    return ts.simplify(
+        keep,
+        keep_unary=True,
+        filter_sites=False,
+        filter_nodes=filter_nodes,
+    )
+
+
 def node_path_to_samples(
     nodes, ts, rootwards=True, ignore_initial=True, stop_at_recombination=False
 ):
@@ -1583,12 +1622,12 @@ def plot_subgraph(
                 tip_samples[u] = 0
     for tree in ts.trees():
         for u in tip_samples.keys():
-            # This is't quite right - it show the max num descendants, not the
-            # total number of samples. But it's close enough.
+            # This is't quite right - it shows the max num samples per tree,
+            # not the total number of samples. But it's close enough.
             tip_samples[u] = max(tip_samples[u], tree.num_samples(u))
     for u, s in tip_samples.items():
         if s > 1:
-            nodelabels[u].append(f"+{s-1} samples")
+            nodelabels[u].append(f"+{s-1} {'samples' if s > 2 else 'sample'}")
 
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
 
