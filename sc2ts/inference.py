@@ -71,7 +71,9 @@ def initial_ts():
     # in later versions when we remove the dependence on tskit.
     tables.nodes.add_row(time=1, metadata={"strain": "Vestigial_ignore"})
     tables.nodes.add_row(
-        time=0, metadata={"strain": core.REFERENCE_STRAIN, "date": core.REFERENCE_DATE}
+        flags=tskit.NODE_IS_SAMPLE,
+        time=0,
+        metadata={"strain": core.REFERENCE_STRAIN, "date": core.REFERENCE_DATE},
     )
     tables.edges.add_row(0, L, 0, 1)
     return tables.tree_sequence()
