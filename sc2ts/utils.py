@@ -548,7 +548,7 @@ class TreeInfo:
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
         )
-        return df
+        return df.set_index("property")
 
     def _node_mutation_summary(self, u, child_mutations=True):
         mutations_above = self.ts.mutations_node == u
