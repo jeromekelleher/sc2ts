@@ -548,7 +548,7 @@ class TreeInfo:
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
         )
-        return df
+        return df.set_index("property")
 
     def _node_mutation_summary(self, u, child_mutations=True):
         mutations_above = self.ts.mutations_node == u
@@ -1662,7 +1662,8 @@ def plot_subgraph(
                     mutation_suffix[(edge.parent, edge.child)].add(mutstr)
     for key, value in mutation_suffix.items():
         mutation_labels[key].add(
-            ("" if len(mutation_labels[key]) == 0 else "+") + f"{len(value)}"
+            ("" if len(mutation_labels[key]) == 0 else "+") +
+            f"{len(value)} mutation{'s' if len(value) > 1 else ''}"
         )
 
     multiline_mutation_labels = False
@@ -1749,7 +1750,7 @@ def plot_subgraph(
                     [node_positions[child][1], node_positions[child][1] + dy],
                     marker="",
                     linestyle=":",
-                    color="k",
+                    color="gray",
                     zorder=-1,
                 )
 
@@ -1773,7 +1774,7 @@ def plot_subgraph(
                     [node_positions[parent][1], node_positions[parent][1] - dy],
                     marker="",
                     linestyle=":",
-                    color="k",
+                    color="gray",
                     zorder=-1,
                 )
 
