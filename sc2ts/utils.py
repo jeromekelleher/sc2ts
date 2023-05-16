@@ -146,6 +146,7 @@ class HmmRun:
 @dataclasses.dataclass
 class ArgRecombinant:
     breakpoints: list
+    breakpoint_intervals: list
     parents: list
     parent_imputed_lineages: list
     mrcas: list
@@ -761,6 +762,9 @@ class TreeInfo:
                         get_imputed_pango(x, self.pango_source) for x in parents
                     ],
                 )
+            # TODO it's confusing that the breakpoints array is bracketed by
+            # 0 and L. We should just remove these from all the places that
+            # we're using them.
             breakpoints = [0]
             parents = []
             mrcas = []
@@ -772,6 +776,7 @@ class TreeInfo:
             breakpoints.append(int(self.ts.sequence_length))
             arg_rec = ArgRecombinant(
                 breakpoints=breakpoints,
+                breakpoint_intervals=md["breakpoint_intervals"],
                 parents=parents,
                 mrcas=mrcas,
                 parent_imputed_lineages=[
@@ -794,38 +799,6 @@ class TreeInfo:
             output.append(rec)
         return output
 
-    def export_single_break_recombinants(self):
-        """
-        Return a table of information about one-break recombinants that
-        which consistently have two parents under all runs of the HMM,
-        and are mutation consistent on the foward and backward
-        additional HMM runs. We are strict here because we're primarily
-        interested in the breakpoint intervals --- mutation consistency
-        is required, for example, because we can have conflicting
-        intervals otherwise (where left > right).
-        """
-        recombs = self.combine_recombinant_info()
-        data = []
-        for rec in recombs:
-            condition = (
-                rec.is_path_length_consistent()
-                and rec.num_parents == 2
-                and rec.is_hmm_mutation_consistent()
-            )
-            if condition:
-                row = rec.data_summary()
-                fwd = rec.hmm_runs["forward"]
-                bck = rec.hmm_runs["backward"]
-                arg = rec.arg_info
-                row["num_mutations"] = len(fwd.mutations)
-                row["interval_left"] = bck.breakpoints[1]
-                row["interval_right"] = fwd.breakpoints[1]
-                mrca = arg.mrcas[0]
-                row["mrca"] = mrca
-                row["mrca_date"] = self.nodes_date[mrca]
-                data.append(row)
-        return pd.DataFrame(data)
-
     def export_recombinant_breakpoints(self):
         """
         Make a dataframe with one row per recombination node breakpoint,
@@ -841,10 +814,11 @@ class TreeInfo:
         for rec in recombs:
             arg = rec.arg_info
             for j in range(len(arg.parents) - 1):
-                assert arg.breakpoints[j + 1] in rec.hmm_runs["forward"].breakpoints
                 row = rec.data_summary()
                 mrca = arg.mrcas[j]
                 row["breakpoint"] = arg.breakpoints[j + 1]
+                row["breakpoint_interval_left"] = arg.breakpoint_intervals[j][0]
+                row["breakpoint_interval_right"] = arg.breakpoint_intervals[j][1]
                 row["left_parent"] = arg.parents[j]
                 row["right_parent"] = arg.parents[j + 1]
                 row["left_parent_imputed_lineage"] = arg.parent_imputed_lineages[j]
