@@ -146,6 +146,7 @@ class HmmRun:
 @dataclasses.dataclass
 class ArgRecombinant:
     breakpoints: list
+    breakpoint_intervals: list
     parents: list
     parent_imputed_lineages: list
     mrcas: list
@@ -761,6 +762,9 @@ class TreeInfo:
                         get_imputed_pango(x, self.pango_source) for x in parents
                     ],
                 )
+            # TODO it's confusing that the breakpoints array is bracketed by
+            # 0 and L. We should just remove these from all the places that
+            # we're using them.
             breakpoints = [0]
             parents = []
             mrcas = []
@@ -772,6 +776,7 @@ class TreeInfo:
             breakpoints.append(int(self.ts.sequence_length))
             arg_rec = ArgRecombinant(
                 breakpoints=breakpoints,
+                breakpoint_intervals=md["breakpoint_intervals"],
                 parents=parents,
                 mrcas=mrcas,
                 parent_imputed_lineages=[
@@ -794,38 +799,6 @@ class TreeInfo:
             output.append(rec)
         return output
 
-    def export_single_break_recombinants(self):
-        """
-        Return a table of information about one-break recombinants that
-        which consistently have two parents under all runs of the HMM,
-        and are mutation consistent on the foward and backward
-        additional HMM runs. We are strict here because we're primarily
-        interested in the breakpoint intervals --- mutation consistency
-        is required, for example, because we can have conflicting
-        intervals otherwise (where left > right).
-        """
-        recombs = self.combine_recombinant_info()
-        data = []
-        for rec in recombs:
-            condition = (
-                rec.is_path_length_consistent()
-                and rec.num_parents == 2
-                and rec.is_hmm_mutation_consistent()
-            )
-            if condition:
-                row = rec.data_summary()
-                fwd = rec.hmm_runs["forward"]
-                bck = rec.hmm_runs["backward"]
-                arg = rec.arg_info
-                row["num_mutations"] = len(fwd.mutations)
-                row["interval_left"] = bck.breakpoints[1]
-                row["interval_right"] = fwd.breakpoints[1]
-                mrca = arg.mrcas[0]
-                row["mrca"] = mrca
-                row["mrca_date"] = self.nodes_date[mrca]
-                data.append(row)
-        return pd.DataFrame(data)
-
     def export_recombinant_breakpoints(self):
         """
         Make a dataframe with one row per recombination node breakpoint,
@@ -841,10 +814,11 @@ class TreeInfo:
         for rec in recombs:
             arg = rec.arg_info
             for j in range(len(arg.parents) - 1):
-                assert arg.breakpoints[j + 1] in rec.hmm_runs["forward"].breakpoints
                 row = rec.data_summary()
                 mrca = arg.mrcas[j]
                 row["breakpoint"] = arg.breakpoints[j + 1]
+                row["breakpoint_interval_left"] = arg.breakpoint_intervals[j][0]
+                row["breakpoint_interval_right"] = arg.breakpoint_intervals[j][1]
                 row["left_parent"] = arg.parents[j]
                 row["right_parent"] = arg.parents[j + 1]
                 row["left_parent_imputed_lineage"] = arg.parent_imputed_lineages[j]
@@ -1388,7 +1362,9 @@ def detach_singleton_recombinants(ts, filter_nodes=False):
     is_sample_leaf[ts.samples()] = True
     is_sample_leaf[ts.edges_parent] = False
     # parent IDs of sample leaves
-    sample_leaf_parents = ts.edges_parent[np.isin(ts.edges_child, np.flatnonzero(is_sample_leaf))]
+    sample_leaf_parents = ts.edges_parent[
+        np.isin(ts.edges_child, np.flatnonzero(is_sample_leaf))
+    ]
     # get repeated parent IDs, one for each edge leading to the parent
     sample_leaf_parents = ts.edges_parent[np.isin(ts.edges_parent, sample_leaf_parents)]
     sample_leaf_parents, counts = np.unique(sample_leaf_parents, return_counts=True)
@@ -1618,7 +1594,7 @@ def plot_subgraph(
         if node.is_sample():
             if sample_metadata_labels:
                 nodelabels[u].append(node.metadata[sample_metadata_labels])
-            if out_deg == 0: # Only show num descendants for tip samples
+            if out_deg == 0:  # Only show num descendants for tip samples
                 tip_samples[u] = 0
     for tree in ts.trees():
         for u in tip_samples.keys():
@@ -1633,7 +1609,7 @@ def plot_subgraph(
 
     interval_labels = {k: defaultdict(str) for k in ("lft", "mid", "rgt")}
     mutation_labels = defaultdict(set)
-   
+
     ## Details for mutations (labels etc)
     mut_nodes = set()
     mutation_suffix = collections.defaultdict(set)
@@ -1662,8 +1638,8 @@ def plot_subgraph(
                     mutation_suffix[(edge.parent, edge.child)].add(mutstr)
     for key, value in mutation_suffix.items():
         mutation_labels[key].add(
-            ("" if len(mutation_labels[key]) == 0 else "+") +
-            f"{len(value)} mutation{'s' if len(value) > 1 else ''}"
+            ("" if len(mutation_labels[key]) == 0 else "+")
+            + f"{len(value)} mutation{'s' if len(value) > 1 else ''}"
         )
 
     multiline_mutation_labels = False
@@ -1707,7 +1683,6 @@ def plot_subgraph(
         ):
             G.add_edge(*G.predecessors(k), *G.successors(k))
             for d in [mutation_labels, *list(interval_labels.values()), edge_labels]:
-                
                 if d is not None and (k, *G.successors(k)) in d:
                     d[(*G.predecessors(k), *G.successors(k))] = d.pop(
                         (k, *G.successors(k))
@@ -1723,7 +1698,6 @@ def plot_subgraph(
         dim_y = len(set(y for x, y in node_positions.values()))
         fig, ax = plt.subplots(1, 1, figsize=(dim_x * 1.5, dim_y * 1.1))
 
-
     if exterior_edges is not None:
         # Draw a short dotted line above nodes with extra parent edges to show that more
         # topology exists above them. For simplicity we assume when calculating how to
@@ -1731,7 +1705,9 @@ def plot_subgraph(
         # Parent edges are sorted by child id, so we can use this to groupby
 
         # parent-child dist
-        av_y = np.mean([node_positions[u][1] - node_positions[v][1] for u, v in G.edges()])
+        av_y = np.mean(
+            [node_positions[u][1] - node_positions[v][1] for u, v in G.edges()]
+        )
         # aspect_ratio = np.divide(*np.ptp([[x, y] for x, y in node_positions.values()], axis=0))
         aspect_ratio = 1.0
         for child, edges in itertools.groupby(
@@ -1795,7 +1771,9 @@ def plot_subgraph(
 
     # Put a line around the point if white or transparent
     stroke_cols = [
-        "black" if col == "None" or np.mean(colors.ColorConverter.to_rgb(col)) > 0.99 else col
+        "black"
+        if col == "None" or np.mean(colors.ColorConverter.to_rgb(col)) > 0.99
+        else col
         for col in fill_cols
     ]
     fill_cols = np.array(fill_cols)
@@ -1852,23 +1830,29 @@ def plot_subgraph(
             font_size=node_font_size,
             font_color="w",
         )
-    av_dy = np.median([
-        # We could use the minimum y diff here, but then could be susceptible to
-        # pathological cases where the y diff is very small.
-        np.abs(node_positions[u][1] - node_positions[v][1])
-        for u, v in G.edges
-    ])
+    av_dy = np.median(
+        [
+            # We could use the minimum y diff here, but then could be susceptible to
+            # pathological cases where the y diff is very small.
+            np.abs(node_positions[u][1] - node_positions[v][1])
+            for u, v in G.edges
+        ]
+    )
     ax_height = np.diff(ax.get_ylim())
-    height_pts = ax.get_position().transformed(ax.get_figure().transFigure).height*72/ax.get_figure().dpi
-    node_height = np.sqrt(node_size)/height_pts * ax_height
+    height_pts = (
+        ax.get_position().transformed(ax.get_figure().transFigure).height
+        * 72
+        / ax.get_figure().dpi
+    )
+    node_height = np.sqrt(node_size) / height_pts * ax_height
     if multiline_mutation_labels:
         # Bottom align mutations: useful when there are multiple lines of mutations
-        mut_pos = node_height/2/av_dy
+        mut_pos = node_height / 2 / av_dy
         mut_v_align = "bottom"
     else:
         # Center align mutations, still placed near the child if possible
         font_height = edge_font_size / height_pts * ax_height
-        mut_pos = (node_height / 2 + font_height/2)/av_dy
+        mut_pos = (node_height / 2 + font_height / 2) / av_dy
         if mut_pos > 0.5:
             # Never go further up the line than the middle
             mut_pos = 0.5
@@ -1902,6 +1886,7 @@ def plot_subgraph(
         plt.show()
     return G, node_positions
 
+
 def sample_subgraph(sample_node, ts, ti=None, **kwargs):
     """
     Returns a subgraph of the tree sequence containing the specified nodes.
@@ -1909,15 +1894,18 @@ def sample_subgraph(sample_node, ts, ti=None, **kwargs):
     # Ascend up from input node
     up_nodes = node_path_to_samples([sample_node], ts)
     # Descend from these
-    nodes = sc2ts.node_path_to_samples(up_nodes, ts, rootwards=False, ignore_initial=False)
+    nodes = sc2ts.node_path_to_samples(
+        up_nodes, ts, rootwards=False, ignore_initial=False
+    )
     # Ascend again, to get parents of downward nonsamples
     up_nodes = sc2ts.node_path_to_samples(nodes, ts, ignore_initial=False)
     nodes = np.append(nodes, up_nodes)
     # Remove duplicates
     _, idx = np.unique(nodes, return_index=True)
     nodes = nodes[np.sort(idx)]
-    
+
     return plot_subgraph(nodes, ts, ti, **kwargs)
+
 
 def imputation_setup(filepath, verbose=False):
     """
@@ -2041,3 +2029,45 @@ def check_lineages(
     edited_ts = add_gisaid_lineages_to_ts(ts, node_gisaid_lineages, linmuts_dict)
 
     return edited_ts
+
+
+def compute_left_bound(ts, parents, right):
+    right_index = np.searchsorted(ts.sites_position, right)
+    assert ts.sites_position[right_index] == right
+    variant = tskit.Variant(ts, samples=parents, isolated_as_missing=False)
+    variant.decode(right_index)
+    assert variant.genotypes[0] != variant.genotypes[1]
+    left_index = right_index - 1
+    variant.decode(left_index)
+    while left_index >= 0 and variant.genotypes[0] == variant.genotypes[1]:
+        left_index -= 1
+        variant.decode(left_index)
+    assert variant.genotypes[0] != variant.genotypes[1]
+    left_index += 1
+    return int(ts.sites_position[left_index])
+
+
+def add_breakpoints_to_recombinant_metadata(ts):
+    """
+    Compute the recombinant breakpoint intervals, and write out to the
+    metadata.
+    """
+    tables = ts.dump_tables()
+    iterator = get_recombinant_edges(ts).items()
+    for child, edges in tqdm.tqdm(iterator):
+        intervals = []
+        for j in range(len(edges) - 1):
+            right = int(edges[j].right)
+            parents = [edges[j].parent, edges[j + 1].parent]
+            left = compute_left_bound(ts, parents, right)
+            # The interval is right-exclusive, and the current right coord
+            # the rightmost value that it can be.
+            assert left <= right
+            intervals.append((left, right + 1))
+        row = tables.nodes[child]
+        md = row.metadata
+        md["breakpoint_intervals"] = intervals
+        # Note this isn't very efficient - would possibly be better to flush
+        # the whole column out at the end
+        tables.nodes[child] = row.replace(metadata=md)
+    return tables.tree_sequence()
