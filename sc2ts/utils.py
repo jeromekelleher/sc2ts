@@ -26,6 +26,16 @@ import sc2ts
 from . import core
 from . import lineages
 
+def pairwise(iterable):
+    """
+    s -> (s0,s1), (s1,s2), (s2, s3), ...
+    We can replace this with itertools.pairwise once using min Python 3.10
+    """
+
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return zip(a, b)
+
 
 @numba.njit
 def _get_root_path(parent, node):
@@ -838,7 +848,7 @@ class TreeInfo:
                     for fwd, bwd in rec.fwd_bkwd_hmm_parents()
                 ]
                 fwd_bck_parents_max_dist = np.array(
-                    [max(parent_pair) for parent_pair in itertools.pairwise(seq_diff)], dtype=int)
+                    [max(parent_pair) for parent_pair in pairwise(seq_diff)], dtype=int)
             for j in range(len(arg.parents) - 1):
                 row = rec.data_summary()
                 mrca = arg.mrcas[j]
