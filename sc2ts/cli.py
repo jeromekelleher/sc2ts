@@ -77,15 +77,18 @@ def setup_logging(verbosity, log_file=None):
     daiquiri.setup(level=log_level, outputs=outputs, set_excepthook=False)
 
 
+# TODO add options to list keys, dump specific alignments etc
 @click.command()
-# FIXME this isn't checking for existing!
-@click.argument("store", type=click.Path(dir_okay=True, exists=False, file_okay=False))
+@click.argument("store", type=click.Path(exists=True, dir_okay=False))
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def init_alignment_store(store, verbose, log_file):
+def info_alignments(store, verbose, log_file):
+    """
+    Information about an alignment store
+    """
     setup_logging(verbose, log_file)
-    # provenance = get_provenance_dict()
-    sc2ts.AlignmentStore.initialise(store)
+    with sc2ts.AlignmentStore(store) as alignment_store:
+        print(alignment_store)
 
 
 @click.command()
@@ -96,6 +99,9 @@ def init_alignment_store(store, verbose, log_file):
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
+    """
+    Import the alignments from all FASTAS into STORE.
+    """
     setup_logging(verbose, log_file)
     if initialise:
         a = sc2ts.AlignmentStore.initialise(store)
@@ -120,24 +126,25 @@ def import_metadata(metadata, db, verbose):
     sc2ts.MetadataDb.import_csv(metadata, db)
 
 
+@click.command()
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def info_metadata(metadata, verbose, log_file):
+    """
+    Information about a metadata DB
+    """
+    setup_logging(verbose, log_file)
+    with sc2ts.MetadataDb(metadata) as metadata_db:
+        print(metadata_db)
+
+
 def add_provenance(ts, output_file):
     # Record provenance here because this is where the arguments are provided.
     provenance = get_provenance_dict()
     tables = ts.dump_tables()
     tables.provenances.add_row(json.dumps(provenance))
     tables.dump(output_file)
-
-
-@click.command()
-@click.argument("output")
-@click.option("-v", "--verbose", count=True)
-def init(output, verbose):
-    """
-    Creates the initial tree sequence containing the reference sequence.
-    """
-    setup_logging(verbose)
-    ts = inference.initial_ts()
-    add_provenance(ts, output)
 
 
 @click.command()
@@ -388,11 +395,11 @@ def cli():
     pass
 
 
-cli.add_command(init_alignment_store)
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
+cli.add_command(info_alignments)
+cli.add_command(info_metadata)
 
-cli.add_command(init)
 cli.add_command(extend)
 cli.add_command(daily_extend)
 cli.add_command(validate)

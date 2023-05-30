@@ -33,6 +33,7 @@ class MetadataDb:
     def __init__(self, path):
         uri = f"file:{path}"
         uri += "?mode=ro"
+        self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = dict_factory
 
@@ -41,6 +42,15 @@ class MetadataDb:
 
     def __exit__(self, type, value, traceback):
         self.close()
+
+    def __str__(self):
+        return f"MetadataDb at {self.uri} contains {len(self)} sequences"
+
+    def __len__(self):
+        sql = "SELECT COUNT(*) FROM samples"
+        with self.conn:
+            row = self.conn.execute(sql).fetchone()
+            return row["COUNT(*)"]
 
     def close(self):
         self.conn.close()
