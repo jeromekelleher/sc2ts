@@ -93,7 +93,7 @@ class AlignmentStore(collections.abc.Mapping):
         self.env.close()
 
     def __str__(self):
-        return str(self.env)
+        return f"AlignmentStore at {self.env.path()} contains {len(self)} alignments"
 
     @staticmethod
     def initialise(path):
