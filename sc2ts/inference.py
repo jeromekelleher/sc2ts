@@ -913,7 +913,7 @@ def push_up_reversions(ts, samples):
 
 # NOTE: could definitely do better here by using int encoding instead of
 # strings, and then njit
-@numba.jit
+@numba.jit(forceobj=True)
 def get_indexes_of(array, values):
     n = array.shape[0]
     out = np.zeros(n, dtype=np.int64)
