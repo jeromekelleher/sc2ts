@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import sc2ts
+import sc2ts.utils as utils
 import util
 
 
@@ -36,7 +37,7 @@ class TestDetachSingletonRecombinants:
         ts_rec = sc2ts.add_matching_results(samples, ts, "2021")
         assert ts_rec.num_trees == 2
         return ts_rec
-    
+
     @pytest.mark.parametrize(
         "ts",
         # Should probably add sc2ts.initial_ts() here, but see
@@ -44,7 +45,7 @@ class TestDetachSingletonRecombinants:
         [util.example_binary(1), util.example_binary(2), util.example_binary(3)]
     )
     def test_no_recombinants(self, ts):
-        ts2 = sc2ts.detach_singleton_recombinants(ts)
+        ts2 = utils.detach_singleton_recombinants(ts)
         ts.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     def test_one_sample_recombinant(self):
@@ -63,14 +64,14 @@ class TestDetachSingletonRecombinants:
         for u in nodes_under_re:
             for tree in ts.trees():
                 assert not tree.is_isolated(u)
-        ts2 = sc2ts.detach_singleton_recombinants(ts)
+        ts2 = utils.detach_singleton_recombinants(ts)
         assert ts2 != ts
         assert ts2.num_samples == ts.num_samples - 1
         assert ts2.num_nodes == ts.num_nodes
         for u in nodes_under_re:
             for tree in ts2.trees():
                 assert tree.is_isolated(u)
-        ts3 = sc2ts.detach_singleton_recombinants(ts2, filter_nodes=True)
+        ts3 = utils.detach_singleton_recombinants(ts2, filter_nodes=True)
         assert ts3.num_samples == ts.num_samples - 1
         assert ts3.num_nodes == ts.num_nodes - 2  # both sample and re node gone
 
@@ -78,5 +79,5 @@ class TestDetachSingletonRecombinants:
         """Test that we don't detach anything if the recombinant node is not a singleton"""
         ts = self.make_recombinant_tree(num_samples=2)
         assert ts.num_samples == 4
-        ts2 = sc2ts.detach_singleton_recombinants(ts)
+        ts2 = utils.detach_singleton_recombinants(ts)
         ts.tables.assert_equals(ts2.tables, ignore_provenance=True)

@@ -13,8 +13,9 @@ import tskit
 import tszip
 import numpy as np
 import pandas as pd
+# TODO where do we use this? This is a *great* example of why not to use
+# this style, because we have loads of variables called "tree" in this file.
 from sklearn import tree
-from collections import defaultdict
 import tqdm
 import matplotlib.pyplot as plt
 from matplotlib import colors
@@ -1607,8 +1608,8 @@ def plot_subgraph(
 
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
 
-    interval_labels = {k: defaultdict(str) for k in ("lft", "mid", "rgt")}
-    mutation_labels = defaultdict(set)
+    interval_labels = {k: collections.defaultdict(str) for k in ("lft", "mid", "rgt")}
+    mutation_labels = collections.defaultdict(set)
 
     ## Details for mutations (labels etc)
     mut_nodes = set()
