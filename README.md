@@ -3,7 +3,7 @@ Infer a succinct tree sequence from SARS-COV-2 variation data
 
 **This is an early version not intended for production use!!**
 
-If you are interested in helping to develop sc2ts or would like to 
+If you are interested in helping to develop sc2ts or would like to
 work with the inferred ARGS, please get in touch.
 
 ## Installation
@@ -82,34 +82,30 @@ python3 -m sc2ts daily-extend data/alignments.db data/metadata.db results/output
 Here is a script used to run the inference for the Long ARG
 in the preprint:
 
-```bash
+```
 #!/bin/bash
 set -e
-
 precision=12
 mismatches=3
 max_submission_delay=30
 max_daily_samples=1000
 num_threads=40
-
 datadir=data
 run_id=upgma-mds-$max_daily_samples-md-$max_submission_delay-mm-$mismatches
 resultsdir=results/$run_id
 results_prefix=$resultsdir/$run_id-
 logfile=logs/$run_id.log
-
+# Setup the options
 options="--num-threads $num_threads -vv -l $logfile "
 options+="--max-submission-delay $max_submission_delay "
 options+="--max-daily-samples $max_daily_samples "
 options+="--precision $precision --num-mismatches $mismatches"
-
+# Create the results dir and data paths
 mkdir -p $resultsdir
-
 alignments=$datadir/alignments2.db
 metadata=$datadir/metadata.filtered.db
 # NOTE: we can start from a given data also with the -b option
 # basets="$results_prefix"2022-01-24.ts
 # options+=" -b $basets"
-
 python3 -m sc2ts daily-extend $alignments $metadata $results_prefix $options
 ```
