@@ -1,7 +1,7 @@
 # sc2ts
 Infer a succinct tree sequence from SARS-COV-2 variation data
 
-**This is an early version not intended for production use!!**
+**This is an early alpha version not intended for production use!!**
 
 If you are interested in helping to develop sc2ts or would like to
 work with the inferred ARGS, please get in touch.
@@ -109,3 +109,14 @@ metadata=$datadir/metadata.filtered.db
 # options+=" -b $basets"
 python3 -m sc2ts daily-extend $alignments $metadata $results_prefix $options
 ```
+
+## Licensing
+
+The code is marked as licensed under the MIT license,
+but because the current implementation is used the matching
+engine from tsinfer (which is GPL licensed) this code is
+therefore also GPL.
+
+However, we plan to switch out the matching engine for an
+implementation provided by tskit, which is MIT licensed.
+This will be done before the first official release.
