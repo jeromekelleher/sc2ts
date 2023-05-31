@@ -82,7 +82,7 @@ python3 -m sc2ts daily-extend data/alignments.db data/metadata.db results/output
 Here is a script used to run the inference for the Long ARG
 in the preprint:
 
-```
+```bash
 #!/bin/bash
 set -e
 
