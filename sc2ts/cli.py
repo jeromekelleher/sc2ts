@@ -77,15 +77,18 @@ def setup_logging(verbosity, log_file=None):
     daiquiri.setup(level=log_level, outputs=outputs, set_excepthook=False)
 
 
+# TODO add options to list keys, dump specific alignments etc
 @click.command()
-# FIXME this isn't checking for existing!
-@click.argument("store", type=click.Path(dir_okay=True, exists=False, file_okay=False))
+@click.argument("store", type=click.Path(exists=True, dir_okay=False))
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def init_alignment_store(store, verbose, log_file):
+def info_alignments(store, verbose, log_file):
+    """
+    Information about an alignment store
+    """
     setup_logging(verbose, log_file)
-    # provenance = get_provenance_dict()
-    sc2ts.AlignmentStore.initialise(store)
+    with sc2ts.AlignmentStore(store) as alignment_store:
+        print(alignment_store)
 
 
 @click.command()
@@ -96,6 +99,9 @@ def init_alignment_store(store, verbose, log_file):
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
+    """
+    Import the alignments from all FASTAS into STORE.
+    """
     setup_logging(verbose, log_file)
     if initialise:
         a = sc2ts.AlignmentStore.initialise(store)
@@ -120,79 +126,25 @@ def import_metadata(metadata, db, verbose):
     sc2ts.MetadataDb.import_csv(metadata, db)
 
 
+@click.command()
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def info_metadata(metadata, verbose, log_file):
+    """
+    Information about a metadata DB
+    """
+    setup_logging(verbose, log_file)
+    with sc2ts.MetadataDb(metadata) as metadata_db:
+        print(metadata_db)
+
+
 def add_provenance(ts, output_file):
     # Record provenance here because this is where the arguments are provided.
     provenance = get_provenance_dict()
     tables = ts.dump_tables()
     tables.provenances.add_row(json.dumps(provenance))
     tables.dump(output_file)
-
-
-@click.command()
-@click.argument("output")
-@click.option("-v", "--verbose", count=True)
-def init(output, verbose):
-    """
-    Creates the initial tree sequence containing the reference sequence.
-    """
-    setup_logging(verbose)
-    ts = inference.initial_ts()
-    add_provenance(ts, output)
-
-
-@click.command()
-@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.argument("base", type=click.Path(dir_okay=False))
-@click.argument("output", type=click.Path(dir_okay=False))
-@click.argument("date")
-@click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
-@click.option(
-    "--max-submission-delay",
-    default=None,
-    type=int,
-    help=(
-        "The maximum number of days between the sample and its submission date "
-        "for it to be included in the inference"
-    ),
-)
-@click.option("--num-threads", default=0, type=int, help="Number of match threads")
-@click.option("-p", "--precision", default=None, type=int, help="Match precision")
-@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def extend(
-    alignments,
-    metadata,
-    base,
-    output,
-    date,
-    num_mismatches,
-    max_submission_delay,
-    num_threads,
-    precision,
-    no_progress,
-    verbose,
-    log_file,
-):
-    setup_logging(verbose, log_file)
-
-    with contextlib.ExitStack() as exit_stack:
-        alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
-        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
-        base_ts = tskit.load(base)
-        ts = inference.extend(
-            alignment_store=alignment_store,
-            metadata_db=metadata_db,
-            date=date,
-            base_ts=base_ts,
-            num_mismatches=num_mismatches,
-            max_submission_delay=max_submission_delay,
-            precision=precision,
-            num_threads=num_threads,
-            show_progress=not no_progress,
-        )
-        add_provenance(ts, output)
 
 
 @click.command()
@@ -249,6 +201,9 @@ def daily_extend(
     verbose,
     log_file,
 ):
+    """
+    Sequentially extend the trees by adding samples in daily batches.
+    """
     setup_logging(verbose, log_file)
     rng = random.Random(random_seed)
     if base is None:
@@ -281,6 +236,9 @@ def daily_extend(
 @click.argument("ts_file")
 @click.option("-v", "--verbose", count=True)
 def validate(alignment_db, ts_file, verbose):
+    """
+    Check that the specified trees correctly encode alignments for samples.
+    """
     setup_logging(verbose)
 
     if ts_file.endswith(".tsz"):
@@ -388,12 +346,11 @@ def cli():
     pass
 
 
-cli.add_command(init_alignment_store)
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
+cli.add_command(info_alignments)
+cli.add_command(info_metadata)
 
-cli.add_command(init)
-cli.add_command(extend)
 cli.add_command(daily_extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)
