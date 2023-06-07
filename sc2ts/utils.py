@@ -1682,13 +1682,15 @@ def plot_subgraph(
                         lpos = "lft"
                     elif edge.left > 0 and edge.right == ts.sequence_length:
                         lpos = "rgt"
-                    if interval_labels[lpos][pc]:
-                        interval_labels[lpos][pc] += " "  # multiple same-side intervals for an edge
-                    if lpos == "rgt" and interval_labels["lft"][pc]:
-                        interval_labels[lpos][pc] = " " + interval_labels[lpos][pc]
-                    interval_labels[lpos][pc] = f"{int(edge.left)}…{int(edge.right)}"
-                    if lpos == "lft" and interval_labels["rgt"][pc]:
-                        interval_labels[lpos][pc] += " "
+                     # Add spaces between or in front of labels if
+                     # multiple lft or rgt labels (i.e. intervals) exist for an edge
+                    if interval_labels[lpos][pc]:  # between same side labels
+                        interval_labels[lpos][pc] += "  "
+                    if lpos == "rgt" and interval_labels["lft"][pc]: # in front of rgt label
+                        interval_labels[lpos][pc] = "  " + interval_labels[lpos][pc]
+                    interval_labels[lpos][pc] += f"{int(edge.left)}…{int(edge.right)}"
+                    if lpos == "lft" and interval_labels["rgt"][pc]: # at end of lft label
+                        interval_labels[lpos][pc] += "  "
 
     if label_replace is not None:
         for search, replace in label_replace.items():
