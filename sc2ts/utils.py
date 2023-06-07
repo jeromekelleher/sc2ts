@@ -1469,6 +1469,7 @@ def plot_subgraph(
     ts_id_labels=None,
     node_metadata_labels=None,
     sample_metadata_labels=None,
+    show_descendant_samples=None,
     edge_labels=None,
     edge_font_size=None,
     node_font_size=None,
@@ -1508,8 +1509,12 @@ def plot_subgraph(
         do not plot any all-node metadata.
     :param str sample_metadata_labels: Should we additionally label sample nodes with a
         value from their metadata: Default: ``None``, treated as ``"gisaid_epi_isl"``.
-        Notes representing multiple samples will have a label saying "XXX samples".
-        If ``""``, do not plot any sample node metadata.
+    :param str show_descendant_samples: Should we label nodes with the maximum number
+        of samples descending from them in any tree (in the format "+XXX samples").
+        If ``"samples"``, only label sample nodes. If "tips", label all tip nodes.
+        If ``"sample_tips"` label all tips that are also samples. If ``"all"``, label
+        all nodes. If ``""`` or False, do not show labels. Default: ``None``, treated
+        as ``"sample_tips"``. If a node has no descendant samples, a label is not placed.
     :param dict edge_labels: a mapping of {(parent_id, child_id): "label")} with which
         to label the edges. If ``None``, label with mutations or (if above a
         recombination node) with the edge interval. If ``{}``, do not plot
@@ -1547,6 +1552,9 @@ def plot_subgraph(
         try:
             return float(s)
         except ValueError:
+            if s[0] == "$":
+                # matplotlib mathtext - remove the $ and the formatting
+                s = s.replace("$", "").replace(r"\bf", "").replace("\it", "").replace("{", "").replace("}", "")
             try:
                 return float(s[1:-1])
             except ValueError:
@@ -1564,10 +1572,17 @@ def plot_subgraph(
         node_metadata_labels = "Imputed_GISAID_lineage"
     if sample_metadata_labels is None:
         sample_metadata_labels = "gisaid_epi_isl"
+    if show_descendant_samples is None:
+        show_descendant_samples = "sample_tips"
     if colour_metadata_key is None:
         colour_metadata_key = "strain"
     if exterior_edge_len is None:
         exterior_edge_len = 0.4
+
+    if show_descendant_samples not in {"samples", "tips", "sample_tips", "all", "", False}:
+        raise ValueError(
+            "show_descendant_samples must be one of 'samples', 'tips', 'sample_tips', 'all', or '' / False"
+        )
 
     # Read in characteristic mutations info
     linmuts_dict = None
@@ -1585,7 +1600,7 @@ def plot_subgraph(
         G = to_nx_subgraph(ts, nodes)
 
     nodelabels = collections.defaultdict(list)
-    tip_samples = {}
+    shown_tips = []
     for u, out_deg in G.out_degree():
         node = ts.node(u)
         if node_metadata_labels:
@@ -1595,16 +1610,22 @@ def plot_subgraph(
         if node.is_sample():
             if sample_metadata_labels:
                 nodelabels[u].append(node.metadata[sample_metadata_labels])
-            if out_deg == 0:  # Only show num descendants for tip samples
-                tip_samples[u] = 0
-    for tree in ts.trees():
-        for u in tip_samples.keys():
-            # This is't quite right - it shows the max num samples per tree,
-            # not the total number of samples. But it's close enough.
-            tip_samples[u] = max(tip_samples[u], tree.num_samples(u))
-    for u, s in tip_samples.items():
-        if s > 1:
-            nodelabels[u].append(f"+{s-1} {'samples' if s > 2 else 'sample'}")
+        if show_descendant_samples:
+            show = True if show_descendant_samples == "all" else False
+            is_tip = out_deg == 0
+            if show_descendant_samples == "tips" and is_tip:
+                show = True
+            elif node.is_sample():
+                if show_descendant_samples == "samples":
+                    show = True
+                elif show_descendant_samples == "sample_tips" and is_tip:
+                    show = True
+            if show:
+                s = ti.nodes_max_descendant_samples[u]
+                if node.is_sample():
+                    s -= 1 # don't count self
+                if s > 0:
+                    nodelabels[u].append(f"+{s} {'samples' if s > 1 else 'sample'}")
 
     nodelabels = {k: "\n".join(v) for k, v in nodelabels.items()}
 
@@ -1628,7 +1649,9 @@ def plot_subgraph(
                     inherited_state = ts.mutation(m.parent).derived_state
 
                 if ti.mutations_is_reversion[m.id]:
-                    mutstr = f"{inherited_state.lower()}{pos}{m.derived_state.lower()}"
+                    mutstr = f"$\\bf{{{inherited_state.lower()}{pos}{m.derived_state.lower()}}}$"
+                elif ts.mutations_parent[m.id] != tskit.NULL:
+                    mutstr = f"$\\bf{{{inherited_state.upper()}{pos}{m.derived_state.upper()}}}$"
                 else:
                     mutstr = f"{inherited_state.upper()}{pos}{m.derived_state.upper()}"
                 if linmuts_dict is None or pos in linmuts_dict.all_positions:
@@ -1659,7 +1682,13 @@ def plot_subgraph(
                         lpos = "lft"
                     elif edge.left > 0 and edge.right == ts.sequence_length:
                         lpos = "rgt"
+                    if interval_labels[lpos][pc]:
+                        interval_labels[lpos][pc] += " "  # multiple same-side intervals for an edge
+                    if lpos == "rgt" and interval_labels["lft"][pc]:
+                        interval_labels[lpos][pc] = " " + interval_labels[lpos][pc]
                     interval_labels[lpos][pc] = f"{int(edge.left)}…{int(edge.right)}"
+                    if lpos == "lft" and interval_labels["rgt"][pc]:
+                        interval_labels[lpos][pc] += " "
 
     if label_replace is not None:
         for search, replace in label_replace.items():
