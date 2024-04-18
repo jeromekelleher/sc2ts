@@ -125,6 +125,7 @@ class AlignmentStore(collections.abc.Mapping):
         bar = tqdm.tqdm(total=num_chunks, disable=not show_progress)
         chunk = []
         for k, v in alignments.items():
+            v = np.char.upper(v)
             chunk.append((k, compress_alignment(v)))
             if len(chunk) == chunk_size:
                 self._flush(chunk)
