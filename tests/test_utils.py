@@ -34,7 +34,9 @@ class TestDetachSingletonRecombinants:
         L = ts.sequence_length
         x = L / 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]] * num_samples)
-        ts_rec = sc2ts.add_matching_results(samples, ts, "2021")
+        ts_rec = sc2ts.add_matching_results(
+            samples, ts, "2021", num_mismatches=None, num_samples=None
+        )
         assert ts_rec.num_trees == 2
         return ts_rec
 
@@ -42,7 +44,7 @@ class TestDetachSingletonRecombinants:
         "ts",
         # Should probably add sc2ts.initial_ts() here, but see
         # https://github.com/jeromekelleher/sc2ts/issues/152
-        [util.example_binary(1), util.example_binary(2), util.example_binary(3)]
+        [util.example_binary(1), util.example_binary(2), util.example_binary(3)],
     )
     def test_no_recombinants(self, ts):
         ts2 = utils.detach_singleton_recombinants(ts)
@@ -52,9 +54,7 @@ class TestDetachSingletonRecombinants:
         ts = self.make_recombinant_tree()
         assert ts.num_samples == 3
         re_nodes = [
-            node.id
-            for node in ts.nodes()
-            if node.flags & sc2ts.NODE_IS_RECOMBINANT
+            node.id for node in ts.nodes() if node.flags & sc2ts.NODE_IS_RECOMBINANT
         ]
         assert len(re_nodes) == 1
         re_node = re_nodes[0]

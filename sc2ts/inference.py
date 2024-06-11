@@ -222,6 +222,11 @@ class Sample:
     def submission_delay(self):
         return (self.submission_date - self.date).days
 
+    def get_hmm_cost(self, num_mismatches):
+        # Note that Recombinant objects have total_cost.
+        # This bit of code is sort of repeated.
+        return num_mismatches * (len(self.path) - 1) + len(self.mutations)
+
     def asdict(self):
         return {
             "strain": self.strain,
@@ -247,6 +252,7 @@ def daily_extend(
     metadata_db,
     base_ts,
     num_mismatches=None,
+    max_hmm_cost=None,
     show_progress=False,
     max_submission_delay=None,
     max_daily_samples=None,
@@ -263,6 +269,7 @@ def daily_extend(
             date=date,
             base_ts=last_ts,
             num_mismatches=num_mismatches,
+            max_hmm_cost=max_hmm_cost,
             show_progress=show_progress,
             max_submission_delay=max_submission_delay,
             max_daily_samples=max_daily_samples,
@@ -340,6 +347,7 @@ def extend(
     date,
     base_ts,
     num_mismatches=None,
+    max_hmm_cost=None,
     show_progress=False,
     max_submission_delay=None,
     max_daily_samples=None,
@@ -347,7 +355,6 @@ def extend(
     precision=None,
     rng=None,
 ):
-
     date_samples = [Sample(md) for md in metadata_db.get(date)]
     samples = filter_samples(date_samples, alignment_store, max_submission_delay)
 
@@ -361,6 +368,7 @@ def extend(
 
     logger.info(f"Got {len(samples)} samples")
 
+    # Note num_mismatches is assigned a default value in match_tsinfer.
     samples = match(
         samples,
         alignment_store=alignment_store,
@@ -371,7 +379,15 @@ def extend(
         precision=precision,
     )
     ts = increment_time(date, base_ts)
-    return add_matching_results(samples, ts, date, show_progress)
+
+    return add_matching_results(
+        samples=samples,
+        ts=ts,
+        date=date,
+        num_mismatches=num_mismatches,
+        max_hmm_cost=max_hmm_cost,
+        show_progress=show_progress,
+    )
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -394,7 +410,7 @@ def match_path_ts(samples, ts, path, reversions):
                 "qc": sample.alignment_qc,
                 "path": [x.asdict() for x in sample.path],
                 "mutations": [x.asdict() for x in sample.mutations],
-            }
+            },
         }
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
@@ -407,7 +423,7 @@ def match_path_ts(samples, ts, path, reversions):
 
     # Now add the mutations
     for node_id, sample in enumerate(samples, first_sample):
-        #metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
+        # metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
         for mut in sample.mutations:
             tables.mutations.add_row(
                 site=site_id_map[mut.site_id],
@@ -420,7 +436,16 @@ def match_path_ts(samples, ts, path, reversions):
     # print(tables)
 
 
-def add_matching_results(samples, ts, date, show_progress=False):
+def add_matching_results(
+    samples, ts, date, num_mismatches, max_hmm_cost, show_progress=False
+):
+    if num_mismatches is None:
+        # Note that this is the default assigned in match_tsinfer.
+        num_mismatches = 1e3
+
+    if max_hmm_cost is None:
+        # By default, arbitraily high.
+        max_hmm_cost = 1e6
 
     # Group matches by path and set of reversion mutations
     grouped_matches = collections.defaultdict(list)
@@ -434,6 +459,17 @@ def add_matching_results(samples, ts, date, show_progress=False):
             if mut.is_immediate_reversion
         )
         grouped_matches[(path, reversions)].append(sample)
+
+    # Exclude single samples with "high-HMM cost" attachment paths.
+    tmp = {}
+    for k, v in grouped_matches.items():
+        if len(v) == 1:
+            # Exclude sample if it's HMM cost exceeds a maximum.
+            sample = v[0]
+            if sample.get_hmm_cost(num_mismatches) > max_hmm_cost:
+                continue
+        tmp[k] = v
+    grouped_matches = tmp
 
     tables = ts.dump_tables()
     logger.info(f"Got {len(grouped_matches)} distinct paths")
@@ -981,6 +1017,7 @@ def match_tsinfer(
     show_progress=False,
     mirror_coordinates=False,
 ):
+    # TODO: Should this default be assigned elsewhere?
     if num_mismatches is None:
         # Default to no recombination
         num_mismatches = 1000

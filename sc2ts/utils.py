@@ -179,14 +179,14 @@ class Recombinant:
         return d
 
     @property
-    def total_cost(self):
+    def total_cost(self, num_mismatches):
         """
         How different is the causal sequence from the rest, roughly?
         """
         fwd = self.hmm_runs["forward"]
         bck = self.hmm_runs["backward"]
-        cost_fwd = 3 * (len(fwd.parents) - 1) + len(fwd.mutations)
-        cost_bck = 3 * (len(bck.parents) - 1) + len(bck.mutations)
+        cost_fwd = num_mismatches * (len(fwd.parents) - 1) + len(fwd.mutations)
+        cost_bck = num_mismatches * (len(bck.parents) - 1) + len(bck.mutations)
         assert cost_fwd == cost_bck
         return cost_fwd
 

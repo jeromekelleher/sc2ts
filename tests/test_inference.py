@@ -9,8 +9,16 @@ import util
 
 
 class TestAddMatchingResults:
-    def add_matching_results(self, samples, ts, date="2020-01-01"):
-        ts2 = sc2ts.add_matching_results(samples, ts, date)
+    def add_matching_results(
+        self, samples, ts, date="2020-01-01", num_mismatches=None, max_hmm_cost=None
+    ):
+        ts2 = sc2ts.add_matching_results(
+            samples,
+            ts,
+            date,
+            num_mismatches,
+            max_hmm_cost,
+        )
         assert ts2.num_samples == len(samples) + ts.num_samples
         for u, sample in zip(ts2.samples()[-len(samples) :], samples):
             node = ts2.node(u)
@@ -54,6 +62,46 @@ class TestAddMatchingResults:
         assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
         assert ts2.node(6).metadata == {"date_added": "2021"}
 
+    def test_one_sample_recombinant_filtered(self):
+        # 4.00┊  0  ┊
+        #     ┊  ┃  ┊
+        # 3.00┊  1  ┊
+        #     ┊  ┃  ┊
+        # 2.00┊  4  ┊
+        #     ┊ ┏┻┓ ┊
+        # 1.00┊ 2 3 ┊
+        #     0   29904
+        ts = util.example_binary(2)
+        L = ts.sequence_length
+        x = L / 2
+        samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
+        # Note that it is calling the function in the main module.
+        ts2 = sc2ts.add_matching_results(
+            samples, ts, "2021", num_mismatches=1e3, max_hmm_cost=1e3 - 1
+        )
+        assert ts2.num_trees == 1
+        assert ts2.num_nodes == ts.num_nodes
+        assert ts2.num_samples == ts.num_samples
+
+    def test_two_samples_recombinant_not_filtered(self):
+        """
+        Test case where two identical recombinant samples get added
+        but not excluded despite HMM costs above the max threshold.
+        """
+        ts = util.example_binary(2)
+        L = ts.sequence_length
+        x = L / 2
+        new_sample_paths = [
+            [(0, x, 2), (x, L, 3)],
+            [(0, x, 2), (x, L, 3)],
+        ]
+        samples = util.get_samples(ts, new_sample_paths)
+        ts2 = sc2ts.add_matching_results(
+            samples, ts, "2021", num_mismatches=1e3, max_hmm_cost=1e3 - 1
+        )
+        assert ts2.num_trees == 2
+        assert ts2.num_samples == ts.num_samples + len(new_sample_paths)
+
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()
         ts = sc2ts.increment_time("2020-01-01", ts)
@@ -64,6 +112,44 @@ class TestAddMatchingResults:
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0, 2: 1}
+        assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
+        assert ts2.num_mutations == 1
+        var = next(ts2.variants())
+        assert var.alleles[var.genotypes[0]] == "X"
+
+    def test_one_sample_one_mutation_filtered(self):
+        ts = sc2ts.initial_ts()
+        ts = sc2ts.increment_time("2020-01-01", ts)
+        samples = util.get_samples(
+            ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
+        )
+        ts2 = sc2ts.add_matching_results(
+            samples, ts, "2021", num_mismatches=0.0, max_hmm_cost=0.0
+        )
+        assert ts2.num_trees == ts.num_trees
+        assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
+        assert ts2.num_mutations == 0
+
+    def test_two_samples_one_mutation_not_filtered(self):
+        ts = sc2ts.initial_ts()
+        ts = sc2ts.increment_time("2020-01-01", ts)
+        new_sample_paths = [
+            [(0, ts.sequence_length, 1)],
+            [(0, ts.sequence_length, 1)],
+        ]
+        new_sample_mutations = [
+            [(0, "X")],
+            [(0, "X")],
+        ]
+        samples = util.get_samples(
+            ts,
+            paths=new_sample_paths,
+            mutations=new_sample_mutations,
+        )
+        ts2 = sc2ts.add_matching_results(
+            samples, ts, "2021", num_mismatches=0.0, max_hmm_cost=0.0
+        )
+        assert ts2.num_trees == ts.num_trees
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
         assert ts2.num_mutations == 1
         var = next(ts2.variants())

@@ -162,6 +162,7 @@ def add_provenance(ts, output_file):
     ),
 )
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
+@click.option("--max-hmm-cost", default=None, type=float, help="max-hmm-cost")
 @click.option(
     "--max-submission-delay",
     default=None,
@@ -192,6 +193,7 @@ def daily_extend(
     output_prefix,
     base,
     num_mismatches,
+    max_hmm_cost,
     max_submission_delay,
     max_daily_samples,
     num_threads,
@@ -219,6 +221,7 @@ def daily_extend(
             metadata_db=metadata_db,
             base_ts=base_ts,
             num_mismatches=num_mismatches,
+            max_hmm_cost=max_hmm_cost,
             max_submission_delay=max_submission_delay,
             max_daily_samples=max_daily_samples,
             rng=rng,
