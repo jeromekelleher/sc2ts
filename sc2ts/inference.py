@@ -388,7 +388,14 @@ def match_path_ts(samples, ts, path, reversions):
     first_sample = len(tables.nodes)
     for sample in samples:
         assert sample.path == path
-        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
+        metadata = {
+            **sample.metadata,
+            "sc2ts": {
+                "qc": sample.alignment_qc,
+                "path": [x.asdict() for x in sample.path],
+                "mutations": [x.asdict() for x in sample.mutations],
+            }
+        }
         node_id = tables.nodes.add_row(
             flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
         )
@@ -400,7 +407,7 @@ def match_path_ts(samples, ts, path, reversions):
 
     # Now add the mutations
     for node_id, sample in enumerate(samples, first_sample):
-        metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
+        #metadata = {**sample.metadata, "sc2ts_qc": sample.alignment_qc}
         for mut in sample.mutations:
             tables.mutations.add_row(
                 site=site_id_map[mut.site_id],
@@ -1058,6 +1065,13 @@ class PathSegment:
     def contains(self, position):
         return self.left <= position < self.right
 
+    def asdict(self):
+        return {
+            "left": self.left,
+            "right": self.right,
+            "parent": self.parent,
+        }
+
 
 @dataclasses.dataclass(frozen=True)
 class MatchMutation:
@@ -1070,6 +1084,16 @@ class MatchMutation:
 
     def __str__(self):
         return f"{int(self.site_position)}{self.inherited_state}>{self.derived_state}"
+
+    def asdict(self):
+        return {
+            "site_id": int(self.site_id),
+            "site_position": int(self.site_position),
+            "derived_state": self.derived_state,
+            "inherited_state": self.inherited_state,
+            "is_reversion": self.is_reversion,
+            "is_immediate_reversion": self.is_immediate_reversion,
+        }
 
 
 def update_path_info(samples, ts, sample_paths, sample_mutations):
