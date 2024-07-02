@@ -8,6 +8,7 @@ import sys
 import contextlib
 import dataclasses
 import datetime
+import pickle
 
 import tqdm
 import tskit
@@ -147,6 +148,11 @@ def add_provenance(ts, output_file):
     tables.dump(output_file)
 
 
+def dump_samples(samples, output_file):
+    with open(output_file, "wb") as f:
+        pickle.dump(samples, file=f)
+
+
 @click.command()
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
@@ -229,9 +235,11 @@ def daily_extend(
             num_threads=num_threads,
             show_progress=not no_progress,
         )
-        for ts, date in ts_iter:
-            output = output_prefix + date + ".ts"
-            add_provenance(ts, output)
+        for ts, excluded_samples, date in ts_iter:
+            output_ts = output_prefix + date + ".ts"
+            add_provenance(ts, output_ts)
+            output_excluded_samples = output_prefix + date + ".excluded_samples.pickle"
+            dump_samples(excluded_samples, output_excluded_samples)
 
 
 @click.command()

@@ -263,7 +263,7 @@ def daily_extend(
     start_day = last_date(base_ts)
     last_ts = base_ts
     for date in metadata_db.get_days(start_day):
-        ts = extend(
+        ts, excluded_samples = extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             date=date,
@@ -277,7 +277,7 @@ def daily_extend(
             precision=precision,
             rng=rng,
         )
-        yield ts, date
+        yield ts, excluded_samples, date
         last_ts = ts
 
 
@@ -380,7 +380,7 @@ def extend(
     )
     ts = increment_time(date, base_ts)
 
-    return add_matching_results(
+    ts, excluded_samples = add_matching_results(
         samples=samples,
         ts=ts,
         date=date,
@@ -388,6 +388,8 @@ def extend(
         max_hmm_cost=max_hmm_cost,
         show_progress=show_progress,
     )
+
+    return ts, excluded_samples
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -449,9 +451,11 @@ def add_matching_results(
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
+    excluded_samples = []
     site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
     for sample in samples:
         if sample.get_hmm_cost(num_mismatches) > max_hmm_cost:
+            excluded_samples.append(sample)
             continue
         site_masked_samples[sample.masked_sites] += 1
         path = tuple(sample.path)
@@ -532,7 +536,8 @@ def add_matching_results(
     # print("AFTER")
     # print(ts.draw_text())
     ts = coalesce_mutations(ts, attach_nodes)
-    return ts
+
+    return ts, excluded_samples
 
 
 def solve_num_mismatches(ts, k):
