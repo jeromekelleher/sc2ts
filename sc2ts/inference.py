@@ -447,10 +447,12 @@ def add_matching_results(
         # By default, arbitraily high.
         max_hmm_cost = 1e6
 
-    # Group matches by path and set of reversion mutations
+    # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
     site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
     for sample in samples:
+        if sample.get_hmm_cost(num_mismatches) > max_hmm_cost:
+            continue
         site_masked_samples[sample.masked_sites] += 1
         path = tuple(sample.path)
         reversions = tuple(
@@ -459,17 +461,6 @@ def add_matching_results(
             if mut.is_immediate_reversion
         )
         grouped_matches[(path, reversions)].append(sample)
-
-    # Exclude single samples with "high-HMM cost" attachment paths.
-    tmp = {}
-    for k, v in grouped_matches.items():
-        if len(v) == 1:
-            # Exclude sample if it's HMM cost exceeds a maximum.
-            sample = v[0]
-            if sample.get_hmm_cost(num_mismatches) > max_hmm_cost:
-                continue
-        tmp[k] = v
-    grouped_matches = tmp
 
     tables = ts.dump_tables()
     logger.info(f"Got {len(grouped_matches)} distinct paths")
