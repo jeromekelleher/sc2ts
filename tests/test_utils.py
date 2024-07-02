@@ -34,7 +34,7 @@ class TestDetachSingletonRecombinants:
         L = ts.sequence_length
         x = L / 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]] * num_samples)
-        ts_rec = sc2ts.add_matching_results(
+        ts_rec, _ = sc2ts.add_matching_results(
             samples, ts, "2021", num_mismatches=None, max_hmm_cost=None
         )
         assert ts_rec.num_trees == 2
