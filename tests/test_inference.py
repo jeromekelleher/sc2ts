@@ -83,24 +83,25 @@ class TestAddMatchingResults:
         assert ts2.num_nodes == ts.num_nodes
         assert ts2.num_samples == ts.num_samples
 
-    def test_two_samples_recombinant_not_filtered(self):
-        """
-        Test case where two identical recombinant samples get added
-        but not excluded despite HMM costs above the max threshold.
-        """
+    def test_two_samples_recombinant_one_filtered(self):
         ts = util.example_binary(2)
         L = ts.sequence_length
         x = L / 2
-        new_sample_paths = [
-            [(0, x, 2), (x, L, 3)],
-            [(0, x, 2), (x, L, 3)],
+        new_paths = [
+            [(0, x, 2), (x, L, 3)],  # Added
+            [
+                (0, L / 4, 2),
+                (L / 4, L / 2, 3),
+                (L / 2, 3 / 4 * L, 4),
+                (3 / 4 * L, L, 2),
+            ],  # Filtered
         ]
-        samples = util.get_samples(ts, new_sample_paths)
+        samples = util.get_samples(ts, new_paths)
         ts2 = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=1e3, max_hmm_cost=1e3 - 1
+            samples, ts, "2021", num_mismatches=3, max_hmm_cost=4
         )
         assert ts2.num_trees == 2
-        assert ts2.num_samples == ts.num_samples + len(new_sample_paths)
+        assert ts2.num_samples == ts.num_samples + 1
 
     def test_one_sample_one_mutation(self):
         ts = sc2ts.initial_ts()
@@ -130,24 +131,25 @@ class TestAddMatchingResults:
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
         assert ts2.num_mutations == 0
 
-    def test_two_samples_one_mutation_not_filtered(self):
+    def test_two_samples_one_mutation_one_filtered(self):
         ts = sc2ts.initial_ts()
         ts = sc2ts.increment_time("2020-01-01", ts)
-        new_sample_paths = [
+        x = int(ts.sequence_length / 2)
+        new_paths = [
             [(0, ts.sequence_length, 1)],
             [(0, ts.sequence_length, 1)],
         ]
-        new_sample_mutations = [
-            [(0, "X")],
-            [(0, "X")],
+        new_mutations = [
+            [(0, "X")],  # Added
+            [(0, "X"), (x, "X")],  # Filtered
         ]
         samples = util.get_samples(
             ts,
-            paths=new_sample_paths,
-            mutations=new_sample_mutations,
+            paths=new_paths,
+            mutations=new_mutations,
         )
         ts2 = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=0.0, max_hmm_cost=0.0
+            samples, ts, "2021", num_mismatches=3, max_hmm_cost=1
         )
         assert ts2.num_trees == ts.num_trees
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
