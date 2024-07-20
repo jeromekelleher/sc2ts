@@ -170,6 +170,18 @@ def dump_samples(samples, output_file):
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
 @click.option("--max-hmm-cost", default=None, type=float, help="max-hmm-cost")
 @click.option(
+    "--min-group-size",
+    default=None,
+    type=int,
+    help="Minimum size of groups of reconsidered samples",
+)
+@click.option(
+    "--num-past-days",
+    default=None,
+    type=int,
+    help="Number of past days to retrieve filtered samples",
+)
+@click.option(
     "--max-submission-delay",
     default=None,
     type=int,
@@ -187,6 +199,15 @@ def dump_samples(samples, output_file):
         "is greater than this, randomly subsample."
     ),
 )
+@click.option(
+    "--excluded_samples_dir",
+    default=None,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help=(
+        "Directory containing pickled files of excluded samples. "
+        "By default, it is set to output_prefx."
+    ),
+)
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("--random-seed", default=42, type=int, help="Random seed for subsampling")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
@@ -200,8 +221,11 @@ def daily_extend(
     base,
     num_mismatches,
     max_hmm_cost,
+    min_group_size,
+    num_past_days,
     max_submission_delay,
     max_daily_samples,
+    excluded_samples_dir,
     num_threads,
     random_seed,
     precision,
@@ -219,6 +243,9 @@ def daily_extend(
     else:
         base_ts = tskit.load(base)
 
+    if excluded_samples_dir is None:
+        excluded_samples_dir = output_prefix
+
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
@@ -228,12 +255,15 @@ def daily_extend(
             base_ts=base_ts,
             num_mismatches=num_mismatches,
             max_hmm_cost=max_hmm_cost,
+            min_group_size=min_group_size,
+            num_past_days=num_past_days,
             max_submission_delay=max_submission_delay,
             max_daily_samples=max_daily_samples,
             rng=rng,
             precision=precision,
             num_threads=num_threads,
             show_progress=not no_progress,
+            excluded_sample_dir=excluded_samples_dir,
         )
         for ts, excluded_samples, date in ts_iter:
             output_ts = output_prefix + date + ".ts"
