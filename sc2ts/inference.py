@@ -4,6 +4,8 @@ import datetime
 import dataclasses
 import collections
 import io
+import pickle
+import os
 
 import tqdm
 import tskit
@@ -110,11 +112,13 @@ def last_date(ts):
         # Special case for the initial ts which contains the
         # reference but not as a sample
         u = ts.num_nodes - 1
+        node = ts.node(u)
+        assert node.time == 0
+        return parse_date(node.metadata["date"])
     else:
-        u = ts.samples()[-1]
-    node = ts.node(u)
-    assert node.time == 0
-    return parse_date(node.metadata["date"])
+        samples = ts.samples()
+        samples_t0 = samples[ts.nodes_time[samples] == 0]
+        return max([parse_date(ts.node(u).metadata["date"]) for u in samples_t0])
 
 
 def increment_time(date, ts):
@@ -253,14 +257,31 @@ def daily_extend(
     base_ts,
     num_mismatches=None,
     max_hmm_cost=None,
+    min_group_size=None,
+    num_past_days=None,
     show_progress=False,
     max_submission_delay=None,
     max_daily_samples=None,
     num_threads=None,
     precision=None,
     rng=None,
+    excluded_sample_dir=None,
 ):
     start_day = last_date(base_ts)
+
+    reconsidered_samples = collections.deque()
+    earliest_date = start_day - datetime.timedelta(days=1)
+    if base_ts is not None:
+        next_day = start_day + datetime.timedelta(days=1)
+        reconsidered_samples.extend(
+            fetch_samples_from_pickle_file(
+                date=next_day,
+                num_past_days=num_past_days,
+                in_dir=excluded_sample_dir,
+            )
+        )
+        earliest_date = next_day - datetime.timedelta(days=num_past_days)
+
     last_ts = base_ts
     for date in metadata_db.get_days(start_day):
         ts, excluded_samples = extend(
@@ -270,14 +291,25 @@ def daily_extend(
             base_ts=last_ts,
             num_mismatches=num_mismatches,
             max_hmm_cost=max_hmm_cost,
+            min_group_size=min_group_size,
             show_progress=show_progress,
             max_submission_delay=max_submission_delay,
             max_daily_samples=max_daily_samples,
             num_threads=num_threads,
             precision=precision,
             rng=rng,
+            reconsidered_samples=reconsidered_samples,
         )
         yield ts, excluded_samples, date
+
+        # Update list of reconsidered samples.
+        if len(reconsidered_samples) > 0:
+            while reconsidered_samples[0].date == earliest_date:
+                reconsidered_samples.popleft()
+            reconsidered_samples.extend(excluded_samples)
+
+        earliest_date += datetime.timedelta(days=1)
+
         last_ts = ts
 
 
@@ -348,12 +380,14 @@ def extend(
     base_ts,
     num_mismatches=None,
     max_hmm_cost=None,
+    min_group_size=None,
     show_progress=False,
     max_submission_delay=None,
     max_daily_samples=None,
     num_threads=None,
     precision=None,
     rng=None,
+    reconsidered_samples=None,
 ):
     date_samples = [Sample(md) for md in metadata_db.get(date)]
     samples = filter_samples(date_samples, alignment_store, max_submission_delay)
@@ -386,6 +420,17 @@ def extend(
         date=date,
         num_mismatches=num_mismatches,
         max_hmm_cost=max_hmm_cost,
+        min_group_size=None,
+        show_progress=show_progress,
+    )
+
+    ts, _ = add_matching_results(
+        samples=reconsidered_samples,
+        ts=ts,
+        date=date,
+        num_mismatches=num_mismatches,
+        max_hmm_cost=None,
+        min_group_size=min_group_size,
         show_progress=show_progress,
     )
 
@@ -439,7 +484,13 @@ def match_path_ts(samples, ts, path, reversions):
 
 
 def add_matching_results(
-    samples, ts, date, num_mismatches, max_hmm_cost, show_progress=False
+    samples,
+    ts,
+    date,
+    num_mismatches,
+    max_hmm_cost,
+    min_group_size,
+    show_progress=False,
 ):
     if num_mismatches is None:
         # Note that this is the default assigned in match_tsinfer.
@@ -448,6 +499,9 @@ def add_matching_results(
     if max_hmm_cost is None:
         # By default, arbitraily high.
         max_hmm_cost = 1e6
+
+    if min_group_size is None:
+        min_group_size = 1
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
@@ -478,6 +532,9 @@ def add_matching_results(
         disable=not show_progress,
     ) as bar:
         for (path, reversions), match_samples in bar:
+            if len(match_samples) < min_group_size:
+                continue
+
             # print(path, reversions, len(match_samples))
             # Delete the reversions from these samples so that we don't
             # build them into the trees
@@ -538,6 +595,29 @@ def add_matching_results(
     ts = coalesce_mutations(ts, attach_nodes)
 
     return ts, excluded_samples
+
+
+def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
+    if in_dir is None:
+        return []
+    if num_past_days is None:
+        num_past_days = 0
+    file_suffix = ".excluded_samples.pickle"
+    samples = []
+    for i in range(num_past_days, 0, -1):
+        past_date = date - datetime.timedelta(days=i)
+        pickle_file = in_dir + "/"
+        pickle_file += past_date.strftime('%Y-%m-%d') + file_suffix
+        if os.path.exists(pickle_file):
+            samples += parse_pickle_file(pickle_file)
+    return samples
+
+
+def parse_pickle_file(pickle_file):
+    """Return a list of Sample objects."""
+    with open(pickle_file, 'rb') as f:
+        samples = pickle.load(f)
+    return samples
 
 
 def solve_num_mismatches(ts, k):
