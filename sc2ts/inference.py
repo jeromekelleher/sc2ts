@@ -303,10 +303,10 @@ def daily_extend(
         yield ts, excluded_samples, date
 
         # Update list of reconsidered samples.
+        reconsidered_samples.extend(excluded_samples)
         if len(reconsidered_samples) > 0:
             while reconsidered_samples[0].date == earliest_date:
                 reconsidered_samples.popleft()
-            reconsidered_samples.extend(excluded_samples)
 
         earliest_date += datetime.timedelta(days=1)
 
