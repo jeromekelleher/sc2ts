@@ -284,7 +284,7 @@ def daily_extend(
 
     last_ts = base_ts
     for date in metadata_db.get_days(start_day):
-        ts, excluded_samples = extend(
+        ts, excluded_samples, added_back_samples = extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             date=date,
@@ -303,10 +303,24 @@ def daily_extend(
         yield ts, excluded_samples, date
 
         # Update list of reconsidered samples.
-        reconsidered_samples.extend(excluded_samples)
+        # Remove oldest reconsidered samples.
         if len(reconsidered_samples) > 0:
             while reconsidered_samples[0].date == earliest_date:
                 reconsidered_samples.popleft()
+        # Remove samples just added back.
+        if len(added_back_samples) > 0:
+            # TODO: Horrible. This needs to be reworked after 
+            #       storing pickled Samples in a SQLite db.
+            samples_to_remove = []
+            for sample_added_back in added_back_samples:
+                for sample_reconsidered in reconsidered_samples:
+                    if sample_added_back.strain == sample_reconsidered.strain:
+                        samples_to_remove.append(sample_added_back)
+                        continue
+            for sample in samples_to_remove:
+                reconsidered_samples.remove(sample)
+        # Add new excluded samples.
+        reconsidered_samples.extend(excluded_samples)
 
         earliest_date += datetime.timedelta(days=1)
 
@@ -414,7 +428,7 @@ def extend(
     )
     ts = increment_time(date, base_ts)
 
-    ts, excluded_samples = add_matching_results(
+    ts, excluded_samples, _ = add_matching_results(
         samples=samples,
         ts=ts,
         date=date,
@@ -424,7 +438,7 @@ def extend(
         show_progress=show_progress,
     )
 
-    ts, _ = add_matching_results(
+    ts, _, added_back_samples = add_matching_results(
         samples=reconsidered_samples,
         ts=ts,
         date=date,
@@ -434,7 +448,7 @@ def extend(
         show_progress=show_progress,
     )
 
-    return ts, excluded_samples
+    return ts, excluded_samples, added_back_samples
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -524,6 +538,7 @@ def add_matching_results(
     logger.info(f"Got {len(grouped_matches)} distinct paths")
 
     attach_nodes = []
+    added_samples = []
 
     with tqdm.tqdm(
         grouped_matches.items(),
@@ -534,6 +549,8 @@ def add_matching_results(
         for (path, reversions), match_samples in bar:
             if len(match_samples) < min_group_size:
                 continue
+
+            added_samples.extend(match_samples)
 
             # print(path, reversions, len(match_samples))
             # Delete the reversions from these samples so that we don't
@@ -594,7 +611,7 @@ def add_matching_results(
     # print(ts.draw_text())
     ts = coalesce_mutations(ts, attach_nodes)
 
-    return ts, excluded_samples
+    return ts, excluded_samples, added_samples
 
 
 def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
