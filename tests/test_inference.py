@@ -159,7 +159,6 @@ class TestAddMatchingResults:
         assert var.alleles[var.genotypes[0]] == "X"
 
 
-@pytest.mark.skip("match_tsinfer broken")
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, haplotypes, **kwargs):
         assert len(samples) == len(haplotypes)
