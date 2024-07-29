@@ -6,5 +6,24 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "sc2ts"
+description = "Infer ARGs in tskit format for SARS-Cov2"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+  {name = "FIXME", email = "FIXME"},
+]
+dependencies = [
+  "tsinfer",
+  "pyfaidx",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-coverage",
+]
+
 [tool.setuptools_scm]
 write_to = "sc2ts/_version.py"
