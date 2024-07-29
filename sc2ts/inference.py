@@ -268,23 +268,26 @@ def daily_extend(
     excluded_sample_dir=None,
 ):
     start_day = last_date(base_ts)
-
-    reconsidered_samples = collections.deque()
     earliest_date = start_day - datetime.timedelta(days=1)
-    if base_ts is not None:
-        next_day = start_day + datetime.timedelta(days=1)
-        reconsidered_samples.extend(
-            fetch_samples_from_pickle_file(
-                date=next_day,
-                num_past_days=num_past_days,
-                in_dir=excluded_sample_dir,
-            )
-        )
-        earliest_date = next_day - datetime.timedelta(days=num_past_days)
+
+    # if num_past_days is None:
+    #     num_past_days = 0
+
+    # reconsidered_samples = collections.deque()
+    # if base_ts is not None:
+    #     next_day = start_day + datetime.timedelta(days=1)
+    #     reconsidered_samples.extend(
+    #         fetch_samples_from_pickle_file(
+    #             date=next_day,
+    #             num_past_days=num_past_days,
+    #             in_dir=excluded_sample_dir,
+    #         )
+    #     )
+    #     earliest_date = next_day - datetime.timedelta(days=num_past_days)
 
     last_ts = base_ts
     for date in metadata_db.get_days(start_day):
-        ts, excluded_samples, added_back_samples = extend(
+        ts = extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             date=date,
@@ -298,29 +301,29 @@ def daily_extend(
             num_threads=num_threads,
             precision=precision,
             rng=rng,
-            reconsidered_samples=reconsidered_samples,
+            # reconsidered_samples=reconsidered_samples,
         )
-        yield ts, excluded_samples, date
+        yield ts, date
 
         # Update list of reconsidered samples.
         # Remove oldest reconsidered samples.
-        if len(reconsidered_samples) > 0:
-            while reconsidered_samples[0].date == earliest_date:
-                reconsidered_samples.popleft()
-        # Remove samples just added back.
-        if len(added_back_samples) > 0:
-            # TODO: Horrible. This needs to be reworked after
-            #       storing pickled Samples in a SQLite db.
-            samples_to_remove = []
-            for sample_added_back in added_back_samples:
-                for sample_reconsidered in reconsidered_samples:
-                    if sample_added_back.strain == sample_reconsidered.strain:
-                        samples_to_remove.append(sample_added_back)
-                        continue
-            for sample in samples_to_remove:
-                reconsidered_samples.remove(sample)
-        # Add new excluded samples.
-        reconsidered_samples.extend(excluded_samples)
+        # if len(reconsidered_samples) > 0:
+        #     while reconsidered_samples[0].date == earliest_date:
+        #         reconsidered_samples.popleft()
+        # # Remove samples just added back.
+        # if len(added_back_samples) > 0:
+        #     # TODO: Horrible. This needs to be reworked after
+        #     #       storing pickled Samples in a SQLite db.
+        #     samples_to_remove = []
+        #     for sample_added_back in added_back_samples:
+        #         for sample_reconsidered in reconsidered_samples:
+        #             if sample_added_back.strain == sample_reconsidered.strain:
+        #                 samples_to_remove.append(sample_added_back)
+        #                 continue
+        #     for sample in samples_to_remove:
+        #         reconsidered_samples.remove(sample)
+        # # Add new excluded samples.
+        # reconsidered_samples.extend(excluded_samples)
 
         earliest_date += datetime.timedelta(days=1)
 
@@ -428,7 +431,7 @@ def extend(
     )
     ts = increment_time(date, base_ts)
 
-    ts, excluded_samples, _ = add_matching_results(
+    ts = add_matching_results(
         samples=samples,
         ts=ts,
         date=date,
@@ -438,17 +441,17 @@ def extend(
         show_progress=show_progress,
     )
 
-    ts, _, added_back_samples = add_matching_results(
-        samples=reconsidered_samples,
-        ts=ts,
-        date=date,
-        num_mismatches=num_mismatches,
-        max_hmm_cost=None,
-        min_group_size=min_group_size,
-        show_progress=show_progress,
-    )
+    #     ts, _, added_back_samples = add_matching_results(
+    #         samples=reconsidered_samples,
+    #         ts=ts,
+    #         date=date,
+    #         num_mismatches=num_mismatches,
+    #         max_hmm_cost=None,
+    #         min_group_size=min_group_size,
+    #         show_progress=show_progress,
+    #     )
 
-    return ts, excluded_samples, added_back_samples
+    return ts  # , excluded_samples, added_back_samples
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -611,7 +614,7 @@ def add_matching_results(
     # print(ts.draw_text())
     ts = coalesce_mutations(ts, attach_nodes)
 
-    return ts # , excluded_samples, added_samples
+    return ts  # , excluded_samples, added_samples
 
 
 def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
@@ -624,7 +627,7 @@ def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
     for i in range(num_past_days, 0, -1):
         past_date = date - datetime.timedelta(days=i)
         pickle_file = in_dir + "/"
-        pickle_file += past_date.strftime('%Y-%m-%d') + file_suffix
+        pickle_file += past_date.strftime("%Y-%m-%d") + file_suffix
         if os.path.exists(pickle_file):
             samples += parse_pickle_file(pickle_file)
     return samples
@@ -632,7 +635,7 @@ def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
 
 def parse_pickle_file(pickle_file):
     """Return a list of Sample objects."""
-    with open(pickle_file, 'rb') as f:
+    with open(pickle_file, "rb") as f:
         samples = pickle.load(f)
     return samples
 
@@ -714,7 +717,6 @@ def node_mutation_descriptors(ts, u):
 
 
 def update_tables(tables, edges_to_delete, mutations_to_delete):
-
     # Updating the mutations is a real faff, and the only way I
     # could get it to work is by setting the time values. This should
     # be easier...

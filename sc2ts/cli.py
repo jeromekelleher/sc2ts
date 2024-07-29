@@ -265,11 +265,11 @@ def daily_extend(
             show_progress=not no_progress,
             excluded_sample_dir=excluded_samples_dir,
         )
-        for ts, excluded_samples, date in ts_iter:
+        for ts, date in ts_iter:
             output_ts = output_prefix + date + ".ts"
             add_provenance(ts, output_ts)
-            output_excluded_samples = output_prefix + date + ".excluded_samples.pickle"
-            dump_samples(excluded_samples, output_excluded_samples)
+            # output_excluded_samples = output_prefix + date + ".excluded_samples.pickle"
+            # dump_samples(excluded_samples, output_excluded_samples)
 
 
 @click.command()
