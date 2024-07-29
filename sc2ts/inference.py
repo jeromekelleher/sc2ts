@@ -503,7 +503,7 @@ def add_matching_results(
     date,
     num_mismatches,
     max_hmm_cost,
-    min_group_size,
+    min_group_size=1,
     show_progress=False,
 ):
     if num_mismatches is None:
@@ -611,7 +611,7 @@ def add_matching_results(
     # print(ts.draw_text())
     ts = coalesce_mutations(ts, attach_nodes)
 
-    return ts, excluded_samples, added_samples
+    return ts # , excluded_samples, added_samples
 
 
 def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):

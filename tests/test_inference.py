@@ -8,12 +8,11 @@ import sc2ts
 import util
 
 
-@pytest.mark.skip("add_matching_results broken")
 class TestAddMatchingResults:
     def add_matching_results(
         self, samples, ts, date="2020-01-01", num_mismatches=None, max_hmm_cost=None
     ):
-        ts2, _ = sc2ts.add_matching_results(
+        ts2 = sc2ts.add_matching_results(
             samples=samples,
             ts=ts,
             date=date,
@@ -77,7 +76,7 @@ class TestAddMatchingResults:
         x = L / 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
         # Note that it is calling the function in the main module.
-        ts2, _ = sc2ts.add_matching_results(
+        ts2 = sc2ts.add_matching_results(
             samples, ts, "2021", num_mismatches=1e3, max_hmm_cost=1e3 - 1
         )
         assert ts2.num_trees == 1
@@ -98,7 +97,7 @@ class TestAddMatchingResults:
             ],  # Filtered
         ]
         samples = util.get_samples(ts, new_paths)
-        ts2, _ = sc2ts.add_matching_results(
+        ts2 = sc2ts.add_matching_results(
             samples, ts, "2021", num_mismatches=3, max_hmm_cost=4
         )
         assert ts2.num_trees == 2
@@ -125,7 +124,7 @@ class TestAddMatchingResults:
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
         )
-        ts2, _ = sc2ts.add_matching_results(
+        ts2 = sc2ts.add_matching_results(
             samples, ts, "2021", num_mismatches=0.0, max_hmm_cost=0.0
         )
         assert ts2.num_trees == ts.num_trees
@@ -149,7 +148,7 @@ class TestAddMatchingResults:
             paths=new_paths,
             mutations=new_mutations,
         )
-        ts2, _ = sc2ts.add_matching_results(
+        ts2= sc2ts.add_matching_results(
             samples, ts, "2021", num_mismatches=3, max_hmm_cost=1
         )
         assert ts2.num_trees == ts.num_trees
