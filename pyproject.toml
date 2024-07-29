@@ -1,3 +1,41 @@
+[project]
+name = "sc2ts"
+description = "Infer ARGs for SARS-Cov2 in tskit format"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Jerome Kelleher", email = "jerome.kelleher@bdi.ox.ac.uk"},
+]
+requires-python = ">=3.9"
+dependencies = [
+  "tsinfer",
+  "pyfaidx",
+  "tskit>=0.5.3",
+  "tszip",
+  "tsinfer>=0.3.0",
+  "pandas",
+  "numba",
+  "tqdm",
+  "scipy",
+  "click",
+  "zarr<2.18",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = [
+  "msprime",
+  "pytest",
+  "pytest-coverage",
+]
+analysis = [
+  "matplotlib",
+  "scikit-learn",
+  "pandas",
+  "IPython",
+  "networkx",
+]
+
 [build-system]
 requires = [
     "setuptools>=42",
@@ -6,24 +44,8 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "sc2ts"
-description = "Infer ARGs in tskit format for SARS-Cov2"
-readme = "README.md"
-license = {file = "LICENSE"}
-authors = [
-  {name = "FIXME", email = "FIXME"},
-]
-dependencies = [
-  "tsinfer",
-  "pyfaidx",
-]
-
-[project.optional-dependencies]
-dev = [
-  "pytest",
-  "pytest-coverage",
-]
+[tool.setuptools]
+packages = ["sc2ts"]
 
 [tool.setuptools_scm]
 write_to = "sc2ts/_version.py"
