@@ -326,6 +326,10 @@ def daily_extend(
 
         last_ts = ts
 
+        logger.info(f"date: {date}; excluded samples: {len(excluded_samples)}")
+        logger.info(f"date: {date}; reconsidered samples: {len(reconsidered_samples)}")
+        logger.info(f"date: {date}; added-back samples: {len(added_back_samples)}")
+
 
 def match(
     samples,
@@ -447,6 +451,9 @@ def extend(
         min_group_size=min_group_size,
         show_progress=show_progress,
     )
+
+    logger.info(f"date: {date}; new samples: {len(samples)}")
+    logger.info(f"date: {date}; newly added samples: {len(samples) - len(excluded_samples)}")
 
     return ts, excluded_samples, added_back_samples
 
