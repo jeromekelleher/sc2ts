@@ -1,4 +1,5 @@
 from __future__ import annotations
+import bz2
 import logging
 import datetime
 import dataclasses
@@ -6,6 +7,9 @@ import collections
 import io
 import pickle
 import os
+import sqlite3
+import pathlib
+import json
 
 import tqdm
 import tskit
@@ -18,8 +22,119 @@ import numba
 
 from . import core
 from . import alignments
+from . import metadata
 
 logger = logging.getLogger(__name__)
+
+
+class MatchDb:
+    def __init__(self, path):
+        uri = f"file:{path}"
+        # uri += "?mode=rw"
+        self.uri = uri
+        self.conn = sqlite3.connect(uri, uri=True)
+        self.conn.row_factory = metadata.dict_factory
+
+    def __len__(self):
+        sql = "SELECT COUNT(*) FROM samples"
+        with self.conn:
+            row = self.conn.execute(sql).fetchone()
+            return row["COUNT(*)"]
+
+    def __str__(self):
+        return "MatchDb at {self.uri} has {len(self)} samples"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def __str__(self):
+        return f"MatchDb at {self.uri} contains {len(self)} samples"
+
+    def close(self):
+        self.conn.close()
+
+    def add(self, sample, date, num_mismatches):
+        """
+        Adds the specified matched sample to this MatchDb.
+        """
+        d = sample.asdict()
+        sql = """\
+            INSERT INTO samples (
+            strain, match_date, hmm_cost, pickle)
+            VALUES (?, ?, ?, ?)
+            """
+
+        pkl = pickle.dumps(sample)
+        # BZ2 compressing drops this by ~10X, so worth it.
+        pkl_compressed = bz2.compress(pkl)
+        args = (
+            sample.strain,
+            date,
+            sample.get_hmm_cost(num_mismatches),
+            pkl_compressed,
+        )
+        with self.conn:
+            self.conn.execute(sql, args)
+
+    def create_mask_table(self, ts):
+        # TODO this is inefficient - need some logging to see how much time
+        # we're spending here.
+        samples = [(ts.node(u).metadata["strain"],) for u in ts.samples()]
+        sql = """\
+            DROP TABLE IF EXISTS sample_mask;
+            CREATE TABLE sample_mask (
+            strain TEXT,
+            PRIMARY KEY (strain));
+            """
+        with self.conn:
+            self.conn.execute("DROP TABLE IF EXISTS used_samples")
+            self.conn.execute(
+                "CREATE TABLE used_samples (strain TEXT, PRIMARY KEY (strain))"
+            )
+            self.conn.executemany("INSERT INTO used_samples VALUES (?)", samples)
+
+    def get(self, where_clause):
+        sql = (
+            "SELECT * FROM samples LEFT JOIN used_samples "
+            "ON samples.strain = used_samples.strain "
+            f"WHERE used_samples.strain IS NULL AND {where_clause}"
+        )
+        with self.conn:
+            logger.debug(f"MatchDb run: {sql}")
+            for row in self.conn.execute(sql):
+                pkl = row.pop("pickle")
+                sample = pickle.loads(bz2.decompress(pkl))
+                logger.debug(f"MatchDb got: {row}")
+                # print(row)
+                yield sample
+
+    @staticmethod
+    def initialise(db_path):
+        db_path = pathlib.Path(db_path)
+        if db_path.exists():
+            db_path.unlink()
+        sql = """\
+            CREATE TABLE samples (
+            strain TEXT,
+            match_date TEXT,
+            hmm_cost REAL,
+            pickle BLOB,
+            PRIMARY KEY (strain))
+            """
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(sql)
+            conn.execute(
+                "CREATE INDEX [ix_samples_match_date] on 'samples' " "([match_date]);"
+            )
+            conn.execute(
+                "CREATE INDEX [ix_samples_insertion_date] on 'samples' "
+                "([insertion_date]);"
+            )
+        return MatchDb(db_path)
 
 
 def mirror(x, L):
@@ -255,6 +370,7 @@ def daily_extend(
     alignment_store,
     metadata_db,
     base_ts,
+    match_db,
     num_mismatches=None,
     max_hmm_cost=None,
     min_group_size=None,
@@ -292,6 +408,7 @@ def daily_extend(
             metadata_db=metadata_db,
             date=date,
             base_ts=last_ts,
+            match_db=match_db,
             num_mismatches=num_mismatches,
             max_hmm_cost=max_hmm_cost,
             min_group_size=min_group_size,
@@ -395,6 +512,7 @@ def extend(
     metadata_db,
     date,
     base_ts,
+    match_db,
     num_mismatches=None,
     max_hmm_cost=None,
     min_group_size=None,
@@ -407,6 +525,7 @@ def extend(
     reconsidered_samples=None,
 ):
     date_samples = [Sample(md) for md in metadata_db.get(date)]
+    # TODO remove the max_submission_delay #203
     samples = filter_samples(date_samples, alignment_store, max_submission_delay)
 
     if max_daily_samples is not None and len(samples) > max_daily_samples:
@@ -420,7 +539,7 @@ def extend(
     logger.info(f"Got {len(samples)} samples")
 
     # Note num_mismatches is assigned a default value in match_tsinfer.
-    samples = match(
+    match(
         samples,
         alignment_store=alignment_store,
         base_ts=base_ts,
@@ -429,29 +548,39 @@ def extend(
         num_threads=num_threads,
         precision=precision,
     )
+
+    match_db.create_mask_table(base_ts)
+
+    # FIXME
+    if max_hmm_cost is None:
+        # By default, arbitraily high.
+        max_hmm_cost = 1e6
+
+    num_mismatches = 1000 if num_mismatches is None else num_mismatches
+
+    for sample in samples:
+        match_db.add(sample, date, num_mismatches)
+
     ts = increment_time(date, base_ts)
 
     ts = add_matching_results(
-        samples=samples,
+        f"match_date=='{date}' and hmm_cost<={max_hmm_cost}",
         ts=ts,
+        match_db=match_db,
         date=date,
-        num_mismatches=num_mismatches,
-        max_hmm_cost=max_hmm_cost,
-        min_group_size=None,
+        min_group_size=1,
         show_progress=show_progress,
     )
 
-    #     ts, _, added_back_samples = add_matching_results(
-    #         samples=reconsidered_samples,
-    #         ts=ts,
-    #         date=date,
-    #         num_mismatches=num_mismatches,
-    #         max_hmm_cost=None,
-    #         min_group_size=min_group_size,
-    #         show_progress=show_progress,
-    #     )
-
-    return ts  # , excluded_samples, added_back_samples
+    ts = add_matching_results(
+        f"match_date<'{date}' and insertion_date==NULL",
+        ts=ts,
+        match_db=match_db,
+        date=date,
+        min_group_size=3,
+        show_progress=show_progress,
+    )
+    return ts
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -501,33 +630,20 @@ def match_path_ts(samples, ts, path, reversions):
 
 
 def add_matching_results(
-    samples,
+    where_clause,
+    match_db,
     ts,
     date,
-    num_mismatches,
-    max_hmm_cost,
     min_group_size=1,
     show_progress=False,
 ):
-    if num_mismatches is None:
-        # Note that this is the default assigned in match_tsinfer.
-        num_mismatches = 1e3
-
-    if max_hmm_cost is None:
-        # By default, arbitraily high.
-        max_hmm_cost = 1e6
-
-    if min_group_size is None:
-        min_group_size = 1
+    samples = match_db.get(where_clause)
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
     excluded_samples = []
     site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
     for sample in samples:
-        if sample.get_hmm_cost(num_mismatches) > max_hmm_cost:
-            excluded_samples.append(sample)
-            continue
         site_masked_samples[sample.masked_sites] += 1
         path = tuple(sample.path)
         reversions = tuple(

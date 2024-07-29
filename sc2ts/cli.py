@@ -238,10 +238,13 @@ def daily_extend(
     """
     setup_logging(verbose, log_file)
     rng = random.Random(random_seed)
+    match_db_path = f"{output_prefix}match.db"
     if base is None:
         base_ts = inference.initial_ts()
+        match_db = inference.MatchDb.initialise(match_db_path)
     else:
         base_ts = tskit.load(base)
+        match_db = inference.MatchDb(match_db_path)
 
     if excluded_samples_dir is None:
         excluded_samples_dir = output_prefix
@@ -253,6 +256,7 @@ def daily_extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             base_ts=base_ts,
+            match_db=match_db,
             num_mismatches=num_mismatches,
             max_hmm_cost=max_hmm_cost,
             min_group_size=min_group_size,
