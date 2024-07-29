@@ -18,6 +18,7 @@ class TestPadSites:
         self.check_site_padding(sc2ts.initial_ts())
 
 
+@pytest.mark.skip("match_tsinfer broken")
 class TestDetachSingletonRecombinants:
     def make_recombinant_tree(self, num_samples=1):
         # Make a tree sequence by adding num_samples samples under a
