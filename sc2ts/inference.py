@@ -309,7 +309,7 @@ def daily_extend(
                 reconsidered_samples.popleft()
         # Remove samples just added back.
         if len(added_back_samples) > 0:
-            # TODO: Horrible. This needs to be reworked after 
+            # TODO: Horrible. This needs to be reworked after
             #       storing pickled Samples in a SQLite db.
             samples_to_remove = []
             for sample_added_back in added_back_samples:
