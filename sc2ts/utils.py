@@ -357,8 +357,8 @@ class TreeInfo:
                 self.nodes_submission_date[node.id] = md["date_submitted"]
                 pango = md.get(pango_source, "unknown")
                 self.pango_lineage_samples[pango].append(node.id)
-                if "sc2ts_qc" in md:
-                    qc = md["sc2ts_qc"]
+                if "sc2ts" in md:
+                    qc = md["sc2ts"]["qc"]
                     self.nodes_num_masked_sites[node.id] = qc["num_masked_sites"]
                 else:
                     warnings.warn("Node QC metadata not available")
