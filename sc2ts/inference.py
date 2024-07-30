@@ -638,10 +638,6 @@ def add_matching_results(
         logger.info("No candidate samples found in MatchDb")
         return ts
 
-    logger.info(
-        f"Filtered to {num_samples} candidates in " f"{len(grouped_matches)} groups"
-    )
-
     tables = ts.dump_tables()
     logger.info(f"Got {len(grouped_matches)} distinct paths for {num_samples} samples")
 
