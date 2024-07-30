@@ -462,7 +462,7 @@ def preprocess_and_match_alignments(
     samples_iter = enumerate(samples)
     with tqdm.tqdm(
         samples_iter,
-        desc="Fetch",
+        desc=f"Fetch:{date}",
         total=len(samples),
         disable=not show_progress,
     ) as bar:
@@ -549,9 +549,10 @@ def extend(
     # TODO add this as a parameter. Only consider sequences with a date from the
     # past month for retrospective insertion.
     max_insertion_delay = 30
+    assert min_group_size is not None
     earliest_date = parse_date(date) - datetime.timedelta(days=max_insertion_delay)
     ts = add_matching_results(
-        f"match_date<'{date}' AND match_date>'earliest_date'",
+        f"match_date<'{date}' AND match_date>'{earliest_date}'",
         ts=ts,
         match_db=match_db,
         date=date,
@@ -638,10 +639,6 @@ def add_matching_results(
         logger.info("No candidate samples found in MatchDb")
         return ts
 
-    logger.info(
-        f"Filtered to {num_samples} candidates in " f"{len(grouped_matches)} groups"
-    )
-
     tables = ts.dump_tables()
     logger.info(f"Got {len(grouped_matches)} distinct paths for {num_samples} samples")
 
@@ -650,7 +647,7 @@ def add_matching_results(
 
     with tqdm.tqdm(
         grouped_matches.items(),
-        desc="Build",
+        desc=f"Build:{date}",
         total=len(grouped_matches),
         disable=not show_progress,
     ) as bar:
