@@ -462,7 +462,7 @@ def preprocess_and_match_alignments(
     samples_iter = enumerate(samples)
     with tqdm.tqdm(
         samples_iter,
-        desc="Fetch",
+        desc=f"Fetch:{date}",
         total=len(samples),
         disable=not show_progress,
     ) as bar:
@@ -551,7 +551,7 @@ def extend(
     max_insertion_delay = 30
     earliest_date = parse_date(date) - datetime.timedelta(days=max_insertion_delay)
     ts = add_matching_results(
-        f"match_date<'{date}' AND match_date>'earliest_date'",
+        f"match_date<'{date}' AND match_date>'{earliest_date}'",
         ts=ts,
         match_db=match_db,
         date=date,
@@ -650,7 +650,7 @@ def add_matching_results(
 
     with tqdm.tqdm(
         grouped_matches.items(),
-        desc="Build",
+        desc=f"Build:{date}",
         total=len(grouped_matches),
         disable=not show_progress,
     ) as bar:
