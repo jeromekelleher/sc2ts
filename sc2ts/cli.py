@@ -201,6 +201,7 @@ def dump_samples(samples, output_file):
 )
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("--random-seed", default=42, type=int, help="Random seed for subsampling")
+@click.option("--stop-date", default="2030-01-01", type=str, help="Stopping date")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
 @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
@@ -218,6 +219,7 @@ def daily_extend(
     max_daily_samples,
     num_threads,
     random_seed,
+    stop_date,
     precision,
     no_progress,
     verbose,
@@ -259,6 +261,8 @@ def daily_extend(
         for ts, date in ts_iter:
             output_ts = output_prefix + date + ".ts"
             add_provenance(ts, output_ts)
+            if date >= stop_date:
+                break
 
 
 @click.command()
