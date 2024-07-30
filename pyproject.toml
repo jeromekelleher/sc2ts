@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-  "tsinfer==0.3", # https://github.com/jeromekelleher/sc2ts/issues/201
+  "tsinfer==0.3.3", # https://github.com/jeromekelleher/sc2ts/issues/201
   "pyfaidx",
   "tskit>=0.5.3",
   "tszip",
