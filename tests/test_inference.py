@@ -8,26 +8,40 @@ import sc2ts
 import util
 
 
-@pytest.mark.skip("add_matching_results broken")
 class TestAddMatchingResults:
     def add_matching_results(
-        self, samples, ts, date="2020-01-01", num_mismatches=None, max_hmm_cost=None
+        self,
+        samples,
+        ts,
+        db_path,
+        date="2020-01-01",
+        num_mismatches=1000,
+        max_hmm_cost=1e7,
     ):
-        ts2, _ = sc2ts.add_matching_results(
-            samples=samples,
+        # This is pretty ugly, need to figure out how to neatly factor this
+        # model of Sample object vs metadata vs alignment QC
+        for sample in samples:
+            sample.date = date
+            sample.metadata["date"] = date
+            sample.metadata["strain"] = sample.strain
+
+        match_db = util.get_match_db(ts, db_path, samples, date, num_mismatches)
+        # print("Match DB", len(match_db))
+        # match_db.print_all()
+        ts2 = sc2ts.add_matching_results(
+            f"hmm_cost <= {max_hmm_cost}",
+            match_db=match_db,
             ts=ts,
             date=date,
-            num_mismatches=num_mismatches,
-            max_hmm_cost=max_hmm_cost,
         )
-        assert ts2.num_samples == len(samples) + ts.num_samples
-        for u, sample in zip(ts2.samples()[-len(samples) :], samples):
-            node = ts2.node(u)
-            assert node.time == 0
+        # assert ts2.num_samples == len(samples) + ts.num_samples
+        # for u, sample in zip(ts2.samples()[-len(samples) :], samples):
+        #     node = ts2.node(u)
+        #     assert node.time == 0
         assert ts2.num_sites == ts.num_sites
         return ts2
 
-    def test_one_sample(self):
+    def test_one_sample(self, tmp_path):
         # 4.00┊  0  ┊
         #     ┊  ┃  ┊
         # 3.00┊  1  ┊
@@ -38,12 +52,12 @@ class TestAddMatchingResults:
         #     0   29904
         ts = util.example_binary(2)
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        ts2 = self.add_matching_results(samples, ts)
+        ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db")
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 5: 1}
 
-    def test_one_sample_recombinant(self):
+    def test_one_sample_recombinant(self, tmp_path):
         # 4.00┊  0  ┊
         #     ┊  ┃  ┊
         # 3.00┊  1  ┊
@@ -56,14 +70,16 @@ class TestAddMatchingResults:
         L = ts.sequence_length
         x = L / 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
-        ts2 = self.add_matching_results(samples, ts, "2021")
+        date = "2021-01-05"
+        ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db", date=date)
+
         assert ts2.num_trees == 2
         assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
         assert ts2.last().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 3, 5: 6}
         assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
-        assert ts2.node(6).metadata == {"date_added": "2021"}
+        assert ts2.node(6).metadata == {"date_added": date}
 
-    def test_one_sample_recombinant_filtered(self):
+    def test_one_sample_recombinant_filtered(self, tmp_path):
         # 4.00┊  0  ┊
         #     ┊  ┃  ┊
         # 3.00┊  1  ┊
@@ -76,15 +92,14 @@ class TestAddMatchingResults:
         L = ts.sequence_length
         x = L / 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
-        # Note that it is calling the function in the main module.
-        ts2, _ = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=1e3, max_hmm_cost=1e3 - 1
+        ts2 = self.add_matching_results(
+            samples, ts, tmp_path / "match.db", num_mismatches=1e3, max_hmm_cost=1e3 - 1
         )
         assert ts2.num_trees == 1
         assert ts2.num_nodes == ts.num_nodes
         assert ts2.num_samples == ts.num_samples
 
-    def test_two_samples_recombinant_one_filtered(self):
+    def test_two_samples_recombinant_one_filtered(self, tmp_path):
         ts = util.example_binary(2)
         L = ts.sequence_length
         x = L / 2
@@ -98,19 +113,19 @@ class TestAddMatchingResults:
             ],  # Filtered
         ]
         samples = util.get_samples(ts, new_paths)
-        ts2, _ = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=3, max_hmm_cost=4
+        ts2 = self.add_matching_results(
+            samples, ts, tmp_path / "match.db", num_mismatches=3, max_hmm_cost=4
         )
         assert ts2.num_trees == 2
         assert ts2.num_samples == ts.num_samples + 1
 
-    def test_one_sample_one_mutation(self):
+    def test_one_sample_one_mutation(self, tmp_path):
         ts = sc2ts.initial_ts()
         ts = sc2ts.increment_time("2020-01-01", ts)
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
         )
-        ts2 = self.add_matching_results(samples, ts)
+        ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db")
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0, 2: 1}
@@ -119,20 +134,20 @@ class TestAddMatchingResults:
         var = next(ts2.variants())
         assert var.alleles[var.genotypes[0]] == "X"
 
-    def test_one_sample_one_mutation_filtered(self):
+    def test_one_sample_one_mutation_filtered(self, tmp_path):
         ts = sc2ts.initial_ts()
         ts = sc2ts.increment_time("2020-01-01", ts)
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
         )
-        ts2, _ = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=0.0, max_hmm_cost=0.0
+        ts2 = self.add_matching_results(
+            samples, ts, tmp_path / "match.db", num_mismatches=0.0, max_hmm_cost=0.0
         )
         assert ts2.num_trees == ts.num_trees
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
         assert ts2.num_mutations == 0
 
-    def test_two_samples_one_mutation_one_filtered(self):
+    def test_two_samples_one_mutation_one_filtered(self, tmp_path):
         ts = sc2ts.initial_ts()
         ts = sc2ts.increment_time("2020-01-01", ts)
         x = int(ts.sequence_length / 2)
@@ -149,8 +164,8 @@ class TestAddMatchingResults:
             paths=new_paths,
             mutations=new_mutations,
         )
-        ts2, _ = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=3, max_hmm_cost=1
+        ts2 = self.add_matching_results(
+            samples, ts, tmp_path / "match.db", num_mismatches=3, max_hmm_cost=1
         )
         assert ts2.num_trees == ts.num_trees
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
@@ -159,12 +174,13 @@ class TestAddMatchingResults:
         assert var.alleles[var.genotypes[0]] == "X"
 
 
-@pytest.mark.skip("match_tsinfer broken")
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, haplotypes, **kwargs):
         assert len(samples) == len(haplotypes)
         G = np.array(haplotypes).T
-        sc2ts.inference.match_tsinfer(samples=samples, ts=ts, genotypes=G, **kwargs)
+        sc2ts.inference.match_tsinfer(
+            samples=samples, ts=ts, genotypes=G, num_mismatches=1000, **kwargs
+        )
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
@@ -353,8 +369,12 @@ class TestMatchPathTs:
         ts = sc2ts.initial_ts()
         samples = []
         for j in range(10):
+            strain = f"x{j}"
+            date = "2021-01-01"
             samples.append(
                 sc2ts.Sample(
+                    strain=strain,
+                    date=date,
                     metadata={f"x{j}": j, f"y{j}": list(range(j))},
                     path=[(0, ts.sequence_length, 1)],
                     mutations=[],

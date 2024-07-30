@@ -199,15 +199,6 @@ def dump_samples(samples, output_file):
         "is greater than this, randomly subsample."
     ),
 )
-@click.option(
-    "--excluded_samples_dir",
-    default=None,
-    type=click.Path(file_okay=False, dir_okay=True),
-    help=(
-        "Directory containing pickled files of excluded samples. "
-        "By default, it is set to output_prefx."
-    ),
-)
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("--random-seed", default=42, type=int, help="Random seed for subsampling")
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
@@ -225,7 +216,6 @@ def daily_extend(
     num_past_days,
     max_submission_delay,
     max_daily_samples,
-    excluded_samples_dir,
     num_threads,
     random_seed,
     precision,
@@ -238,21 +228,23 @@ def daily_extend(
     """
     setup_logging(verbose, log_file)
     rng = random.Random(random_seed)
+
+    match_db_path = f"{output_prefix}match.db"
     if base is None:
         base_ts = inference.initial_ts()
+        match_db = inference.MatchDb.initialise(match_db_path)
     else:
         base_ts = tskit.load(base)
-
-    if excluded_samples_dir is None:
-        excluded_samples_dir = output_prefix
 
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
+        match_db = exit_stack.enter_context(inference.MatchDb(match_db_path))
         ts_iter = inference.daily_extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             base_ts=base_ts,
+            match_db=match_db,
             num_mismatches=num_mismatches,
             max_hmm_cost=max_hmm_cost,
             min_group_size=min_group_size,
@@ -263,13 +255,10 @@ def daily_extend(
             precision=precision,
             num_threads=num_threads,
             show_progress=not no_progress,
-            excluded_sample_dir=excluded_samples_dir,
         )
-        for ts, excluded_samples, date in ts_iter:
+        for ts, date in ts_iter:
             output_ts = output_prefix + date + ".ts"
             add_provenance(ts, output_ts)
-            output_excluded_samples = output_prefix + date + ".excluded_samples.pickle"
-            dump_samples(excluded_samples, output_excluded_samples)
 
 
 @click.command()

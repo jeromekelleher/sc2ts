@@ -1,11 +1,13 @@
 from __future__ import annotations
+import bz2
 import logging
 import datetime
 import dataclasses
 import collections
-import io
 import pickle
 import os
+import sqlite3
+import pathlib
 
 import tqdm
 import tskit
@@ -18,9 +20,147 @@ import numba
 
 from . import core
 from . import alignments
+from . import metadata
 
 logger = logging.getLogger(__name__)
 
+
+class MatchDb:
+    def __init__(self, path):
+        uri = f"file:{path}"
+        self.uri = uri
+        self.conn = sqlite3.connect(uri, uri=True)
+        self.conn.row_factory = metadata.dict_factory
+
+    def __len__(self):
+        sql = "SELECT COUNT(*) FROM samples"
+        with self.conn:
+            row = self.conn.execute(sql).fetchone()
+            return row["COUNT(*)"]
+
+    def __str__(self):
+        return "MatchDb at {self.uri} has {len(self)} samples"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def close(self):
+        self.conn.close()
+
+    def add(self, samples, date, num_mismatches):
+        """
+        Adds the specified matched samples to this MatchDb.
+        """
+        sql = """\
+            INSERT INTO samples (
+            strain, match_date, hmm_cost, pickle)
+            VALUES (?, ?, ?, ?)
+            """
+        data = []
+        hmm_cost = np.zeros(len(samples))
+        for j, sample in enumerate(samples):
+            d = sample.asdict()
+            assert sample.date == date
+            pkl = pickle.dumps(sample)
+            # BZ2 compressing drops this by ~10X, so worth it.
+            pkl_compressed = bz2.compress(pkl)
+            hmm_cost[j] = sample.get_hmm_cost(num_mismatches)
+            args = (
+                sample.strain,
+                date,
+                hmm_cost[j],
+                pkl_compressed,
+            )
+            data.append(args)
+        # Batch insert, for efficiency.
+        with self.conn:
+            self.conn.executemany(sql, data)
+        logger.info(
+            f"Added {len(samples)} samples to match DB for {date}; "
+            f"hmm_cost:min={hmm_cost.min()},max={hmm_cost.max()},"
+            f"mean={hmm_cost.mean()},median={np.median(hmm_cost)}"
+        )
+
+    def create_mask_table(self, ts):
+        # NOTE perhaps a better way to do this would be to simply delete
+        # the rows in the DB that *are* in the ts, as a separate
+        # transaction once we know that the trees have been saved to disk.
+        logger.info("Loading used samples into DB")
+        # TODO this is inefficient - need some logging to see how much time
+        # we're spending here.
+        # One thing we can do is to store the list of strain IDs in the
+        # tree sequence top-level metadata, which we could even store using
+        # some numpy tricks to make it fast.
+        samples = [(ts.node(u).metadata["strain"],) for u in ts.samples()]
+        logger.debug(f"Got {len(samples)} from ts")
+        with self.conn:
+            self.conn.execute("DROP TABLE IF EXISTS used_samples")
+            self.conn.execute(
+                "CREATE TABLE used_samples (strain TEXT, PRIMARY KEY (strain))"
+            )
+            self.conn.executemany("INSERT INTO used_samples VALUES (?)", samples)
+        logger.debug("Built temporary table")
+        with self.conn:
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM samples LEFT JOIN used_samples "
+                "ON samples.strain = used_samples.strain "
+                "WHERE used_samples.strain IS NULL"
+            )
+            row = cursor.fetchone()
+            samples_not_in_ts = row["COUNT(*)"]
+        logger.info(f"DB contains {samples_not_in_ts} samples not in ARG")
+
+    def get(self, where_clause):
+        sql = (
+            "SELECT * FROM samples LEFT JOIN used_samples "
+            "ON samples.strain = used_samples.strain "
+            f"WHERE used_samples.strain IS NULL AND {where_clause}"
+        )
+        with self.conn:
+            logger.debug(f"MatchDb run: {sql}")
+            for row in self.conn.execute(sql):
+                pkl = row.pop("pickle")
+                sample = pickle.loads(bz2.decompress(pkl))
+                logger.debug(f"MatchDb got: {row}")
+                # print(row)
+                yield sample
+
+    @staticmethod
+    def initialise(db_path):
+        db_path = pathlib.Path(db_path)
+        if db_path.exists():
+            db_path.unlink()
+        sql = """\
+            CREATE TABLE samples (
+            strain TEXT,
+            match_date TEXT,
+            hmm_cost REAL,
+            pickle BLOB,
+            PRIMARY KEY (strain))
+            """
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(sql)
+            conn.execute(
+                "CREATE INDEX [ix_samples_match_date] on 'samples' " "([match_date]);"
+            )
+        return MatchDb(db_path)
+
+
+    def print_all(self):
+        """
+        Debug method to print out full state of the DB.
+        """
+        import pandas as pd
+        data = []
+        with self.conn:
+            for row in self.conn.execute("SELECT * from samples"):
+                data.append(row)
+        df = pd.DataFrame(row, index=["strain"])
+        print(df)
 
 def mirror(x, L):
     return L - x
@@ -189,6 +329,8 @@ def validate(ts, alignment_store, show_progress=False):
 
 @dataclasses.dataclass
 class Sample:
+    strain: str
+    date: str
     metadata: Dict = dataclasses.field(default_factory=dict)
     path: List = dataclasses.field(default_factory=list)
     mutations: List = dataclasses.field(default_factory=list)
@@ -202,10 +344,6 @@ class Sample:
     #     return f"{self.strain}: {self.path} + {self.mutations}"
 
     @property
-    def strain(self):
-        return self.metadata["strain"]
-
-    @property
     def breakpoints(self):
         breakpoints = [seg.left for seg in self.path]
         return breakpoints + [self.path[-1].right]
@@ -214,17 +352,17 @@ class Sample:
     def parents(self):
         return [seg.parent for seg in self.path]
 
-    @property
-    def date(self):
-        return parse_date(self.metadata["date"])
+    # @property
+    # def date(self):
+    #     return parse_date(self.metadata["date"])
 
-    @property
-    def submission_date(self):
-        return parse_date(self.metadata["date_submitted"])
+    # @property
+    # def submission_date(self):
+    #     return parse_date(self.metadata["date_submitted"])
 
-    @property
-    def submission_delay(self):
-        return (self.submission_date - self.date).days
+    # @property
+    # def submission_delay(self):
+    #     return (self.submission_date - self.date).days
 
     def get_hmm_cost(self, num_mismatches):
         # Note that Recombinant objects have total_cost.
@@ -236,18 +374,9 @@ class Sample:
             "strain": self.strain,
             "path": self.path,
             "mutations": self.mutations,
-            "masked_sites": self.masked_sites.tolist(),
-            "alignment_qc": self.alignment_qc,
+            # "masked_sites": self.masked_sites.tolist(),
+            # "alignment_qc": self.alignment_qc,
         }
-
-
-# # TODO Factor this into the Samples class so that we can move
-# # lists of samples to and from files.
-# def write_match_json(samples):
-#     data = []
-#     for sample in samples:
-#         data.append(sample.asdict())
-#     s = json.dumps(data, indent=2)
 
 
 def daily_extend(
@@ -255,6 +384,7 @@ def daily_extend(
     alignment_store,
     metadata_db,
     base_ts,
+    match_db,
     num_mismatches=None,
     max_hmm_cost=None,
     min_group_size=None,
@@ -267,28 +397,19 @@ def daily_extend(
     rng=None,
     excluded_sample_dir=None,
 ):
-    start_day = last_date(base_ts)
+    assert num_past_days is None
+    assert max_submission_delay is None
 
-    reconsidered_samples = collections.deque()
-    earliest_date = start_day - datetime.timedelta(days=1)
-    if base_ts is not None:
-        next_day = start_day + datetime.timedelta(days=1)
-        reconsidered_samples.extend(
-            fetch_samples_from_pickle_file(
-                date=next_day,
-                num_past_days=num_past_days,
-                in_dir=excluded_sample_dir,
-            )
-        )
-        earliest_date = next_day - datetime.timedelta(days=num_past_days)
+    start_day = last_date(base_ts)
 
     last_ts = base_ts
     for date in metadata_db.get_days(start_day):
-        ts, excluded_samples, added_back_samples = extend(
+        ts = extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             date=date,
             base_ts=last_ts,
+            match_db=match_db,
             num_mismatches=num_mismatches,
             max_hmm_cost=max_hmm_cost,
             min_group_size=min_group_size,
@@ -297,48 +418,38 @@ def daily_extend(
             max_daily_samples=max_daily_samples,
             num_threads=num_threads,
             precision=precision,
-            rng=rng,
-            reconsidered_samples=reconsidered_samples,
         )
-        yield ts, excluded_samples, date
-
-        # Update list of reconsidered samples.
-        # Remove oldest reconsidered samples.
-        if len(reconsidered_samples) > 0:
-            while reconsidered_samples[0].date == earliest_date:
-                reconsidered_samples.popleft()
-        # Remove samples just added back.
-        if len(added_back_samples) > 0:
-            # TODO: Horrible. This needs to be reworked after
-            #       storing pickled Samples in a SQLite db.
-            samples_to_remove = []
-            for sample_added_back in added_back_samples:
-                for sample_reconsidered in reconsidered_samples:
-                    if sample_added_back.strain == sample_reconsidered.strain:
-                        samples_to_remove.append(sample_added_back)
-                        continue
-            for sample in samples_to_remove:
-                reconsidered_samples.remove(sample)
-        # Add new excluded samples.
-        reconsidered_samples.extend(excluded_samples)
-
-        earliest_date += datetime.timedelta(days=1)
+        yield ts, date
 
         last_ts = ts
 
 
-def match(
-    samples,
+def preprocess_and_match_alignments(
+    date,
     *,
+    metadata_db,
     alignment_store,
+    match_db,
     base_ts,
     num_mismatches=None,
     show_progress=False,
     num_threads=None,
     precision=None,
+    max_daily_samples=None,
     mirror_coordinates=False,
 ):
-    logger.info(f"Start match for {len(samples)}")
+    if num_mismatches is None:
+        # Default to no recombination
+        num_mismatches = 1000
+
+    samples = []
+    for md in metadata_db.get(date):
+        samples.append(Sample(md["strain"], md["date"], md))
+    if len(samples) == 0:
+        logger.warn(f"Zero samples for {date}")
+        return
+    # TODO implement this.
+    assert max_daily_samples is None
 
     # Note: there's not a lot of point in making the G matrix here,
     # we should just pass on the encoded alignments to the matching
@@ -351,7 +462,7 @@ def match(
     samples_iter = enumerate(samples)
     with tqdm.tqdm(
         samples_iter,
-        desc=f"Fetch",
+        desc="Fetch",
         total=len(samples),
         disable=not show_progress,
     ) as bar:
@@ -359,7 +470,7 @@ def match(
             logger.debug(f"Getting alignment for {sample.strain}")
             alignment = alignment_store[sample.strain]
             sample.alignment = alignment
-            logger.debug(f"Encoding alignment")
+            logger.debug("Encoding alignment")
             ma = alignments.encode_and_mask(alignment)
             # Always mask the problematic_sites as well. We need to do this
             # for follow-up matching to inspect recombinants, as tsinfer
@@ -383,7 +494,8 @@ def match(
         show_progress=show_progress,
         mirror_coordinates=mirror_coordinates,
     )
-    return samples
+
+    match_db.add(samples, date, num_mismatches)
 
 
 def extend(
@@ -392,6 +504,7 @@ def extend(
     metadata_db,
     date,
     base_ts,
+    match_db,
     num_mismatches=None,
     max_hmm_cost=None,
     min_group_size=None,
@@ -401,54 +514,51 @@ def extend(
     num_threads=None,
     precision=None,
     rng=None,
-    reconsidered_samples=None,
 ):
-    date_samples = [Sample(md) for md in metadata_db.get(date)]
-    samples = filter_samples(date_samples, alignment_store, max_submission_delay)
+    # TODO not sure whether we'll keep these params. Making sure they're not
+    # used for now
+    assert max_submission_delay is None
 
-    if max_daily_samples is not None and len(samples) > max_daily_samples:
-        samples = rng.sample(samples, max_daily_samples)
-        logger.info(f"Sampled down to {len(samples)} samples")
-
-    if len(samples) == 0:
-        logger.warning(f"No samples for {date}")
-        return base_ts
-
-    logger.info(f"Got {len(samples)} samples")
-
-    # Note num_mismatches is assigned a default value in match_tsinfer.
-    samples = match(
-        samples,
+    preprocess_and_match_alignments(
+        date,
+        metadata_db=metadata_db,
         alignment_store=alignment_store,
         base_ts=base_ts,
+        match_db=match_db,
         num_mismatches=num_mismatches,
         show_progress=show_progress,
         num_threads=num_threads,
         precision=precision,
+        max_daily_samples=max_daily_samples,
     )
+
+    match_db.create_mask_table(base_ts)
     ts = increment_time(date, base_ts)
 
-    ts, excluded_samples, _ = add_matching_results(
-        samples=samples,
+    logger.info(f"Update ARG with low-cost samples for {date}")
+    ts = add_matching_results(
+        f"match_date=='{date}' and hmm_cost<={max_hmm_cost}",
         ts=ts,
+        match_db=match_db,
         date=date,
-        num_mismatches=num_mismatches,
-        max_hmm_cost=max_hmm_cost,
-        min_group_size=None,
+        min_group_size=1,
         show_progress=show_progress,
     )
 
-    ts, _, added_back_samples = add_matching_results(
-        samples=reconsidered_samples,
+    logger.info("Looking for retrospective matches")
+    # TODO add this as a parameter. Only consider sequences with a date from the
+    # past month for retrospective insertion.
+    max_insertion_delay = 30
+    earliest_date = parse_date(date) - datetime.timedelta(days=max_insertion_delay)
+    ts = add_matching_results(
+        f"match_date<'{date}' AND match_date>'earliest_date'",
         ts=ts,
+        match_db=match_db,
         date=date,
-        num_mismatches=num_mismatches,
-        max_hmm_cost=None,
         min_group_size=min_group_size,
         show_progress=show_progress,
     )
-
-    return ts, excluded_samples, added_back_samples
+    return ts
 
 
 def match_path_ts(samples, ts, path, reversions):
@@ -498,33 +608,22 @@ def match_path_ts(samples, ts, path, reversions):
 
 
 def add_matching_results(
-    samples,
+    where_clause,
+    match_db,
     ts,
     date,
-    num_mismatches,
-    max_hmm_cost,
-    min_group_size,
+    min_group_size=1,
     show_progress=False,
 ):
-    if num_mismatches is None:
-        # Note that this is the default assigned in match_tsinfer.
-        num_mismatches = 1e3
-
-    if max_hmm_cost is None:
-        # By default, arbitraily high.
-        max_hmm_cost = 1e6
-
-    if min_group_size is None:
-        min_group_size = 1
+    logger.info(f"Querying match DB WHERE: {where_clause}")
+    samples = match_db.get(where_clause)
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
     excluded_samples = []
     site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
+    num_samples = 0
     for sample in samples:
-        if sample.get_hmm_cost(num_mismatches) > max_hmm_cost:
-            excluded_samples.append(sample)
-            continue
         site_masked_samples[sample.masked_sites] += 1
         path = tuple(sample.path)
         reversions = tuple(
@@ -533,9 +632,18 @@ def add_matching_results(
             if mut.is_immediate_reversion
         )
         grouped_matches[(path, reversions)].append(sample)
+        num_samples += 1
+
+    if num_samples == 0:
+        logger.info("No candidate samples found in MatchDb")
+        return ts
+
+    logger.info(
+        f"Filtered to {num_samples} candidates in " f"{len(grouped_matches)} groups"
+    )
 
     tables = ts.dump_tables()
-    logger.info(f"Got {len(grouped_matches)} distinct paths")
+    logger.info(f"Got {len(grouped_matches)} distinct paths for {num_samples} samples")
 
     attach_nodes = []
     added_samples = []
@@ -588,6 +696,10 @@ def add_matching_results(
             )
             attach_nodes.extend(nodes)
 
+    if len(added_samples) == 0:
+        logger.info("No samples passing group size requirements found")
+        return ts
+
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
     for site in ts.sites():
@@ -611,7 +723,7 @@ def add_matching_results(
     # print(ts.draw_text())
     ts = coalesce_mutations(ts, attach_nodes)
 
-    return ts, excluded_samples, added_samples
+    return ts  # , excluded_samples, added_samples
 
 
 def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
@@ -624,7 +736,7 @@ def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
     for i in range(num_past_days, 0, -1):
         past_date = date - datetime.timedelta(days=i)
         pickle_file = in_dir + "/"
-        pickle_file += past_date.strftime('%Y-%m-%d') + file_suffix
+        pickle_file += past_date.strftime("%Y-%m-%d") + file_suffix
         if os.path.exists(pickle_file):
             samples += parse_pickle_file(pickle_file)
     return samples
@@ -632,7 +744,7 @@ def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
 
 def parse_pickle_file(pickle_file):
     """Return a list of Sample objects."""
-    with open(pickle_file, 'rb') as f:
+    with open(pickle_file, "rb") as f:
         samples = pickle.load(f)
     return samples
 
@@ -714,7 +826,6 @@ def node_mutation_descriptors(ts, u):
 
 
 def update_tables(tables, edges_to_delete, mutations_to_delete):
-
     # Updating the mutations is a real faff, and the only way I
     # could get it to work is by setting the time values. This should
     # be easier...
@@ -1104,17 +1215,12 @@ def match_tsinfer(
     ts,
     genotypes,
     *,
-    num_mismatches=None,
+    num_mismatches,
     precision=None,
     num_threads=0,
     show_progress=False,
     mirror_coordinates=False,
 ):
-    # TODO: Should this default be assigned elsewhere?
-    if num_mismatches is None:
-        # Default to no recombination
-        num_mismatches = 1000
-
     input_ts = ts
     if mirror_coordinates:
         ts = mirror_ts_coordinates(ts)
@@ -1460,7 +1566,7 @@ def attach_tree(
     for u in tree.postorder():
         if tree.is_sample(u):
             node = child_ts.node(u)
-            sample_date = parse_date(node.metadata['date'])
+            sample_date = parse_date(node.metadata["date"])
             node_time[u] = (current_date - sample_date).days
             assert node_time[u] >= 0.0
     max_sample_time = max(node_time.values())
@@ -1482,9 +1588,7 @@ def attach_tree(
         metadata = node.metadata
         if tree.is_internal(u):
             metadata = {"date_added": date}
-        new_id = parent_tables.nodes.append(
-            node.replace(time=time, metadata=metadata)
-        )
+        new_id = parent_tables.nodes.append(node.replace(time=time, metadata=metadata))
         node_id_map[node.id] = new_id
         for v in tree.children(u):
             parent_tables.edges.add_row(

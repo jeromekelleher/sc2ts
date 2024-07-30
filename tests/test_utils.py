@@ -18,9 +18,8 @@ class TestPadSites:
         self.check_site_padding(sc2ts.initial_ts())
 
 
-@pytest.mark.skip("match_tsinfer broken")
 class TestDetachSingletonRecombinants:
-    def make_recombinant_tree(self, num_samples=1):
+    def make_recombinant_tree(self, db_path, num_samples=1):
         # Make a tree sequence by adding num_samples samples under a
         # single recombination node. Start with the following tree:
         # 4.00┊  0  ┊
@@ -35,8 +34,23 @@ class TestDetachSingletonRecombinants:
         L = ts.sequence_length
         x = L / 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]] * num_samples)
-        ts_rec, _ = sc2ts.add_matching_results(
-            samples, ts, "2021", num_mismatches=None, max_hmm_cost=None
+        date = "2021-01-01"
+
+        # This is pretty ugly, need to figure out how to neatly factor this
+        # model of Sample object vs metadata vs alignment QC
+        # NOTE: code copied from test_inference.py
+        for sample in samples:
+            sample.date = date
+            sample.metadata["date"] = date
+            sample.metadata["strain"] = sample.strain
+        match_db = util.get_match_db(ts, db_path, samples, date, num_mismatches=1000)
+        # print("Match DB", len(match_db))
+        # match_db.print_all()
+        ts_rec = sc2ts.add_matching_results(
+            "True",
+            match_db=match_db,
+            ts=ts,
+            date=date,
         )
         assert ts_rec.num_trees == 2
         return ts_rec
@@ -47,12 +61,12 @@ class TestDetachSingletonRecombinants:
         # https://github.com/jeromekelleher/sc2ts/issues/152
         [util.example_binary(1), util.example_binary(2), util.example_binary(3)],
     )
-    def test_no_recombinants(self, ts):
+    def test_no_recombinants(self, ts, tmp_path):
         ts2 = utils.detach_singleton_recombinants(ts)
         ts.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
-    def test_one_sample_recombinant(self):
-        ts = self.make_recombinant_tree()
+    def test_one_sample_recombinant(self, tmp_path):
+        ts = self.make_recombinant_tree(tmp_path / "match.db")
         assert ts.num_samples == 3
         re_nodes = [
             node.id for node in ts.nodes() if node.flags & sc2ts.NODE_IS_RECOMBINANT
@@ -76,9 +90,9 @@ class TestDetachSingletonRecombinants:
         assert ts3.num_samples == ts.num_samples - 1
         assert ts3.num_nodes == ts.num_nodes - 2  # both sample and re node gone
 
-    def test_two_sample_recombinant(self):
+    def test_two_sample_recombinant(self, tmp_path):
         """Test that we don't detach anything if the recombinant node is not a singleton"""
-        ts = self.make_recombinant_tree(num_samples=2)
+        ts = self.make_recombinant_tree(num_samples=2, db_path=tmp_path / "match.db")
         assert ts.num_samples == 4
         ts2 = utils.detach_singleton_recombinants(ts)
         ts.tables.assert_equals(ts2.tables, ignore_provenance=True)
