@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
-        # uri += "?mode=rw"
         self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = metadata.dict_factory
@@ -150,6 +149,18 @@ class MatchDb:
             )
         return MatchDb(db_path)
 
+
+    def print_all(self):
+        """
+        Debug method to print out full state of the DB.
+        """
+        import pandas as pd
+        data = []
+        with self.conn:
+            for row in self.conn.execute("SELECT * from samples"):
+                data.append(row)
+        df = pd.DataFrame(row, index=["strain"])
+        print(df)
 
 def mirror(x, L):
     return L - x
@@ -363,8 +374,8 @@ class Sample:
             "strain": self.strain,
             "path": self.path,
             "mutations": self.mutations,
-            "masked_sites": self.masked_sites.tolist(),
-            "alignment_qc": self.alignment_qc,
+            # "masked_sites": self.masked_sites.tolist(),
+            # "alignment_qc": self.alignment_qc,
         }
 
 
