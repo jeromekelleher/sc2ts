@@ -549,6 +549,7 @@ def extend(
     # TODO add this as a parameter. Only consider sequences with a date from the
     # past month for retrospective insertion.
     max_insertion_delay = 30
+    assert min_group_size is not None
     earliest_date = parse_date(date) - datetime.timedelta(days=max_insertion_delay)
     ts = add_matching_results(
         f"match_date<'{date}' AND match_date>'{earliest_date}'",
