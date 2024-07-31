@@ -319,8 +319,7 @@ def max_descendant_samples(ts, show_progress=True):
 
 
 class TreeInfo:
-    def __init__(self, ts, show_progress=True, pango_source="Nextclade_pango"):
-        # Can current set pango_source to "Nextclade_pango" or "GISAID_lineage"
+    def __init__(self, ts, show_progress=True, pango_source="Viridian_pangolin"):
         self.ts = ts
         self.pango_source = pango_source
         self.strain_map = {}
