@@ -323,7 +323,6 @@ class TreeInfo:
         # Can current set pango_source to "Nextclade_pango" or "GISAID_lineage"
         self.ts = ts
         self.pango_source = pango_source
-        self.epi_isl_map = {}
         self.strain_map = {}
         self.recombinants = get_recombinants(ts)
         self.nodes_max_descendant_samples = max_descendant_samples(ts)
@@ -348,10 +347,6 @@ class TreeInfo:
             md = node.metadata
             self.nodes_metadata[node.id] = md
             if node.is_sample():
-                self.epi_isl_map[md["gisaid_epi_isl"]] = node.id
-                if md["gisaid_epi_isl"] is not None:
-                    if "." in md["gisaid_epi_isl"]:
-                        self.epi_isl_map[md["gisaid_epi_isl"].split(".")[0]] = node.id
                 self.strain_map[md["strain"]] = node.id
                 self.nodes_date[node.id] = md["date"]
                 self.nodes_submission_date[node.id] = md["date_submitted"]
@@ -1036,11 +1031,9 @@ class TreeInfo:
             "metadata": self.ts.mutation(mut_id).metadata,
         }
 
-    def node_report(self, node_id=None, strain=None, epi_isl=None):
+    def node_report(self, node_id=None, strain=None):
         if strain is not None:
             node_id = self.strain_map[strain]
-        if epi_isl is not None:
-            node_id = self.epi_isl_map[epi_isl]
         # node_summary = pd.DataFrame([self._node_summary(node_id)])
         # TODO improve this for internal nodes
         node_summary = [self.ts.node(node_id).metadata]
@@ -2021,6 +2014,8 @@ def add_gisaid_lineages_to_ts(ts, node_gisaid_lineages, linmuts_dict):
     return edited_ts
 
 
+# NOTE: this is broken since moving to Viridian metadata, we no longer have 
+# GISAID EPI ISL in the metadata
 def check_lineages(
     ts,
     ti,
