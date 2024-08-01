@@ -393,6 +393,7 @@ class TreeInfo:
         # # Corresponding sample-set names for this array
         # self.pango_lineage_keys = np.array(list(self.pango_lineage_samples.keys()))
 
+
     def _compute_mutation_stats(self):
         ts = self.ts
 
@@ -715,7 +716,7 @@ class TreeInfo:
         for u in df.node:
             md = self.nodes_metadata[sample_map[u]]
             causal_strain.append(md["strain"])
-            causal_pango.append(md["Nextclade_pango"])
+            causal_pango.append(md[self.pango_source])
             causal_date.append(md["date"])
         df["causal_strain"] = causal_strain
         df["causal_pango"] = causal_pango
@@ -2013,7 +2014,7 @@ def add_gisaid_lineages_to_ts(ts, node_gisaid_lineages, linmuts_dict):
     return edited_ts
 
 
-# NOTE: this is broken since moving to Viridian metadata, we no longer have 
+# NOTE: this is broken since moving to Viridian metadata, we no longer have
 # GISAID EPI ISL in the metadata
 def check_lineages(
     ts,
