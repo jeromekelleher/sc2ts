@@ -175,11 +175,9 @@ class TestAddMatchingResults:
 
 
 class TestMatchTsinfer:
-    def match_tsinfer(self, samples, ts, haplotypes, **kwargs):
-        assert len(samples) == len(haplotypes)
-        G = np.array(haplotypes).T
+    def match_tsinfer(self, samples, ts, **kwargs):
         sc2ts.inference.match_tsinfer(
-            samples=samples, ts=ts, genotypes=G, num_mismatches=1000, **kwargs
+            samples=samples, ts=ts, num_mismatches=1000, **kwargs
         )
 
     @pytest.mark.parametrize("mirror", [False, True])
@@ -189,10 +187,11 @@ class TestMatchTsinfer:
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        samples[0].alignment = sc2ts.core.get_reference_sequence()
-        ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
+        alignment = sc2ts.core.get_reference_sequence()
+        ma = sc2ts.alignments.encode_and_mask(alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
-        self.match_tsinfer(samples, ts, [h], mirror_coordinates=mirror)
+        samples[0].alignment = h
+        self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert samples[0].breakpoints == [0, ts.sequence_length]
         assert samples[0].parents == [ts.num_nodes - 1]
         assert len(samples[0].mutations) == 0
@@ -205,12 +204,13 @@ class TestMatchTsinfer:
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        samples[0].alignment = sc2ts.core.get_reference_sequence()
-        ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
+        alignment = sc2ts.core.get_reference_sequence()
+        ma = sc2ts.alignments.encode_and_mask(alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
         # Mutate to gap
         h[site_id] = sc2ts.core.ALLELES.index("-")
-        self.match_tsinfer(samples, ts, [h], mirror_coordinates=mirror)
+        samples[0].alignment = h
+        self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert samples[0].breakpoints == [0, ts.sequence_length]
         assert samples[0].parents == [ts.num_nodes - 1]
         assert len(samples[0].mutations) == 1
@@ -230,11 +230,12 @@ class TestMatchTsinfer:
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        samples[0].alignment = sc2ts.core.get_reference_sequence()
-        ma = sc2ts.alignments.encode_and_mask(samples[0].alignment)
+        alignment = sc2ts.core.get_reference_sequence()
+        ma = sc2ts.alignments.encode_and_mask(alignment)
         ref = ma.alignment[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
-        self.match_tsinfer(samples, ts, [h], mirror_coordinates=mirror)
+        samples[0].alignment = h
+        self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert samples[0].breakpoints == [0, ts.sequence_length]
         assert samples[0].parents == [ts.num_nodes - 1]
         muts = samples[0].mutations

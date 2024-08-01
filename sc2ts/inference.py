@@ -347,6 +347,9 @@ class Sample:
     mutations: List = dataclasses.field(default_factory=list)
     alignment_qc: Dict = dataclasses.field(default_factory=dict)
     masked_sites: List = dataclasses.field(default_factory=list)
+    # FIXME need a better name for this, as it's a different thing
+    # the original alignment. Haplotype is probably good, as it's
+    # what it would be in the tskit/tsinfer world.
     alignment: List = None
 
     # def __repr__(self):
