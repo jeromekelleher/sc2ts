@@ -13,6 +13,7 @@ import tskit
 import tszip
 import numpy as np
 import pandas as pd
+
 # TODO where do we use this? This is a *great* example of why not to use
 # this style, because we have loads of variables called "tree" in this file.
 from sklearn import tree
@@ -326,7 +327,6 @@ class TreeInfo:
         self.recombinants = get_recombinants(ts)
         self.nodes_max_descendant_samples = max_descendant_samples(ts)
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
-        self.nodes_submission_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
         self.nodes_num_masked_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
         iterator = tqdm.tqdm(
@@ -348,7 +348,6 @@ class TreeInfo:
             if node.is_sample():
                 self.strain_map[md["strain"]] = node.id
                 self.nodes_date[node.id] = md["date"]
-                self.nodes_submission_date[node.id] = md["date_submitted"]
                 pango = md.get(pango_source, "unknown")
                 self.pango_lineage_samples[pango].append(node.id)
                 if "sc2ts" in md:
@@ -361,8 +360,6 @@ class TreeInfo:
                 self.nodes_date[node.id] = self.time_zero_as_date - int(
                     self.ts.nodes_time[node.id]
                 )
-
-        self.nodes_submission_delay = self.nodes_submission_date - self.nodes_date
 
         self.sites_num_masked_samples = np.zeros(self.ts.num_sites, dtype=int)
         if ts.table_metadata_schemas.site.schema is not None:
@@ -392,7 +389,6 @@ class TreeInfo:
         # self.node_pango_lineage_descendants = X.astype(int)
         # # Corresponding sample-set names for this array
         # self.pango_lineage_keys = np.array(list(self.pango_lineage_samples.keys()))
-
 
     def _compute_mutation_stats(self):
         ts = self.ts
@@ -511,7 +507,6 @@ class TreeInfo:
 
         data = [
             ("latest_sample", latest_sample),
-            ("max_submission_delay", np.max(self.nodes_submission_delay[samples])),
             ("samples", self.ts.num_samples),
             ("nodes", self.ts.num_nodes),
             ("mc_nodes", mc_nodes),
@@ -622,7 +617,6 @@ class TreeInfo:
             "children": np.sum(self.ts.edges_parent == u),
             "descendants": self.nodes_max_descendant_samples[u],
             "date": self.nodes_date[u],
-            "delay": self.nodes_submission_delay[u],
             "qc": qc,
             **self._node_mutation_summary(u, child_mutations=child_mutations),
         }
@@ -1547,7 +1541,13 @@ def plot_subgraph(
         except ValueError:
             if s[0] == "$":
                 # matplotlib mathtext - remove the $ and the formatting
-                s = s.replace("$", "").replace(r"\bf", "").replace("\it", "").replace("{", "").replace("}", "")
+                s = (
+                    s.replace("$", "")
+                    .replace(r"\bf", "")
+                    .replace("\it", "")
+                    .replace("{", "")
+                    .replace("}", "")
+                )
             try:
                 return float(s[1:-1])
             except ValueError:
@@ -1572,7 +1572,14 @@ def plot_subgraph(
     if exterior_edge_len is None:
         exterior_edge_len = 0.4
 
-    if show_descendant_samples not in {"samples", "tips", "sample_tips", "all", "", False}:
+    if show_descendant_samples not in {
+        "samples",
+        "tips",
+        "sample_tips",
+        "all",
+        "",
+        False,
+    }:
         raise ValueError(
             "show_descendant_samples must be one of 'samples', 'tips', 'sample_tips', 'all', or '' / False"
         )
@@ -1616,7 +1623,7 @@ def plot_subgraph(
             if show:
                 s = ti.nodes_max_descendant_samples[u]
                 if node.is_sample():
-                    s -= 1 # don't count self
+                    s -= 1  # don't count self
                 if s > 0:
                     nodelabels[u].append(f"+{s} {'samples' if s > 1 else 'sample'}")
 
@@ -1675,14 +1682,18 @@ def plot_subgraph(
                         lpos = "lft"
                     elif edge.left > 0 and edge.right == ts.sequence_length:
                         lpos = "rgt"
-                     # Add spaces between or in front of labels if
-                     # multiple lft or rgt labels (i.e. intervals) exist for an edge
+                    # Add spaces between or in front of labels if
+                    # multiple lft or rgt labels (i.e. intervals) exist for an edge
                     if interval_labels[lpos][pc]:  # between same side labels
                         interval_labels[lpos][pc] += "  "
-                    if lpos == "rgt" and interval_labels["lft"][pc]: # in front of rgt label
+                    if (
+                        lpos == "rgt" and interval_labels["lft"][pc]
+                    ):  # in front of rgt label
                         interval_labels[lpos][pc] = "  " + interval_labels[lpos][pc]
                     interval_labels[lpos][pc] += f"{int(edge.left)}…{int(edge.right)}"
-                    if lpos == "lft" and interval_labels["rgt"][pc]: # at end of lft label
+                    if (
+                        lpos == "lft" and interval_labels["rgt"][pc]
+                    ):  # at end of lft label
                         interval_labels[lpos][pc] += "  "
 
     if label_replace is not None:
