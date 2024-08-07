@@ -1320,7 +1320,7 @@ def get_recombinant_samples(ts):
         # Search the subtree for a causal sample.
         for v in tree.nodes(u, order="levelorder"):
             child = ts.node(v)
-            if child.is_sample() and child.metadata["date"] == recomb_date:
+            if child.is_sample() and child.metadata["date"] <= recomb_date:
                 edge = ts.edge(tree.edge(v))
                 assert edge.left == 0 and edge.right == ts.sequence_length
                 causal_sample = child
