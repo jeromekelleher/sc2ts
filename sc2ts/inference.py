@@ -801,7 +801,12 @@ def solve_num_mismatches(ts, k):
         r = 1e-3
         mu = 1e-20
     else:
-        mu = 1e-6
+        # NOTE: the magnitude of mu matters because it puts a limit
+        # on how low we can push the HMM precision. We should be able to solve
+        # for the optimal value of this parameter such that the magnitude of the
+        # values within the HMM are as large as possible (so that we can truncate
+        # usefully). This value is probably close for k=3 (it fails for k=2).
+        mu = 1e-2
         denom = (1 - mu) ** k + (n - 1) * mu**k
         r = n * mu**k / denom
         assert mu < 0.5
