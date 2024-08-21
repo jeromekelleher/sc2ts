@@ -805,15 +805,16 @@ def solve_num_mismatches(ts, k):
         # on how low we can push the HMM precision. We should be able to solve
         # for the optimal value of this parameter such that the magnitude of the
         # values within the HMM are as large as possible (so that we can truncate
-        # usefully). This value is probably close for k=3 (it fails for k=2).
-        mu = 1e-2
+        # usefully).
+        mu = 1e-3
         denom = (1 - mu) ** k + (n - 1) * mu**k
         r = n * mu**k / denom
         assert mu < 0.5
         assert r < 0.5
 
-    # Add a tiny bit of extra mass for recombination so that we deterministically
+    # Add a little bit of extra mass for recombination so that we deterministically
     # chose to recombine over k mutations
+    # NOTE: the magnitude of this value will depend also on mu, see above.
     r += r * 0.01
     ls_recomb = np.full(m - 1, r)
     ls_mismatch = np.full(m, mu)
