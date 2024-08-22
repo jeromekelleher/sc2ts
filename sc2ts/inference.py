@@ -443,7 +443,7 @@ def preprocess(
         logger.warn(f"Zero metadata matches for {date}")
         return []
 
-    if date.endswith("01-01"):
+    if date.endswith("12-31"):
         logger.warning(f"Skipping {len(metadata_matches)} samples for {date}")
         return []
 
