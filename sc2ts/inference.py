@@ -506,11 +506,37 @@ def match_samples(
         samples=samples,
         ts=base_ts,
         num_mismatches=num_mismatches,
-        precision=precision,
+        precision=2,
         num_threads=num_threads,
         show_progress=show_progress,
         mirror_coordinates=mirror_coordinates,
     )
+    samples_to_rerun = []
+    for sample in samples:
+        hmm_cost = sample.get_hmm_cost(num_mismatches)
+        logger.debug(
+            f"First sketch: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+        )
+        if hmm_cost >= 2:
+            sample.path.clear()
+            sample.mutations.clear()
+            samples_to_rerun.append(sample)
+
+    if len(samples_to_rerun) > 0:
+        match_tsinfer(
+            samples=samples_to_rerun,
+            ts=base_ts,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=num_threads,
+            show_progress=show_progress,
+            mirror_coordinates=mirror_coordinates,
+        )
+        for sample in samples_to_rerun:
+            hmm_cost = sample.get_hmm_cost(num_mismatches)
+            logger.debug(
+                f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+            )
 
     match_db.add(samples, date, num_mismatches)
 

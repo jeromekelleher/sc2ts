@@ -76,10 +76,10 @@ def setup_logging(verbosity, log_file=None):
     # to go to the log to see the traceback, but for production it may
     # be better to let daiquiri record the errors as well.
     daiquiri.setup(outputs=outputs, set_excepthook=False)
-    # Only show stuff coming from sc2ts. Sometimes it's handy to look
-    # at the tsinfer logs too, so we could add an option to set its
-    # levels
+    # Only show stuff coming from sc2ts and the relevant bits of tsinfer.
     logger = logging.getLogger("sc2ts")
+    logger.setLevel(log_level)
+    logger = logging.getLogger("tsinfer.inference")
     logger.setLevel(log_level)
 
 
