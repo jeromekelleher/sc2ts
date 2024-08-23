@@ -593,9 +593,11 @@ def extend(
     match_db.create_mask_table(base_ts)
     ts = increment_time(date, base_ts)
 
+    ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
+
     logger.info(f"Update ARG with low-cost samples for {date}")
     ts = add_matching_results(
-        f"match_date=='{date}' and hmm_cost<={max_hmm_cost}",
+        f"match_date=='{date}' and hmm_cost>0 and hmm_cost<={max_hmm_cost}",
         ts=ts,
         match_db=match_db,
         date=date,
@@ -672,6 +674,31 @@ def match_path_ts(samples, ts, path, reversions):
     tables.sort()
     return tables.tree_sequence()
     # print(tables)
+
+
+def add_exact_matches(match_db, ts, date):
+    where_clause = f"match_date=='{date}' AND hmm_cost==0"
+    logger.info(f"Querying match DB WHERE: {where_clause}")
+    samples = list(match_db.get(where_clause))
+    if len(samples) == 0:
+        logger.info(f"No exact matches on {date}")
+        return ts
+    logger.info(f"Update ARG with {len(samples)} exact matches for {date}")
+    tables = ts.dump_tables()
+    for sample in samples:
+        assert len(sample.path) == 1
+        assert len(sample.mutations) == 0
+        node_id = tables.nodes.add_row(
+            flags=tskit.NODE_IS_SAMPLE | core.NODE_IS_EXACT_MATCH,
+            time=0,
+            metadata=sample.metadata,
+        )
+        parent = sample.path[0].parent
+        logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
+        tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
+    tables.sort()
+    tables.build_index()
+    return tables.tree_sequence()
 
 
 def add_matching_results(
