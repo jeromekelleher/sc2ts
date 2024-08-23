@@ -494,13 +494,14 @@ class TreeInfo:
         mc_nodes = np.sum(self.ts.nodes_flags == sc2ts.NODE_IS_MUTATION_OVERLAP)
         pr_nodes = np.sum(self.ts.nodes_flags == sc2ts.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == sc2ts.NODE_IS_RECOMBINANT)
+        exact_matches = np.sum((self.ts.nodes_flags & sc2ts.NODE_IS_EXACT_MATCH) > 0)
 
         samples = self.ts.samples()
         nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
         sites_with_zero_muts = np.sum(self.sites_num_mutations == 0)
         latest_sample = self.nodes_date[samples[-1]]
         masked_sites_per_sample = self.nodes_num_masked_sites[samples]
-        non_samples = self.ts.nodes_flags != tskit.NODE_IS_SAMPLE
+        non_samples = (self.ts.nodes_flags & tskit.NODE_IS_SAMPLE) == 0
         max_non_sample_mutations = np.max(self.nodes_num_mutations[non_samples])
         insertions = np.sum(self.mutations_inherited_state == "-")
         deletions = np.sum(self.mutations_derived_state == "-")
@@ -509,6 +510,7 @@ class TreeInfo:
             ("latest_sample", latest_sample),
             ("samples", self.ts.num_samples),
             ("nodes", self.ts.num_nodes),
+            ("exact_matches", exact_matches),
             ("mc_nodes", mc_nodes),
             ("pr_nodes", pr_nodes),
             ("re_nodes", re_nodes),
@@ -584,7 +586,7 @@ class TreeInfo:
             qc += status
         flags = self.ts.nodes_flags[u]
         strain = ""
-        if flags == tskit.NODE_IS_SAMPLE:
+        if (flags & tskit.NODE_IS_SAMPLE) != 0:
             strain = md["strain"]
         elif flags == 1 << 21:
             if "overlap" in md:
