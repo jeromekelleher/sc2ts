@@ -49,7 +49,30 @@ data_path = pathlib.Path(__file__).parent / "data"
 
 
 def get_problematic_sites():
-    return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
+    base = np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
+    # Temporary to try out removing these outliers. See
+    # https://github.com/jeromekelleher/sc2ts/issues/231#issuecomment-2306665447
+    # In reality we'd probably want to provide an additional file of extra sites
+    # to remove.
+    additional = [
+        7851,
+        10323,
+        11750,
+        17040,
+        21137,
+        21846,
+        22917,
+        22995,
+        26681,
+        27384,
+        27638,
+        27752,
+        28254,
+        28271,
+        29614,
+    ]
+    full = np.append(base, additional)
+    return np.sort(full)
 
 
 __cached_reference = None
