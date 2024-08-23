@@ -443,7 +443,7 @@ def preprocess(
         logger.warn(f"Zero metadata matches for {date}")
         return []
 
-    if date.endswith("01-01"):
+    if date.endswith("12-31"):
         logger.warning(f"Skipping {len(metadata_matches)} samples for {date}")
         return []
 
@@ -506,11 +506,37 @@ def match_samples(
         samples=samples,
         ts=base_ts,
         num_mismatches=num_mismatches,
-        precision=precision,
+        precision=2,
         num_threads=num_threads,
         show_progress=show_progress,
         mirror_coordinates=mirror_coordinates,
     )
+    samples_to_rerun = []
+    for sample in samples:
+        hmm_cost = sample.get_hmm_cost(num_mismatches)
+        logger.debug(
+            f"First sketch: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+        )
+        if hmm_cost >= 2:
+            sample.path.clear()
+            sample.mutations.clear()
+            samples_to_rerun.append(sample)
+
+    if len(samples_to_rerun) > 0:
+        match_tsinfer(
+            samples=samples_to_rerun,
+            ts=base_ts,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=num_threads,
+            show_progress=show_progress,
+            mirror_coordinates=mirror_coordinates,
+        )
+        for sample in samples_to_rerun:
+            hmm_cost = sample.get_hmm_cost(num_mismatches)
+            logger.debug(
+                f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+            )
 
     match_db.add(samples, date, num_mismatches)
 
@@ -801,14 +827,20 @@ def solve_num_mismatches(ts, k):
         r = 1e-3
         mu = 1e-20
     else:
-        mu = 1e-6
+        # NOTE: the magnitude of mu matters because it puts a limit
+        # on how low we can push the HMM precision. We should be able to solve
+        # for the optimal value of this parameter such that the magnitude of the
+        # values within the HMM are as large as possible (so that we can truncate
+        # usefully).
+        mu = 1e-3
         denom = (1 - mu) ** k + (n - 1) * mu**k
         r = n * mu**k / denom
         assert mu < 0.5
         assert r < 0.5
 
-    # Add a tiny bit of extra mass for recombination so that we deterministically
+    # Add a little bit of extra mass for recombination so that we deterministically
     # chose to recombine over k mutations
+    # NOTE: the magnitude of this value will depend also on mu, see above.
     r += r * 0.01
     ls_recomb = np.full(m - 1, r)
     ls_mismatch = np.full(m, mu)
