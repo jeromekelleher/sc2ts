@@ -1,4 +1,5 @@
 import json
+import collections
 import concurrent
 import logging
 import platform
@@ -143,6 +144,28 @@ def info_metadata(metadata, verbose, log_file):
     setup_logging(verbose, log_file)
     with sc2ts.MetadataDb(metadata) as metadata_db:
         print(metadata_db)
+
+
+@click.command()
+@click.argument("match_db", type=click.Path(exists=True, dir_okay=False))
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def info_matches(match_db, verbose, log_file):
+    """
+    Information about an alignment store
+    """
+    setup_logging(verbose, log_file)
+    with sc2ts.MatchDb(match_db) as db:
+        print(db)
+        print("last date = ", db.last_date())
+        print("cost\tpercent\tcount")
+        df = db.as_dataframe()
+        total = len(db)
+        hmm_cost_counter = collections.Counter(df["hmm_cost"].astype(int))
+        for cost in sorted(hmm_cost_counter.keys()):
+            count = hmm_cost_counter[cost]
+            percent = count / total * 100
+            print(f"{cost}\t{percent:.1f}\t{count}")
 
 
 def add_provenance(ts, output_file):
@@ -389,6 +412,7 @@ cli.add_command(import_alignments)
 cli.add_command(import_metadata)
 cli.add_command(info_alignments)
 cli.add_command(info_metadata)
+cli.add_command(info_matches)
 
 cli.add_command(daily_extend)
 cli.add_command(validate)

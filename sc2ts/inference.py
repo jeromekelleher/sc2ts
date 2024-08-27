@@ -17,6 +17,7 @@ import scipy.spatial.distance
 import scipy.cluster.hierarchy
 import zarr
 import numba
+import pandas as pd
 
 from . import core
 from . import alignments
@@ -38,8 +39,21 @@ class MatchDb:
             row = self.conn.execute(sql).fetchone()
             return row["COUNT(*)"]
 
+    def as_dataframe(self):
+        with self.conn:
+            cursor = self.conn.execute(
+                "SELECT strain, match_date, hmm_cost FROM samples"
+            )
+            return pd.DataFrame(cursor.fetchall())
+
+    def last_date(self):
+        sql = "SELECT MAX(match_date) FROM samples"
+        with self.conn:
+            row = self.conn.execute(sql).fetchone()
+            return row["MAX(match_date)"]
+
     def __str__(self):
-        return "MatchDb at {self.uri} has {len(self)} samples"
+        return f"MatchDb at {self.uri} has {len(self)} samples"
 
     def __enter__(self):
         return self
