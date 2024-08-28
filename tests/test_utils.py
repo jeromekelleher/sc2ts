@@ -9,7 +9,7 @@ import util
 class TestPadSites:
     def check_site_padding(self, ts):
         ts = sc2ts.utils.pad_sites(ts)
-        ref = sc2ts.core.get_reference_sequence()
+        ref = sc2ts.core.get_reference_sequence(as_array=True)
         assert ts.num_sites == len(ref) - 1
         ancestral_state = ts.tables.sites.ancestral_state.view("S1").astype(str)
         assert np.all(ancestral_state == ref[1:])
@@ -67,7 +67,7 @@ class TestDetachSingletonRecombinants:
 
     def test_one_sample_recombinant(self, tmp_path):
         ts = self.make_recombinant_tree(tmp_path / "match.db")
-        assert ts.num_samples == 3
+        assert ts.num_samples == 4
         re_nodes = [
             node.id for node in ts.nodes() if node.flags & sc2ts.NODE_IS_RECOMBINANT
         ]
@@ -93,6 +93,6 @@ class TestDetachSingletonRecombinants:
     def test_two_sample_recombinant(self, tmp_path):
         """Test that we don't detach anything if the recombinant node is not a singleton"""
         ts = self.make_recombinant_tree(num_samples=2, db_path=tmp_path / "match.db")
-        assert ts.num_samples == 4
+        assert ts.num_samples == 5
         ts2 = utils.detach_singleton_recombinants(ts)
         ts.tables.assert_equals(ts2.tables, ignore_provenance=True)

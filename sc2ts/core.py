@@ -79,12 +79,16 @@ def get_problematic_sites():
 __cached_reference = None
 
 
-def get_reference_sequence():
+def get_reference_sequence(as_array=False):
     global __cached_reference
     if __cached_reference is None:
         reader = pyfaidx.Fasta(str(data_path / "reference.fasta"))
-        __cached_reference = "X" + str(reader[REFERENCE_GENBANK])
-    return __cached_reference
+        __cached_reference = reader[REFERENCE_GENBANK]
+    if as_array:
+        h = np.array(__cached_reference).astype(str)
+        return np.append(["X"], h)
+    else:
+        return "X" + str(__cached_reference)
 
 
 __cached_genes = None
