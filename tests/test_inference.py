@@ -8,6 +8,22 @@ import sc2ts
 import util
 
 
+class TestInitialTs:
+    def test_reference_sequence(self):
+        ts = sc2ts.initial_ts()
+        assert ts.reference_sequence.metadata["genbank_id"] == "MN908947"
+        assert ts.reference_sequence.data == sc2ts.core.get_reference_sequence()
+
+    def test_reference_sample(self):
+        ts = sc2ts.initial_ts()
+        assert ts.num_samples == 1
+        node = ts.node(ts.samples()[0])
+        assert node.time == 0
+        assert node.metadata == {"date": "2019-12-26", "strain": "Wuhan/Hu-1/2019"}
+        alignment = next(ts.alignments())
+        assert alignment == sc2ts.core.get_reference_sequence()
+
+
 class TestAddMatchingResults:
     def add_matching_results(
         self,
@@ -132,7 +148,7 @@ class TestAddMatchingResults:
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
         assert ts2.num_mutations == 1
         var = next(ts2.variants())
-        assert var.alleles[var.genotypes[0]] == "X"
+        assert var.alleles[var.genotypes[1]] == "X"
 
     def test_one_sample_one_mutation_filtered(self, tmp_path):
         ts = sc2ts.initial_ts()
@@ -171,7 +187,7 @@ class TestAddMatchingResults:
         assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
         assert ts2.num_mutations == 1
         var = next(ts2.variants())
-        assert var.alleles[var.genotypes[0]] == "X"
+        assert var.alleles[var.genotypes[1]] == "X"
 
 
 class TestMatchTsinfer:
@@ -187,7 +203,7 @@ class TestMatchTsinfer:
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        alignment = sc2ts.core.get_reference_sequence()
+        alignment = sc2ts.core.get_reference_sequence(as_array=True)
         ma = sc2ts.alignments.encode_and_mask(alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
         samples[0].alignment = h
@@ -204,7 +220,7 @@ class TestMatchTsinfer:
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        alignment = sc2ts.core.get_reference_sequence()
+        alignment = sc2ts.core.get_reference_sequence(as_array=True)
         ma = sc2ts.alignments.encode_and_mask(alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
         # Mutate to gap
@@ -230,7 +246,7 @@ class TestMatchTsinfer:
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        alignment = sc2ts.core.get_reference_sequence()
+        alignment = sc2ts.core.get_reference_sequence(as_array=True)
         ma = sc2ts.alignments.encode_and_mask(alignment)
         ref = ma.alignment[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
@@ -251,7 +267,7 @@ class TestMatchPathTs:
         # FIXME this API is terrible
         ts2 = sc2ts.match_path_ts(samples, ts, samples[0].path, [])
         assert ts2.num_samples == len(samples)
-        for u, sample in zip(ts.samples(), samples):
+        for u, sample in zip(ts.samples()[1:], samples):
             node = ts.node(u)
             assert node.time == 0
             assert node.metadata == sample.metadata
