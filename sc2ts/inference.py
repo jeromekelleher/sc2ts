@@ -4,6 +4,7 @@ import logging
 import datetime
 import dataclasses
 import collections
+import json
 import pickle
 import os
 import sqlite3
@@ -220,6 +221,12 @@ def initial_ts():
     tables = tskit.TableCollection(L)
     tables.time_units = core.TIME_UNITS
     base_schema = tskit.MetadataSchema.permissive_json().schema
+    tables.reference_sequence.metadata_schema = tskit.MetadataSchema(base_schema)
+    tables.reference_sequence.metadata = {
+        "genbank_id": core.REFERENCE_GENBANK,
+        "notes": "X prepended to alignment to map from 1-based to 0-based coordinates"
+    }
+    tables.reference_sequence.data = reference
 
     tables.metadata_schema = tskit.MetadataSchema(base_schema)
 
@@ -235,10 +242,10 @@ def initial_ts():
             tables.sites.add_row(pos, reference[pos], metadata={"masked_samples": 0})
     # TODO should probably make the ultimate ancestor time something less
     # plausible or at least configurable. However, this will be removed
-    # in later versions when we remove the dependence on tskit.
+    # in later versions when we remove the dependence on tsinfer.
     tables.nodes.add_row(time=1, metadata={"strain": "Vestigial_ignore"})
     tables.nodes.add_row(
-        time=0, metadata={"strain": core.REFERENCE_STRAIN, "date": core.REFERENCE_DATE}
+        flags=tskit.NODE_IS_SAMPLE, time=0, metadata={"strain": core.REFERENCE_STRAIN, "date": core.REFERENCE_DATE}
     )
     tables.edges.add_row(0, L, 0, 1)
     return tables.tree_sequence()

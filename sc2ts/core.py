@@ -82,8 +82,8 @@ __cached_reference = None
 def get_reference_sequence():
     global __cached_reference
     if __cached_reference is None:
-        reader = FastaReader(data_path / "reference.fasta")
-        __cached_reference = reader[REFERENCE_GENBANK]
+        reader = pyfaidx.Fasta(str(data_path / "reference.fasta"))
+        __cached_reference = "X" + str(reader[REFERENCE_GENBANK])
     return __cached_reference
 
 

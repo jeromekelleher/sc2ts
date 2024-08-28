@@ -8,6 +8,22 @@ import sc2ts
 import util
 
 
+class TestInitialTs:
+    def test_reference_sequence(self):
+        ts = sc2ts.initial_ts()
+        assert ts.reference_sequence.metadata["genbank_id"] == "MN908947"
+        assert ts.reference_sequence.data == sc2ts.core.get_reference_sequence()
+
+    def test_reference_sample(self):
+        ts = sc2ts.initial_ts()
+        assert ts.num_samples == 1
+        node = ts.node(ts.samples()[0])
+        assert node.time == 0
+        assert node.metadata == {"date": "2019-12-26", "strain": "Wuhan/Hu-1/2019"}
+        alignment = next(ts.alignments())
+        assert alignment == sc2ts.core.get_reference_sequence()
+
+
 class TestAddMatchingResults:
     def add_matching_results(
         self,
