@@ -8,22 +8,6 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def metadata_to_db(csv_path, db_path):
-
-    df = pd.read_csv(
-        csv_path,
-        sep="\t",
-        parse_dates=["date", "date_submitted"],
-    )
-    db_path = pathlib.Path(db_path)
-    if db_path.exists():
-        db_path.unlink()
-    with sqlite3.connect(db_path) as conn:
-        df.to_sql("samples", conn, index=False)
-        conn.execute("CREATE INDEX [ix_samples_strain] on 'samples' ([strain]);")
-        conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")
-
-
 def dict_factory(cursor, row):
     col_names = [col[0] for col in cursor.description]
     return {key: value for key, value in zip(col_names, row)}
@@ -75,7 +59,9 @@ class MetadataDb:
             for row in self.conn.execute(sql, [date]):
                 yield row
 
-    def get_days(self, date):
+    def get_days(self, date=None):
+        if date is None:
+            date = "2000-01-01"
         sql = "SELECT DISTINCT(date) FROM samples WHERE date>? ORDER BY date;"
         with self.conn:
             dates = []

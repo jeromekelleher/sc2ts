@@ -830,28 +830,6 @@ def add_matching_results(
     return ts  # , excluded_samples, added_samples
 
 
-def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
-    if in_dir is None:
-        return []
-    if num_past_days is None:
-        num_past_days = 0
-    file_suffix = ".excluded_samples.pickle"
-    samples = []
-    for i in range(num_past_days, 0, -1):
-        past_date = date - datetime.timedelta(days=i)
-        pickle_file = in_dir + "/"
-        pickle_file += past_date.strftime("%Y-%m-%d") + file_suffix
-        if os.path.exists(pickle_file):
-            samples += parse_pickle_file(pickle_file)
-    return samples
-
-
-def parse_pickle_file(pickle_file):
-    """Return a list of Sample objects."""
-    with open(pickle_file, "rb") as f:
-        samples = pickle.load(f)
-    return samples
-
 
 def solve_num_mismatches(ts, k):
     """
