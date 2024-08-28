@@ -313,7 +313,7 @@ def validate(ts, alignment_store, show_progress=False):
     Check that all the samples in the specified tree sequence are correctly
     representing the original alignments.
     """
-    samples = ts.samples()
+    samples = ts.samples()[1:]
     chunk_size = 10**3
     offset = 0
     num_chunks = ts.num_samples // chunk_size
