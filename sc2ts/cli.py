@@ -11,6 +11,7 @@ import dataclasses
 import datetime
 import pickle
 
+import numpy as np
 import tqdm
 import tskit
 import tszip
@@ -21,6 +22,8 @@ import daiquiri
 import sc2ts
 from . import core
 from . import inference
+
+logger = logging.getLogger(__name__)
 
 
 def get_environment():
@@ -230,6 +233,12 @@ def dump_samples(samples, output_file):
 @click.option("--num-threads", default=0, type=int, help="Number of match threads")
 @click.option("--random-seed", default=42, type=int, help="Random seed for subsampling")
 @click.option("--stop-date", default="2030-01-01", type=str, help="Stopping date")
+@click.option(
+    "--additional-problematic-sites",
+    default=None,
+    type=str,
+    help="File containing the list of additional problematic sites to exclude.",
+)
 @click.option("-p", "--precision", default=None, type=int, help="Match precision")
 @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
 @click.option("-v", "--verbose", count=True)
@@ -248,6 +257,7 @@ def daily_extend(
     num_threads,
     random_seed,
     stop_date,
+    additional_problematic_sites,
     precision,
     no_progress,
     verbose,
@@ -259,12 +269,26 @@ def daily_extend(
     setup_logging(verbose, log_file)
     rng = random.Random(random_seed)
 
+    additional_problematic = []
+    if additional_problematic_sites is not None:
+        additional_problematic = (
+            np.loadtxt(additional_problematic_sites).astype(int).tolist()
+        )
+        logger.info(
+            f"Excluding additional {len(additional_problematic)} problematic sites"
+        )
+
     match_db_path = f"{output_prefix}match.db"
     if base is None:
-        base_ts = inference.initial_ts()
+        base_ts = inference.initial_ts(additional_problematic)
         match_db = inference.MatchDb.initialise(match_db_path)
     else:
         base_ts = tskit.load(base)
+
+    assert (
+        base_ts.metadata["sc2ts"]["additional_problematic_sites"]
+        == additional_problematic
+    )
 
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))

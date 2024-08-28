@@ -4,7 +4,6 @@ import logging
 import datetime
 import dataclasses
 import collections
-import json
 import pickle
 import os
 import sqlite3
@@ -77,7 +76,6 @@ class MatchDb:
         data = []
         hmm_cost = np.zeros(len(samples))
         for j, sample in enumerate(samples):
-            d = sample.asdict()
             assert sample.date == date
             # FIXME we want to be more selective about what we're storing
             # here, as we're including the alignment too.
@@ -207,14 +205,17 @@ def mirror_ts_coordinates(ts):
     return tables.tree_sequence()
 
 
-def initial_ts():
+def initial_ts(additional_problematic_sites=list()):
     reference = core.get_reference_sequence()
     L = core.REFERENCE_SEQUENCE_LENGTH
     assert L == len(reference)
-    problematic_sites = set(core.get_problematic_sites())
+    problematic_sites = set(core.get_problematic_sites()) | set(additional_problematic_sites)
 
     tables = tskit.TableCollection(L)
     tables.time_units = core.TIME_UNITS
+
+    # TODO add known fields to the schemas and document them.
+
     base_schema = tskit.MetadataSchema.permissive_json().schema
     tables.reference_sequence.metadata_schema = tskit.MetadataSchema(base_schema)
     tables.reference_sequence.metadata = {
@@ -224,15 +225,15 @@ def initial_ts():
     tables.reference_sequence.data = reference
 
     tables.metadata_schema = tskit.MetadataSchema(base_schema)
+    # TODO gene annotations to top level
     tables.metadata = {
         "sc2ts": {
             "date": core.REFERENCE_DATE,
             "samples_strain": [core.REFERENCE_STRAIN],
+            "additional_problematic_sites": additional_problematic_sites,
         }
     }
 
-    # TODO gene annotations to top level
-    # TODO add known fields to the schemas and document them.
     tables.nodes.metadata_schema = tskit.MetadataSchema(base_schema)
     tables.sites.metadata_schema = tskit.MetadataSchema(base_schema)
     tables.mutations.metadata_schema = tskit.MetadataSchema(base_schema)
