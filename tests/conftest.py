@@ -33,3 +33,11 @@ def alignments_store(data_cache, alignments_fasta):
             fasta = sc2ts.core.FastaReader(alignments_fasta)
             a.append(fasta, show_progress=False)
     return sc2ts.AlignmentStore(cache_path)
+
+@pytest.fixture
+def metadata_db(data_cache):
+    cache_path = data_cache / "metadata.db"
+    tsv_path = "tests/data/metadata.tsv"
+    if not cache_path.exists():
+        sc2ts.MetadataDb.import_csv(tsv_path, cache_path)
+    return sc2ts.MetadataDb(cache_path)
