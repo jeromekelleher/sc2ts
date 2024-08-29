@@ -3,8 +3,9 @@ import pytest
 from numpy.testing import assert_array_equal
 
 # FIXME - quick hacks here to get tests working
-from sc2ts import alignments as convert
+from sc2ts import alignments as sa
 from sc2ts import core
+
 
 def test_get_gene_coordinates():
     d = core.get_gene_coordinates()
@@ -29,26 +30,26 @@ class TestEncodeAligment:
     )
     def test_examples(self, hap, expected):
         h = np.array(list(hap), dtype="U1")
-        a = convert.encode_alignment(h)
+        a = sa.encode_alignment(h)
         assert_array_equal(a, expected)
-        assert_array_equal(h, convert.decode_alignment(a))
+        assert_array_equal(h, sa.decode_alignment(a))
 
     @pytest.mark.parametrize("hap", "RYSWKMDHVN.")
     def test_iupac_uncertain_missing(self, hap):
         h = np.array(list(hap), dtype="U1")
-        a = convert.encode_alignment(h)
+        a = sa.encode_alignment(h)
         assert_array_equal(a, [-1])
 
     @pytest.mark.parametrize("hap", "XZxz")
     def test_other_missing(self, hap):
         h = np.array(list(hap), dtype="U1")
-        a = convert.encode_alignment(h)
+        a = sa.encode_alignment(h)
         assert_array_equal(a, [-1])
 
     @pytest.mark.parametrize("hap", "acgt")
     def test_lowercase_nucleotide_missing(self, hap):
         h = np.array(list(hap), dtype="U1")
-        a = convert.encode_alignment(h)
+        a = sa.encode_alignment(h)
         assert_array_equal(a, [-1])
 
     @pytest.mark.parametrize(
@@ -63,13 +64,10 @@ class TestEncodeAligment:
     )
     def test_examples(self, a):
         with pytest.raises(ValueError):
-            convert.decode_alignment(np.array(a))
+            sa.decode_alignment(np.array(a))
 
 
-# TODO fixup these tests
-@pytest.mark.skip
 class TestMasking:
-
     # Window size of 1 is weird because we have to have two or more
     # ambiguous characters. That means we only filter if something is
     # surrounded.
@@ -85,11 +83,11 @@ class TestMasking:
     )
     def test_examples_w1(self, hap, expected, masked):
         hap = np.array(list(hap), dtype="U1")
-        a = convert.encode_alignment(hap)
+        a = sa.encode_alignment(hap)
         expected = np.array(list(expected), dtype="U1")
-        m = convert.mask_alignment(a, 1)
-        assert np.sum(m) == masked
-        assert_array_equal(expected, convert.decode_alignment(a))
+        m = sa.mask_alignment(a, window_size=1)
+        assert len(m) == masked
+        assert_array_equal(expected, sa.decode_alignment(a))
 
     @pytest.mark.parametrize(
         ["hap", "expected", "masked"],
@@ -104,15 +102,14 @@ class TestMasking:
     )
     def test_examples_w2(self, hap, expected, masked):
         hap = np.array(list(hap), dtype="U1")
-        a = convert.encode_alignment(hap)
+        a = sa.encode_alignment(hap)
         expected = np.array(list(expected), dtype="U1")
-        m = convert.mask_alignment(a, 2)
-        assert np.sum(m) == masked
-        assert_array_equal(expected, convert.decode_alignment(a))
+        m = sa.mask_alignment(a, window_size=2)
+        assert len(m) == masked
+        assert_array_equal(expected, sa.decode_alignment(a))
 
     @pytest.mark.parametrize("w", [0, -1, -2])
     def test_bad_window_size(self, w):
         a = np.zeros(2, dtype=np.int8)
         with pytest.raises(ValueError):
-            convert.mask_alignment(a, w)
-
+            sa.mask_alignment(a, window_size=w)
