@@ -1,3 +1,4 @@
+import collections
 import logging
 import sqlite3
 import pathlib
@@ -13,13 +14,26 @@ def dict_factory(cursor, row):
     return {key: value for key, value in zip(col_names, row)}
 
 
-class MetadataDb:
+class MetadataDb(collections.abc.Mapping):
     def __init__(self, path):
         uri = f"file:{path}"
         uri += "?mode=ro"
         self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = dict_factory
+
+    @staticmethod
+    def import_csv(csv_path, db_path):
+        df = pd.read_csv(csv_path, sep="\t")
+        db_path = pathlib.Path(db_path)
+        if db_path.exists():
+            db_path.unlink()
+        with sqlite3.connect(db_path) as conn:
+            df.to_sql("samples", conn, index=False)
+            conn.execute(
+                "CREATE UNIQUE INDEX [ix_samples_strain] on 'samples' ([strain]);"
+            )
+            conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")
 
     def __enter__(self):
         return self
@@ -36,22 +50,22 @@ class MetadataDb:
             row = self.conn.execute(sql).fetchone()
             return row["COUNT(*)"]
 
+    def __getitem__(self, key):
+        sql = "SELECT * FROM samples WHERE strain==?"
+        with self.conn:
+            result = self.conn.execute(sql, [key]).fetchone()
+            if result is None:
+                raise KeyError(f"strain {key} not in DB")
+            return result
+
+    def __iter__(self):
+        sql = "SELECT strain FROM samples"
+        with self.conn:
+            for result in self.conn.execute(sql):
+                yield result["strain"]
+
     def close(self):
         self.conn.close()
-
-    @staticmethod
-    def import_csv(csv_path, db_path):
-        df = pd.read_csv(
-            csv_path,
-            sep="\t",
-        )
-        db_path = pathlib.Path(db_path)
-        if db_path.exists():
-            db_path.unlink()
-        with sqlite3.connect(db_path) as conn:
-            df.to_sql("samples", conn, index=False)
-            conn.execute("CREATE INDEX [ix_samples_strain] on 'samples' ([strain]);")
-            conn.execute("CREATE INDEX [ix_samples_date] on 'samples' ([date]);")
 
     def get(self, date):
         sql = "SELECT * FROM samples WHERE date==?"

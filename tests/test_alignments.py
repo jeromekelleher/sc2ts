@@ -1,41 +1,9 @@
-import pathlib
-import shutil
-import gzip
-
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
 from sc2ts import alignments as sa
 from sc2ts import core
-
-
-@pytest.fixture
-def data_cache():
-    cache_path = pathlib.Path("tests/data/cache")
-    if not cache_path.exists():
-        cache_path.mkdir()
-    return cache_path
-
-
-@pytest.fixture
-def alignments_fasta(data_cache):
-    cache_path = data_cache / "alignments.fasta"
-    if not cache_path.exists():
-        with gzip.open("tests/data/alignments.fasta.gz") as src:
-            with open(cache_path, "wb") as dest:
-                shutil.copyfileobj(src, dest)
-    return cache_path
-
-
-@pytest.fixture
-def alignments_store(data_cache, alignments_fasta):
-    cache_path = data_cache / "alignments.db"
-    if not cache_path.exists():
-        with sa.AlignmentStore(cache_path, "a") as a:
-            fasta = core.FastaReader(alignments_fasta)
-            a.append(fasta, show_progress=False)
-    return sa.AlignmentStore(cache_path)
 
 
 class TestAlignmentsStore:
@@ -117,7 +85,7 @@ class TestEncodeAligment:
             [0, -2],
         ],
     )
-    def test_examples(self, a):
+    def test_error__examples(self, a):
         with pytest.raises(ValueError):
             sa.decode_alignment(np.array(a))
 
