@@ -80,7 +80,7 @@ class AlignmentStore(collections.abc.Mapping):
     def __init__(self, path, mode="r"):
         map_size = 1024**4
         self.env = lmdb.Environment(
-            path, subdir=False, readonly=mode == "r", map_size=map_size
+            str(path), subdir=False, readonly=mode == "r", map_size=map_size
         )
 
     def __enter__(self):
@@ -94,21 +94,6 @@ class AlignmentStore(collections.abc.Mapping):
 
     def __str__(self):
         return f"AlignmentStore at {self.env.path()} contains {len(self)} alignments"
-
-    @staticmethod
-    def initialise(path):
-        """
-        Create a new store at this path.
-        """
-        db_path = pathlib.Path(path)
-        if db_path.exists():
-            db_path.unlink()
-
-        reference = core.get_reference_sequence()
-        with lmdb.Environment(str(db_path), subdir=False) as env:
-            with env.begin(write=True) as txn:
-                txn.put("MN908947".encode(), compress_alignment(reference))
-        return AlignmentStore(path, "a")
 
     def _flush(self, chunk):
         logger.debug(f"Flushing {len(chunk)} sequences")
@@ -156,20 +141,6 @@ class AlignmentStore(collections.abc.Mapping):
     def __len__(self):
         with self.env.begin() as txn:
             return txn.stat()["entries"]
-
-    def get_all(self, strains, sequence_length):
-        A = np.zeros((len(strains), sequence_length), dtype=np.int8)
-        with self.env.begin() as txn:
-            for j, strain in enumerate(strains):
-                val = txn.get(strain.encode())
-                if val is None:
-                    raise KeyError(f"{strain} not found")
-                a = decompress_alignment(val)
-                if len(a) != sequence_length:
-                    raise ValueError(
-                        f"Alignment for {strain} not of length {sequence_length}"
-                    )
-        return A
 
 
 @dataclasses.dataclass
