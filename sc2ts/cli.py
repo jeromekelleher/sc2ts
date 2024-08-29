@@ -18,6 +18,7 @@ import tszip
 import tsinfer
 import click
 import daiquiri
+import pandas as pd
 
 import sc2ts
 from . import core
@@ -177,11 +178,7 @@ def add_provenance(ts, output_file):
     tables = ts.dump_tables()
     tables.provenances.add_row(json.dumps(provenance))
     tables.dump(output_file)
-
-
-def dump_samples(samples, output_file):
-    with open(output_file, "wb") as f:
-        pickle.dump(samples, file=f)
+    logger.info(f"Wrote {output_file}")
 
 
 @click.command()
@@ -199,12 +196,13 @@ def dump_samples(samples, output_file):
     ),
 )
 @click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
-@click.option("--max-hmm-cost", default=None, type=float, help="max-hmm-cost")
+@click.option("--max-hmm-cost", default=5, type=float, help="max-hmm-cost")
 @click.option(
     "--min-group-size",
-    default=None,
+    default=10,
     type=int,
     help="Minimum size of groups of reconsidered samples",
+    show_default=True
 )
 @click.option(
     "--num-past-days",
@@ -327,12 +325,51 @@ def validate(alignment_db, ts_file, verbose):
     """
     setup_logging(verbose)
 
-    if ts_file.endswith(".tsz"):
-        ts = tszip.decompress(ts_file)
-    else:
-        ts = tskit.load(ts_file)
+    ts = tszip.load(ts_file)
     with sc2ts.AlignmentStore(alignment_db) as alignment_store:
         inference.validate(ts, alignment_store, show_progress=True)
+
+
+@click.command()
+@click.argument("ts_file")
+@click.option("-v", "--verbose", count=True)
+def export_alignments(ts_file, verbose):
+    """
+    Export alignments from the specified tskit file to FASTA
+    """
+    setup_logging(verbose)
+    ts = tszip.load(ts_file)
+    for u, alignment in zip(ts.samples(), ts.alignments(left=1)):
+        strain = ts.node(u).metadata["strain"]
+        if strain == core.REFERENCE_STRAIN:
+            continue
+        print(f">{strain}")
+        print(alignment)
+
+
+@click.command()
+@click.argument("ts_file")
+@click.option("-v", "--verbose", count=True)
+def export_metadata(ts_file, verbose):
+    """
+    Export metadata from the specified tskit file to TSV
+    """
+    setup_logging(verbose)
+    ts = tszip.load(ts_file)
+    data = []
+    for u in ts.samples():
+        md = ts.node(u).metadata
+        if md["strain"] == core.REFERENCE_STRAIN:
+            continue
+        try:
+            # FIXME this try/except is needed because of some samples not having full
+            # metadata. Can drop when fixed.
+            del md["sc2ts"]
+        except KeyError:
+            pass
+        data.append(md)
+    df = pd.DataFrame(data)
+    df.to_csv(sys.stdout, sep="\t", index=False)
 
 
 def examine_recombinant(work):
@@ -437,6 +474,8 @@ cli.add_command(import_metadata)
 cli.add_command(info_alignments)
 cli.add_command(info_metadata)
 cli.add_command(info_matches)
+cli.add_command(export_alignments)
+cli.add_command(export_metadata)
 
 cli.add_command(daily_extend)
 cli.add_command(validate)

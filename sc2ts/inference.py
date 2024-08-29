@@ -209,7 +209,9 @@ def initial_ts(additional_problematic_sites=list()):
     reference = core.get_reference_sequence()
     L = core.REFERENCE_SEQUENCE_LENGTH
     assert L == len(reference)
-    problematic_sites = set(core.get_problematic_sites()) | set(additional_problematic_sites)
+    problematic_sites = set(core.get_problematic_sites()) | set(
+        additional_problematic_sites
+    )
 
     tables = tskit.TableCollection(L)
     tables.time_units = core.TIME_UNITS
@@ -452,7 +454,6 @@ def preprocess(
     ) as bar:
         for md in bar:
             strain = md["strain"]
-            logger.debug(f"Getting alignment for {strain}")
             try:
                 alignment = alignment_store[strain]
             except KeyError:
@@ -470,6 +471,15 @@ def preprocess(
             sample.masked_sites = ma.masked_sites
             sample.alignment = ma.alignment[keep_sites]
             samples.append(sample)
+            num_Ns = ma.original_base_composition.get("N", 0)
+            non_nuc_counts = dict(ma.original_base_composition)
+            for nuc in "ACGT":
+                del non_nuc_counts[nuc]
+            counts = ",".join(
+                f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
+            )
+            num_masked = len(ma.masked_sites)
+            logger.debug(f"Mask {strain}: masked={num_masked} {counts}")
 
     logger.info(
         f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
@@ -828,29 +838,6 @@ def add_matching_results(
     ts = coalesce_mutations(ts, attach_nodes)
 
     return ts  # , excluded_samples, added_samples
-
-
-def fetch_samples_from_pickle_file(date, num_past_days=None, in_dir=None):
-    if in_dir is None:
-        return []
-    if num_past_days is None:
-        num_past_days = 0
-    file_suffix = ".excluded_samples.pickle"
-    samples = []
-    for i in range(num_past_days, 0, -1):
-        past_date = date - datetime.timedelta(days=i)
-        pickle_file = in_dir + "/"
-        pickle_file += past_date.strftime("%Y-%m-%d") + file_suffix
-        if os.path.exists(pickle_file):
-            samples += parse_pickle_file(pickle_file)
-    return samples
-
-
-def parse_pickle_file(pickle_file):
-    """Return a list of Sample objects."""
-    with open(pickle_file, "rb") as f:
-        samples = pickle.load(f)
-    return samples
 
 
 def solve_num_mismatches(ts, k):
