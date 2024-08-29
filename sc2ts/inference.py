@@ -209,7 +209,9 @@ def initial_ts(additional_problematic_sites=list()):
     reference = core.get_reference_sequence()
     L = core.REFERENCE_SEQUENCE_LENGTH
     assert L == len(reference)
-    problematic_sites = set(core.get_problematic_sites()) | set(additional_problematic_sites)
+    problematic_sites = set(core.get_problematic_sites()) | set(
+        additional_problematic_sites
+    )
 
     tables = tskit.TableCollection(L)
     tables.time_units = core.TIME_UNITS
@@ -452,7 +454,6 @@ def preprocess(
     ) as bar:
         for md in bar:
             strain = md["strain"]
-            logger.debug(f"Getting alignment for {strain}")
             try:
                 alignment = alignment_store[strain]
             except KeyError:
@@ -470,6 +471,15 @@ def preprocess(
             sample.masked_sites = ma.masked_sites
             sample.alignment = ma.alignment[keep_sites]
             samples.append(sample)
+            num_Ns = ma.original_base_composition.get("N", 0)
+            non_nuc_counts = dict(ma.original_base_composition)
+            for nuc in "ACGT":
+                del non_nuc_counts[nuc]
+            counts = ",".join(
+                f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
+            )
+            num_masked = len(ma.masked_sites)
+            logger.debug(f"Mask {strain}: masked={num_masked} {counts}")
 
     logger.info(
         f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
@@ -828,7 +838,6 @@ def add_matching_results(
     ts = coalesce_mutations(ts, attach_nodes)
 
     return ts  # , excluded_samples, added_samples
-
 
 
 def solve_num_mismatches(ts, k):
