@@ -235,6 +235,132 @@ def list_dates(metadata, counts, verbose, log_file):
 
 
 @click.command()
+@click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
+@click.argument("date")
+@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("matches", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output_ts", type=click.Path(dir_okay=False))
+@click.option(
+    "--num-mismatches",
+    default=3,
+    show_default=True,
+    type=float,
+    help="Number of mismatches to accept in favour of recombination",
+)
+@click.option(
+    "--hmm-cost-threshold",
+    default=5,
+    type=float,
+    show_default=True,
+    help="The maximum HMM cost for samples to be included unconditionally",
+)
+@click.option(
+    "--min-group-size",
+    default=10,
+    show_default=True,
+    type=int,
+    help="Minimum size of groups of reconsidered samples for inclusion",
+)
+@click.option(
+    "--retrospective-window",
+    default=30,
+    show_default=True,
+    type=int,
+    help="Number of days in the past to reconsider potential matches",
+)
+@click.option(
+    "--max-daily-samples",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of samples to match in a single day. If the total "
+        "is greater than this, randomly subsample."
+    ),
+)
+@click.option(
+    "--random-seed",
+    default=42,
+    type=int,
+    help="Random seed for subsampling",
+    show_default=True,
+)
+@click.option(
+    "--num-threads",
+    default=0,
+    type=int,
+    help="Number of match threads (default to one)",
+)
+@click.option("--progress/--no-progress", default=True)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    flag_value=True,
+    help="Force clearing newer matches from DB",
+)
+def extend(
+    base_ts,
+    date,
+    alignments,
+    metadata,
+    matches,
+    output_ts,
+    num_mismatches,
+    hmm_cost_threshold,
+    min_group_size,
+    retrospective_window,
+    max_daily_samples,
+    num_threads,
+    random_seed,
+    progress,
+    verbose,
+    log_file,
+    force,
+):
+    """
+    Extend base_ts with sequences for the specified date, using specified
+    alignments and metadata databases, updating the specified matches
+    database, and outputting the result to the specified file.
+    """
+    setup_logging(verbose, log_file)
+    base = tskit.load(base_ts)
+    logger.debug(f"Loaded base ts from {base_ts}")
+    with contextlib.ExitStack() as exit_stack:
+        alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
+        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
+        match_db = exit_stack.enter_context(sc2ts.MatchDb(matches))
+
+        newer_matches = match_db.count_newer(date)
+        if newer_matches > 0:
+            if not force:
+                click.confirm(
+                    f"Do you want to remove {newer_matches} newer matches "
+                    f"from MatchDB > {date}?",
+                    abort=True,
+                )
+                match_db.delete_newer(date)
+        ts_out = inference.extend(
+            alignment_store=alignment_store,
+            metadata_db=metadata_db,
+            base_ts=base,
+            date=date,
+            match_db=match_db,
+            num_mismatches=num_mismatches,
+            hmm_cost_threshold=hmm_cost_threshold,
+            min_group_size=min_group_size,
+            retrospective_window=retrospective_window,
+            max_daily_samples=max_daily_samples,
+            random_seed=random_seed,
+            num_threads=num_threads,
+            show_progress=progress,
+        )
+        add_provenance(ts_out, output_ts)
+
+
+@click.command()
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output-prefix")
@@ -531,6 +657,7 @@ cli.add_command(export_metadata)
 
 cli.add_command(initialise)
 cli.add_command(list_dates)
+cli.add_command(extend)
 cli.add_command(daily_extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)

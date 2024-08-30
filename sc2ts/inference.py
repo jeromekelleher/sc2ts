@@ -32,6 +32,7 @@ class MatchDb:
         self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = metadata.dict_factory
+        logger.debug(f"Opened MatchDb at {path} mode=rw")
 
     def __len__(self):
         sql = "SELECT COUNT(*) FROM samples"
@@ -51,6 +52,17 @@ class MatchDb:
         with self.conn:
             row = self.conn.execute(sql).fetchone()
             return row["MAX(match_date)"]
+
+    def count_newer(self, date):
+        with self.conn:
+            sql = "SELECT COUNT(*) FROM samples WHERE match_date >= ?"
+            row = self.conn.execute(sql, (date,)).fetchone()
+            return row["COUNT(*)"]
+
+    def delete_newer(self, date):
+        sql = "DELETE FROM samples WHERE match_date >= ?"
+        with self.conn:
+            self.conn.execute(sql, (date,))
 
     def __str__(self):
         return f"MatchDb at {self.uri} has {len(self)} samples"
@@ -376,49 +388,49 @@ class Sample:
         }
 
 
-def daily_extend(
-    *,
-    alignment_store,
-    metadata_db,
-    base_ts,
-    match_db,
-    num_mismatches=None,
-    max_hmm_cost=None,
-    min_group_size=None,
-    num_past_days=None,
-    show_progress=False,
-    max_submission_delay=None,
-    max_daily_samples=None,
-    num_threads=None,
-    precision=None,
-    rng=None,
-    excluded_sample_dir=None,
-):
-    assert num_past_days is None
-    assert max_submission_delay is None
+# def daily_extend(
+#     *,
+#     alignment_store,
+#     metadata_db,
+#     base_ts,
+#     match_db,
+#     num_mismatches=None,
+#     max_hmm_cost=None,
+#     min_group_size=None,
+#     num_past_days=None,
+#     show_progress=False,
+#     max_submission_delay=None,
+#     max_daily_samples=None,
+#     num_threads=None,
+#     precision=None,
+#     rng=None,
+#     excluded_sample_dir=None,
+# ):
+#     assert num_past_days is None
+#     assert max_submission_delay is None
 
-    start_day = last_date(base_ts)
+#     start_day = last_date(base_ts)
 
-    last_ts = base_ts
-    for date in metadata_db.get_days(start_day):
-        ts = extend(
-            alignment_store=alignment_store,
-            metadata_db=metadata_db,
-            date=date,
-            base_ts=last_ts,
-            match_db=match_db,
-            num_mismatches=num_mismatches,
-            max_hmm_cost=max_hmm_cost,
-            min_group_size=min_group_size,
-            show_progress=show_progress,
-            max_submission_delay=max_submission_delay,
-            max_daily_samples=max_daily_samples,
-            num_threads=num_threads,
-            precision=precision,
-        )
-        yield ts, date
+#     last_ts = base_ts
+#     for date in metadata_db.get_days(start_day):
+#         ts = extend(
+#             alignment_store=alignment_store,
+#             metadata_db=metadata_db,
+#             date=date,
+#             base_ts=last_ts,
+#             match_db=match_db,
+#             num_mismatches=num_mismatches,
+#             max_hmm_cost=max_hmm_cost,
+#             min_group_size=min_group_size,
+#             show_progress=show_progress,
+#             max_submission_delay=max_submission_delay,
+#             max_daily_samples=max_daily_samples,
+#             num_threads=num_threads,
+#             precision=precision,
+#         )
+#         yield ts, date
 
-        last_ts = ts
+#         last_ts = ts
 
 
 def preprocess(
@@ -559,30 +571,28 @@ def extend(
     base_ts,
     match_db,
     num_mismatches=None,
-    max_hmm_cost=None,
+    hmm_cost_threshold=None,
     min_group_size=None,
-    show_progress=False,
-    max_submission_delay=None,
     max_daily_samples=None,
+    show_progress=False,
+    retrospective_window=None,
+    random_seed=42,
     num_threads=0,
-    precision=None,
-    rng=None,
 ):
     if num_mismatches is None:
         num_mismatches = 3
-    if max_hmm_cost is None:
-        max_hmm_cost = 5
+    if hmm_cost_threshold is None:
+        hmm_cost_threshold = 5
     if min_group_size is None:
         min_group_size = 10
 
+    # TMP
+    precision = 6
     check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
         f"mutations={base_ts.num_mutations};date={base_ts.metadata['sc2ts']['date']}"
     )
-    # TODO not sure whether we'll keep these params. Making sure they're not
-    # used for now
-    assert max_submission_delay is None
 
     samples = preprocess(
         date,
@@ -615,7 +625,7 @@ def extend(
 
     logger.info(f"Update ARG with low-cost samples for {date}")
     ts = add_matching_results(
-        f"match_date=='{date}' and hmm_cost>0 and hmm_cost<={max_hmm_cost}",
+        f"match_date=='{date}' and hmm_cost>0 and hmm_cost<={hmm_cost_threshold}",
         ts=ts,
         match_db=match_db,
         date=date,

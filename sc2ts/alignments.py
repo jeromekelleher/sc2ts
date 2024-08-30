@@ -82,6 +82,7 @@ class AlignmentStore(collections.abc.Mapping):
         self.env = lmdb.Environment(
             str(path), subdir=False, readonly=mode == "r", map_size=map_size
         )
+        logger.debug(f"Opened AlignmentStore at {path} mode={mode}")
 
     def __enter__(self):
         return self

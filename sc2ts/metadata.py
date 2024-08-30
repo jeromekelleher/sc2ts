@@ -22,6 +22,7 @@ class MetadataDb(collections.abc.Mapping):
         self.path = path
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = dict_factory
+        logger.debug(f"Opened MetadataDb at {path} mode=ro")
 
     @staticmethod
     def import_csv(csv_path, db_path):
