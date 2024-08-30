@@ -201,7 +201,7 @@ def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
     additional_problematic = []
     if additional_problematic_sites is not None:
         additional_problematic = (
-            np.loadtxt(additional_problematic_sites).astype(int).tolist()
+            np.loadtxt(additional_problematic_sites, ndmin=1).astype(int).tolist()
         )
         logger.info(
             f"Excluding additional {len(additional_problematic)} problematic sites"
