@@ -563,10 +563,17 @@ def extend(
     show_progress=False,
     max_submission_delay=None,
     max_daily_samples=None,
-    num_threads=None,
+    num_threads=0,
     precision=None,
     rng=None,
 ):
+    if num_mismatches is None:
+        num_mismatches = 3
+    if max_hmm_cost is None:
+        max_hmm_cost = 5
+    if min_group_size is None:
+        min_group_size = 10
+
     check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
