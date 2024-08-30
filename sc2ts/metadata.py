@@ -19,8 +19,10 @@ class MetadataDb(collections.abc.Mapping):
         uri = f"file:{path}"
         uri += "?mode=ro"
         self.uri = uri
+        self.path = path
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = dict_factory
+        logger.debug(f"Opened MetadataDb at {path} mode=ro")
 
     @staticmethod
     def import_csv(csv_path, db_path):
@@ -72,6 +74,14 @@ class MetadataDb(collections.abc.Mapping):
         with self.conn:
             for row in self.conn.execute(sql, [date]):
                 yield row
+
+    def date_sample_counts(self):
+        sql = "SELECT date, COUNT(*) FROM samples GROUP BY date ORDER BY date;"
+        counts = collections.Counter()
+        with self.conn:
+            for row in self.conn.execute(sql):
+                counts[row["date"]] = row["COUNT(*)"]
+        return counts
 
     def get_days(self, date=None):
         if date is None:

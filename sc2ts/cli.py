@@ -182,42 +182,92 @@ def add_provenance(ts, output_file):
 
 
 @click.command()
+@click.argument("ts", type=click.Path(dir_okay=False))
+@click.argument("match_db", type=click.Path(dir_okay=False))
+@click.option(
+    "--additional-problematic-sites",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="File containing the list of additional problematic sites to exclude.",
+)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
+    """
+    Initialise a new base tree sequence to begin inference.
+    """
+    setup_logging(verbose, log_file)
+
+    additional_problematic = []
+    if additional_problematic_sites is not None:
+        additional_problematic = (
+            np.loadtxt(additional_problematic_sites, ndmin=1).astype(int).tolist()
+        )
+        logger.info(
+            f"Excluding additional {len(additional_problematic)} problematic sites"
+        )
+
+    base_ts = inference.initial_ts(additional_problematic)
+    base_ts.dump(ts)
+    logger.info(f"New base ts at {ts}")
+    inference.MatchDb.initialise(match_db)
+
+
+@click.command()
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.option("--counts/--no-counts", default=False)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def list_dates(metadata, counts, verbose, log_file):
+    """
+    List the dates included in specified metadataDB
+    """
+    setup_logging(verbose, log_file)
+    with sc2ts.MetadataDb(metadata) as metadata_db:
+        counter = metadata_db.date_sample_counts()
+        if counts:
+            for k, v in counter.items():
+                print(k, v, sep="\t")
+
+        else:
+            for k in counter:
+                print(k)
+
+
+@click.command()
+@click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
+@click.argument("date")
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.argument("output-prefix")
+@click.argument("matches", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output_ts", type=click.Path(dir_okay=False))
 @click.option(
-    "-b",
-    "--base",
-    type=click.Path(dir_okay=False, exists=True),
-    default=None,
-    help=(
-        "The base tree sequence to match against. If not specified, create "
-        "a new initial base containing the reference. "
-    ),
+    "--num-mismatches",
+    default=3,
+    show_default=True,
+    type=float,
+    help="Number of mismatches to accept in favour of recombination",
 )
-@click.option("--num-mismatches", default=None, type=float, help="num-mismatches")
-@click.option("--max-hmm-cost", default=5, type=float, help="max-hmm-cost")
+@click.option(
+    "--hmm-cost-threshold",
+    default=5,
+    type=float,
+    show_default=True,
+    help="The maximum HMM cost for samples to be included unconditionally",
+)
 @click.option(
     "--min-group-size",
     default=10,
+    show_default=True,
     type=int,
-    help="Minimum size of groups of reconsidered samples",
-    show_default=True
+    help="Minimum size of groups of reconsidered samples for inclusion",
 )
 @click.option(
-    "--num-past-days",
-    default=None,
+    "--retrospective-window",
+    default=30,
+    show_default=True,
     type=int,
-    help="Number of past days to retrieve filtered samples",
-)
-@click.option(
-    "--max-submission-delay",
-    default=None,
-    type=int,
-    help=(
-        "The maximum number of days between the sample and its submission date "
-        "for it to be included in the inference"
-    ),
+    help="Number of days in the past to reconsider potential matches",
 )
 @click.option(
     "--max-daily-samples",
@@ -228,91 +278,86 @@ def add_provenance(ts, output_file):
         "is greater than this, randomly subsample."
     ),
 )
-@click.option("--num-threads", default=0, type=int, help="Number of match threads")
-@click.option("--random-seed", default=42, type=int, help="Random seed for subsampling")
-@click.option("--stop-date", default="2030-01-01", type=str, help="Stopping date")
 @click.option(
-    "--additional-problematic-sites",
-    default=None,
-    type=str,
-    help="File containing the list of additional problematic sites to exclude.",
+    "--random-seed",
+    default=42,
+    type=int,
+    help="Random seed for subsampling",
+    show_default=True,
 )
-@click.option("-p", "--precision", default=None, type=int, help="Match precision")
-@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
+@click.option(
+    "--num-threads",
+    default=0,
+    type=int,
+    help="Number of match threads (default to one)",
+)
+@click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def daily_extend(
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    flag_value=True,
+    help="Force clearing newer matches from DB",
+)
+def extend(
+    base_ts,
+    date,
     alignments,
     metadata,
-    output_prefix,
-    base,
+    matches,
+    output_ts,
     num_mismatches,
-    max_hmm_cost,
+    hmm_cost_threshold,
     min_group_size,
-    num_past_days,
-    max_submission_delay,
+    retrospective_window,
     max_daily_samples,
     num_threads,
     random_seed,
-    stop_date,
-    additional_problematic_sites,
-    precision,
-    no_progress,
+    progress,
     verbose,
     log_file,
+    force,
 ):
     """
-    Sequentially extend the trees by adding samples in daily batches.
+    Extend base_ts with sequences for the specified date, using specified
+    alignments and metadata databases, updating the specified matches
+    database, and outputting the result to the specified file.
     """
     setup_logging(verbose, log_file)
-    rng = random.Random(random_seed)
-
-    additional_problematic = []
-    if additional_problematic_sites is not None:
-        additional_problematic = (
-            np.loadtxt(additional_problematic_sites).astype(int).tolist()
-        )
-        logger.info(
-            f"Excluding additional {len(additional_problematic)} problematic sites"
-        )
-
-    match_db_path = f"{output_prefix}match.db"
-    if base is None:
-        base_ts = inference.initial_ts(additional_problematic)
-        match_db = inference.MatchDb.initialise(match_db_path)
-    else:
-        base_ts = tskit.load(base)
-
-    assert (
-        base_ts.metadata["sc2ts"]["additional_problematic_sites"]
-        == additional_problematic
-    )
-
+    base = tskit.load(base_ts)
+    logger.debug(f"Loaded base ts from {base_ts}")
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
-        match_db = exit_stack.enter_context(inference.MatchDb(match_db_path))
-        ts_iter = inference.daily_extend(
+        match_db = exit_stack.enter_context(sc2ts.MatchDb(matches))
+
+        newer_matches = match_db.count_newer(date)
+        if newer_matches > 0:
+            if not force:
+                click.confirm(
+                    f"Do you want to remove {newer_matches} newer matches "
+                    f"from MatchDB > {date}?",
+                    abort=True,
+                )
+                match_db.delete_newer(date)
+        ts_out = inference.extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
-            base_ts=base_ts,
+            base_ts=base,
+            date=date,
             match_db=match_db,
             num_mismatches=num_mismatches,
-            max_hmm_cost=max_hmm_cost,
+            hmm_cost_threshold=hmm_cost_threshold,
             min_group_size=min_group_size,
-            num_past_days=num_past_days,
-            max_submission_delay=max_submission_delay,
+            retrospective_window=retrospective_window,
             max_daily_samples=max_daily_samples,
-            rng=rng,
-            precision=precision,
+            random_seed=random_seed,
             num_threads=num_threads,
-            show_progress=not no_progress,
+            show_progress=progress,
         )
-        for ts, date in ts_iter:
-            output_ts = output_prefix + date + ".ts"
-            add_provenance(ts, output_ts)
-            if date >= stop_date:
-                break
+        add_provenance(ts_out, output_ts)
 
 
 @click.command()
@@ -477,6 +522,8 @@ cli.add_command(info_matches)
 cli.add_command(export_alignments)
 cli.add_command(export_metadata)
 
-cli.add_command(daily_extend)
+cli.add_command(initialise)
+cli.add_command(list_dates)
+cli.add_command(extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)
