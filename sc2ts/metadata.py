@@ -80,7 +80,9 @@ class MetadataDb(collections.abc.Mapping):
         counts = collections.Counter()
         with self.conn:
             for row in self.conn.execute(sql):
-                counts[row["date"]] = row["COUNT(*)"]
+                date = row["date"]
+                if len(date) == 10 and date.startswith("20"):
+                    counts[date] = row["COUNT(*)"]
         return counts
 
     def get_days(self, date=None):
