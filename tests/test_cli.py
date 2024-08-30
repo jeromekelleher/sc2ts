@@ -44,3 +44,67 @@ class TestInitialise:
         other_ts.tables.assert_equals(ts.tables)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
+
+
+class TestListDates:
+    def test_defaults(self, metadata_db):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"list-dates {metadata_db.path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert result.stdout.splitlines() == [
+            "2020-01-01",
+            "2020-01-19",
+            "2020-01-24",
+            "2020-01-25",
+            "2020-01-28",
+            "2020-01-29",
+            "2020-01-30",
+            "2020-01-31",
+            "2020-02-01",
+            "2020-02-02",
+            "2020-02-03",
+            "2020-02-04",
+            "2020-02-05",
+            "2020-02-06",
+            "2020-02-07",
+            "2020-02-08",
+            "2020-02-09",
+            "2020-02-10",
+            "2020-02-11",
+            "2020-02-13",
+        ]
+
+    def test_counts(self, metadata_db):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"list-dates {metadata_db.path} --counts",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert result.stdout.splitlines() == [
+            "2020-01-01\t1",
+            "2020-01-19\t1",
+            "2020-01-24\t2",
+            "2020-01-25\t3",
+            "2020-01-28\t2",
+            "2020-01-29\t4",
+            "2020-01-30\t5",
+            "2020-01-31\t1",
+            "2020-02-01\t5",
+            "2020-02-02\t5",
+            "2020-02-03\t2",
+            "2020-02-04\t5",
+            "2020-02-05\t1",
+            "2020-02-06\t3",
+            "2020-02-07\t2",
+            "2020-02-08\t4",
+            "2020-02-09\t2",
+            "2020-02-10\t2",
+            "2020-02-11\t2",
+            "2020-02-13\t4",
+        ]

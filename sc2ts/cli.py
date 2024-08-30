@@ -214,6 +214,27 @@ def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
 
 
 @click.command()
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.option("--counts/--no-counts", default=False)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def list_dates(metadata, counts, verbose, log_file):
+    """
+    List the dates included in specified metadataDB
+    """
+    setup_logging(verbose, log_file)
+    with sc2ts.MetadataDb(metadata) as metadata_db:
+        counter = metadata_db.date_sample_counts()
+        if counts:
+            for k, v in counter.items():
+                print(k, v, sep="\t")
+
+        else:
+            for k in counter:
+                print(k)
+
+
+@click.command()
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output-prefix")
@@ -509,6 +530,7 @@ cli.add_command(export_alignments)
 cli.add_command(export_metadata)
 
 cli.add_command(initialise)
+cli.add_command(list_dates)
 cli.add_command(daily_extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)
