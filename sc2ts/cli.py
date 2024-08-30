@@ -182,6 +182,38 @@ def add_provenance(ts, output_file):
 
 
 @click.command()
+@click.argument("ts", type=click.Path(dir_okay=False))
+@click.argument("match_db", type=click.Path(dir_okay=False))
+@click.option(
+    "--additional-problematic-sites",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="File containing the list of additional problematic sites to exclude.",
+)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
+    """
+    Initialise a new base tree sequence to begin inference.
+    """
+    setup_logging(verbose, log_file)
+
+    additional_problematic = []
+    if additional_problematic_sites is not None:
+        additional_problematic = (
+            np.loadtxt(additional_problematic_sites).astype(int).tolist()
+        )
+        logger.info(
+            f"Excluding additional {len(additional_problematic)} problematic sites"
+        )
+
+    base_ts = inference.initial_ts(additional_problematic)
+    base_ts.dump(ts)
+    logger.info(f"New base ts at {ts}")
+    inference.MatchDb.initialise(match_db)
+
+
+@click.command()
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output-prefix")
@@ -202,7 +234,6 @@ def add_provenance(ts, output_file):
     default=10,
     type=int,
     help="Minimum size of groups of reconsidered samples",
-    show_default=True
 )
 @click.option(
     "--num-past-days",
@@ -477,6 +508,7 @@ cli.add_command(info_matches)
 cli.add_command(export_alignments)
 cli.add_command(export_metadata)
 
+cli.add_command(initialise)
 cli.add_command(daily_extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)

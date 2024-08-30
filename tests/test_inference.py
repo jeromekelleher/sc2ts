@@ -486,6 +486,7 @@ class TestMirrorTsCoords:
 
 
 class TestRealData:
+    # def test_first_day(self, tmp_path, alignments_store, metadata_db):
     def test_first_day(self, tmp_path, alignments_store, metadata_db):
         ts = sc2ts.extend(
             alignment_store=alignments_store,

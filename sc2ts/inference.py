@@ -165,6 +165,7 @@ class MatchDb:
             conn.execute(
                 "CREATE INDEX [ix_samples_match_date] on 'samples' " "([match_date]);"
             )
+        logger.info(f"Created new MatchDb at {db_path}")
         return MatchDb(db_path)
 
     def print_all(self):
