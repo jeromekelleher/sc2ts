@@ -33,7 +33,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest --cov=sc2ts
+          python -m pytest --cov=sc2ts tests/
       # - name: Upload coverage to Coveralls
       #   uses: coverallsapp/github-action@v2.3.0
       #   with:
@@ -64,27 +64,26 @@ jobs:
 
       - name: Import alignments
         run: |
-          python3 -m sc2ts import-alignments testrun/alignments.db \
-            testrun/data/alignments.fasta
-          python3 -m sc2ts info-alignments testrun/alignments.db
+          sc2ts import-alignments testrun/alignments.db testrun/data/alignments.fasta
+          sc2ts info-alignments testrun/alignments.db
 
       - name: Import metadata
         run: |
-          python3 -m sc2ts import-metadata testrun/data/metadata.tsv testrun/metadata.db
-          python3 -m sc2ts info-metadata testrun/metadata.db
+          sc2ts import-metadata testrun/data/metadata.tsv testrun/metadata.db
+          sc2ts info-metadata testrun/metadata.db
 
       - name: Run inference
         run: |
-          python3 -m sc2ts daily-extend -v testrun/alignments.db testrun/metadata.db \
+          sc2ts daily-extend -v testrun/alignments.db testrun/metadata.db \
             testrun/ --min-group-size=2
 
       - name: Validate
         run: |
-          python3 -m sc2ts validate -v testrun/alignments.db testrun/2020-02-13.ts
+          sc2ts validate -v testrun/alignments.db testrun/2020-02-13.ts
 
       - name: MatchDB
         run: |
-          python3 -m sc2ts info-matches testrun/match.db
+          sc2ts info-matches testrun/match.db
 
   packaging:
     name: Packaging tests
