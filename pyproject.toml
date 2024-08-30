@@ -21,6 +21,9 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.scripts]
+sc2ts = "sc2ts.cli:cli"
+
 [project.optional-dependencies]
 dev = [
   "msprime",
