@@ -546,21 +546,74 @@ class TestRealData:
 
 
 class TestMatchingDetails:
-
-    def test_exact_matches(self, fx_ts_2020_02_10, fx_alignment_store, fx_metadata_db):
-        print("HERE")
-
-    def test_other_exact_matches(self, tmp_path, fx_ts_2020_02_10, fx_alignment_store, fx_metadata_db):
-        print("HERE")
-        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
-        ts = sc2ts.extend(
-            alignment_store=fx_alignment_store,
-            metadata_db=fx_metadata_db,
-            base_ts=fx_ts_2020_02_10,
-            date="2020-02-11",
-            match_db=match_db,
-            min_group_size=2,
+    @pytest.mark.parametrize(
+        ("strain", "parent"), [("SRR11597207", 42), ("ERR4205570", 62)]
+    )
+    @pytest.mark.parametrize("num_mismatches", [1, 2, 3, 4])
+    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
+    def test_exact_matches(
+        self,
+        fx_ts_2020_02_10,
+        fx_alignment_store,
+        fx_metadata_db,
+        strain,
+        parent,
+        num_mismatches,
+        precision,
+    ):
+        samples = sc2ts.preprocess(
+            [fx_metadata_db[strain]], fx_ts_2020_02_10, "2020-02-20", fx_alignment_store
         )
+        sc2ts.match_tsinfer(
+            samples=samples,
+            ts=fx_ts_2020_02_10,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=0,
+        )
+        s = samples[0]
+        assert len(s.mutations) == 0
+        assert len(s.path) == 1
+        assert s.path[0].parent == parent
 
+    # def test_stuff(
+    #     self, tmp_path, fx_ts_2020_02_10, fx_alignment_store, fx_metadata_db
+    # ):
+    #     # SRR11597207 0 42 0
+    #     # SRR11597218 1 10 1
 
+    #     # date = "2020-02-11" # 2 samples
+    #     date = "2020-02-13"  # 4 samples
+    #     samples = sc2ts.preprocess(
+    #         date,
+    #         metadata_db=fx_metadata_db,
+    #         alignment_store=fx_alignment_store,
+    #         base_ts=fx_ts_2020_02_10,
+    #     )
+    #     # print(samples)
 
+    #     num_mismatches = 3
+    #     sc2ts.match_tsinfer(
+    #         samples=samples,
+    #         ts=fx_ts_2020_02_10,
+    #         num_mismatches=3,
+    #         precision=12,
+    #         num_threads=0,
+    #     )
+    #     for sample in samples:
+    #         print(
+    #             sample.strain,
+    #             sample.get_hmm_cost(num_mismatches),
+    #             sample.path[0].parent,
+    #             len(sample.mutations),
+    #         )
+
+    #     # match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+    #     # ts = sc2ts.extend(
+    #     #     alignment_store=fx_alignment_store,
+    #     #     metadata_db=fx_metadata_db,
+    #     #     base_ts=fx_ts_2020_02_10,
+    #     #     date="2020-02-11",
+    #     #     match_db=match_db,
+    #     #     min_group_size=2,
+    #     # )
