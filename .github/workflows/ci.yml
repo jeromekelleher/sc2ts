@@ -74,8 +74,15 @@ jobs:
 
       - name: Run inference
         run: |
-          sc2ts daily-extend -v testrun/alignments.db testrun/metadata.db \
-            testrun/ --min-group-size=2
+          last_ts=testrun/initial.ts
+          sc2ts initialise -v $last_ts testrun/match.db
+          for date in `sc2ts list-dates testrun/metadata.db`; do
+              out_ts=testrun/$date.ts
+              sc2ts extend $last_ts $date \
+                  testrun/alignments.db testrun/metadata.db \
+                  testrun/match.db $out_ts --min-group-size=2
+              last_ts=$out_ts
+          done
 
       - name: Validate
         run: |
