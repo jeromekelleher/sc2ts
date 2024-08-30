@@ -486,11 +486,10 @@ class TestMirrorTsCoords:
 
 
 class TestRealData:
-    # def test_first_day(self, tmp_path, alignments_store, metadata_db):
-    def test_first_day(self, tmp_path, alignments_store, metadata_db):
+    def test_first_day(self, tmp_path, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
-            alignment_store=alignments_store,
-            metadata_db=metadata_db,
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
             base_ts=sc2ts.initial_ts(),
             date="2020-01-19",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
@@ -536,3 +535,32 @@ class TestRealData:
             },
             "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
         }
+
+    def test_2020_02_10_metadata(self, fx_ts_2020_02_10):
+        ts = fx_ts_2020_02_10
+        assert ts.metadata["sc2ts"]["date"] == "2020-02-10"
+        samples_strain = [ts.node(u).metadata["strain"] for u in ts.samples()]
+        assert ts.metadata["sc2ts"]["samples_strain"] == samples_strain
+        # print(ts.tables.mutations)
+        # print(ts.draw_text())
+
+
+class TestMatchingDetails:
+
+    def test_exact_matches(self, fx_ts_2020_02_10, fx_alignment_store, fx_metadata_db):
+        print("HERE")
+
+    def test_other_exact_matches(self, tmp_path, fx_ts_2020_02_10, fx_alignment_store, fx_metadata_db):
+        print("HERE")
+        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_2020_02_10,
+            date="2020-02-11",
+            match_db=match_db,
+            min_group_size=2,
+        )
+
+
+
