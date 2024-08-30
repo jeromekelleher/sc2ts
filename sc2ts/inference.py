@@ -388,51 +388,6 @@ class Sample:
         }
 
 
-# def daily_extend(
-#     *,
-#     alignment_store,
-#     metadata_db,
-#     base_ts,
-#     match_db,
-#     num_mismatches=None,
-#     max_hmm_cost=None,
-#     min_group_size=None,
-#     num_past_days=None,
-#     show_progress=False,
-#     max_submission_delay=None,
-#     max_daily_samples=None,
-#     num_threads=None,
-#     precision=None,
-#     rng=None,
-#     excluded_sample_dir=None,
-# ):
-#     assert num_past_days is None
-#     assert max_submission_delay is None
-
-#     start_day = last_date(base_ts)
-
-#     last_ts = base_ts
-#     for date in metadata_db.get_days(start_day):
-#         ts = extend(
-#             alignment_store=alignment_store,
-#             metadata_db=metadata_db,
-#             date=date,
-#             base_ts=last_ts,
-#             match_db=match_db,
-#             num_mismatches=num_mismatches,
-#             max_hmm_cost=max_hmm_cost,
-#             min_group_size=min_group_size,
-#             show_progress=show_progress,
-#             max_submission_delay=max_submission_delay,
-#             max_daily_samples=max_daily_samples,
-#             num_threads=num_threads,
-#             precision=precision,
-#         )
-#         yield ts, date
-
-#         last_ts = ts
-
-
 def match_samples(
     date,
     samples,
@@ -449,29 +404,15 @@ def match_samples(
         # Default to no recombination
         num_mismatches = 1000
 
-    match_tsinfer(
-        samples=samples,
-        ts=base_ts,
-        num_mismatches=num_mismatches,
-        precision=2,
-        num_threads=num_threads,
-        show_progress=show_progress,
-        mirror_coordinates=mirror_coordinates,
-    )
-    samples_to_rerun = []
-    for sample in samples:
-        hmm_cost = sample.get_hmm_cost(num_mismatches)
-        logger.debug(
-            f"First sketch: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
-        )
-        if hmm_cost >= 2:
-            sample.path.clear()
-            sample.mutations.clear()
-            samples_to_rerun.append(sample)
+    remaining_samples = samples
+    # FIXME Something wrong here, we don't seem to get precisely the same
+    # ARG for some reason. Need to track it down
+    # Also: should only run the things at low precision that have that HMM cost.
+    # Start out by setting everything to have 0 mutations and work up from there.
 
-    if len(samples_to_rerun) > 0:
+    for cost, precision in [(0, 0), (1, 2)]: #, (2, 3)]:
         match_tsinfer(
-            samples=samples_to_rerun,
+            samples=remaining_samples,
             ts=base_ts,
             num_mismatches=num_mismatches,
             precision=precision,
@@ -479,11 +420,34 @@ def match_samples(
             show_progress=show_progress,
             mirror_coordinates=mirror_coordinates,
         )
-        for sample in samples_to_rerun:
+        samples_to_rerun = []
+        for sample in remaining_samples:
             hmm_cost = sample.get_hmm_cost(num_mismatches)
+            # print(f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}")
             logger.debug(
-                f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+                f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
             )
+            if hmm_cost > cost:
+                sample.path.clear()
+                sample.mutations.clear()
+                samples_to_rerun.append(sample)
+        remaining_samples = samples_to_rerun
+
+    match_tsinfer(
+        samples=samples_to_rerun,
+        ts=base_ts,
+        num_mismatches=num_mismatches,
+        precision=12,
+        num_threads=num_threads,
+        show_progress=show_progress,
+        mirror_coordinates=mirror_coordinates,
+    )
+    for sample in samples_to_rerun:
+        hmm_cost = sample.get_hmm_cost(num_mismatches)
+        # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
+        logger.debug(
+            f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+        )
 
     match_db.add(samples, date, num_mismatches)
 
@@ -855,7 +819,7 @@ def solve_num_mismatches(ts, k):
         # for the optimal value of this parameter such that the magnitude of the
         # values within the HMM are as large as possible (so that we can truncate
         # usefully).
-        mu = 1e-3
+        mu = 1e-2
         denom = (1 - mu) ** k + (n - 1) * mu**k
         r = n * mu**k / denom
         assert mu < 0.5
@@ -1312,6 +1276,8 @@ def match_tsinfer(
     show_progress=False,
     mirror_coordinates=False,
 ):
+    if len(samples) == 0:
+        return
     genotypes = np.array([sample.alignment for sample in samples], dtype=np.int8).T
     input_ts = ts
     if mirror_coordinates:
