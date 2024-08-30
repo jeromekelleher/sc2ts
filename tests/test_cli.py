@@ -47,11 +47,11 @@ class TestInitialise:
 
 
 class TestListDates:
-    def test_defaults(self, metadata_db):
+    def test_defaults(self, fx_metadata_db):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"list-dates {metadata_db.path}",
+            f"list-dates {fx_metadata_db.path}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -78,11 +78,11 @@ class TestListDates:
             "2020-02-13",
         ]
 
-    def test_counts(self, metadata_db):
+    def test_counts(self, fx_metadata_db):
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"list-dates {metadata_db.path} --counts",
+            f"list-dates {fx_metadata_db.path} --counts",
             catch_exceptions=False,
         )
         assert result.exit_code == 0

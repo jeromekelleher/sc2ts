@@ -486,11 +486,10 @@ class TestMirrorTsCoords:
 
 
 class TestRealData:
-    # def test_first_day(self, tmp_path, alignments_store, metadata_db):
-    def test_first_day(self, tmp_path, alignments_store, metadata_db):
+    def test_first_day(self, tmp_path, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
-            alignment_store=alignments_store,
-            metadata_db=metadata_db,
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
             base_ts=sc2ts.initial_ts(),
             date="2020-01-19",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
@@ -536,3 +535,140 @@ class TestRealData:
             },
             "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
         }
+
+    def test_2020_02_10_metadata(self, fx_ts_2020_02_10):
+        ts = fx_ts_2020_02_10
+        assert ts.metadata["sc2ts"]["date"] == "2020-02-10"
+        samples_strain = [ts.node(u).metadata["strain"] for u in ts.samples()]
+        assert ts.metadata["sc2ts"]["samples_strain"] == samples_strain
+        # print(ts.tables.mutations)
+        # print(ts.draw_text())
+
+
+class TestMatchingDetails:
+    @pytest.mark.parametrize(
+        ("strain", "parent"), [("SRR11597207", 42), ("ERR4205570", 62)]
+    )
+    @pytest.mark.parametrize("num_mismatches", [1, 2, 3, 4])
+    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
+    def test_exact_matches(
+        self,
+        fx_ts_2020_02_10,
+        fx_alignment_store,
+        fx_metadata_db,
+        strain,
+        parent,
+        num_mismatches,
+        precision,
+    ):
+        samples = sc2ts.preprocess(
+            [fx_metadata_db[strain]], fx_ts_2020_02_10, "2020-02-20", fx_alignment_store
+        )
+        sc2ts.match_tsinfer(
+            samples=samples,
+            ts=fx_ts_2020_02_10,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=0,
+        )
+        s = samples[0]
+        assert len(s.mutations) == 0
+        assert len(s.path) == 1
+        assert s.path[0].parent == parent
+
+    @pytest.mark.parametrize(
+        ("strain", "parent", "position", "derived_state"),
+        [("SRR11597218", 10, 289, "T"), ("ERR4206593", 62, 26994, "T")],
+    )
+    @pytest.mark.parametrize("num_mismatches", [1, 2, 3, 4])
+    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
+    def test_one_mismatch(
+        self,
+        fx_ts_2020_02_10,
+        fx_alignment_store,
+        fx_metadata_db,
+        strain,
+        parent,
+        position,
+        derived_state,
+        num_mismatches,
+        precision,
+    ):
+        samples = sc2ts.preprocess(
+            [fx_metadata_db[strain]], fx_ts_2020_02_10, "2020-02-20", fx_alignment_store
+        )
+        sc2ts.match_tsinfer(
+            samples=samples,
+            ts=fx_ts_2020_02_10,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=0,
+        )
+        s = samples[0]
+        assert len(s.mutations) == 1
+        assert s.mutations[0].site_position == position
+        assert s.mutations[0].derived_state == derived_state
+        assert len(s.path) == 1
+        assert s.path[0].parent == parent
+
+    @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
+    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
+    def test_two_mismatches(
+        self,
+        fx_ts_2020_02_10,
+        fx_alignment_store,
+        fx_metadata_db,
+        num_mismatches,
+        precision,
+    ):
+        strain = "ERR4204459"
+        samples = sc2ts.preprocess(
+            [fx_metadata_db[strain]], fx_ts_2020_02_10, "2020-02-20", fx_alignment_store
+        )
+        sc2ts.match_tsinfer(
+            samples=samples,
+            ts=fx_ts_2020_02_10,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=0,
+        )
+        s = samples[0]
+        assert len(s.path) == 1
+        assert s.path[0].parent == 5
+        assert len(s.mutations) == 2
+        # assert s.mutations[0].site_position == position
+        # assert s.mutations[0].derived_state == derived_state
+
+
+#     def test_stuff(
+#         self,
+#         fx_ts_2020_02_10,
+#         fx_alignment_store,
+#         fx_metadata_db):
+
+#         # date = "2020-02-11" # 2 samples
+#         date = "2020-02-13"  # 4 samples
+
+#         # metadata_matches =
+#         samples = sc2ts.preprocess(
+#             list(fx_metadata_db.get(date)),
+#             fx_ts_2020_02_10,
+#             date, fx_alignment_store
+#         )
+#         # print(samples)
+
+#         num_mismatches = 3
+#         sc2ts.match_tsinfer(
+#             samples=samples,
+#             ts=fx_ts_2020_02_10,
+#             num_mismatches=3,
+#             precision=12,
+#             num_threads=0,
+#         )
+#         for sample in samples:
+#             print(
+#                 sample.strain,
+#                 sample.get_hmm_cost(num_mismatches),
+#                 sample.path[0].parent,
+#                 len(sample.mutations),
+#             )

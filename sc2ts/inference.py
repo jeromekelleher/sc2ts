@@ -433,73 +433,6 @@ class Sample:
 #         last_ts = ts
 
 
-def preprocess(
-    date,
-    *,
-    base_ts,
-    metadata_db,
-    alignment_store,
-    max_daily_samples=None,
-    show_progress=False,
-):
-    samples = []
-    metadata_matches = list(metadata_db.get(date))
-
-    if len(metadata_matches) == 0:
-        logger.warn(f"Zero metadata matches for {date}")
-        return []
-
-    if date.endswith("12-31"):
-        logger.warning(f"Skipping {len(metadata_matches)} samples for {date}")
-        return []
-
-    # TODO implement this.
-    assert max_daily_samples is None
-
-    keep_sites = base_ts.sites_position.astype(int)
-    problematic_sites = core.get_problematic_sites()
-    samples = []
-
-    with tqdm.tqdm(
-        metadata_matches,
-        desc=f"Preprocess:{date}",
-        disable=not show_progress,
-    ) as bar:
-        for md in bar:
-            strain = md["strain"]
-            try:
-                alignment = alignment_store[strain]
-            except KeyError:
-                logger.debug(f"No alignment stored for {strain}")
-                continue
-
-            sample = Sample(strain, date, metadata=md)
-            ma = alignments.encode_and_mask(alignment)
-            # Always mask the problematic_sites as well. We need to do this
-            # for follow-up matching to inspect recombinants, as tsinfer
-            # needs us to keep all sites in the table when doing mirrored
-            # coordinates.
-            ma.alignment[problematic_sites] = -1
-            sample.alignment_qc = ma.qc_summary()
-            sample.masked_sites = ma.masked_sites
-            sample.alignment = ma.alignment[keep_sites]
-            samples.append(sample)
-            num_Ns = ma.original_base_composition.get("N", 0)
-            non_nuc_counts = dict(ma.original_base_composition)
-            for nuc in "ACGT":
-                del non_nuc_counts[nuc]
-            counts = ",".join(
-                f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
-            )
-            num_masked = len(ma.masked_sites)
-            logger.debug(f"Mask {strain}: masked={num_masked} {counts}")
-
-    logger.info(
-        f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
-    )
-    return samples
-
-
 def match_samples(
     date,
     samples,
@@ -563,6 +496,47 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
+def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
+    keep_sites = base_ts.sites_position.astype(int)
+    problematic_sites = core.get_problematic_sites()
+
+    samples = []
+    with tqdm.tqdm(
+        samples_md,
+        desc=f"Preprocess",
+        disable=not show_progress,
+    ) as bar:
+        for md in bar:
+            strain = md["strain"]
+            try:
+                alignment = alignment_store[strain]
+            except KeyError:
+                logger.debug(f"No alignment stored for {strain}")
+                continue
+            sample = Sample(strain, date, metadata=md)
+            ma = alignments.encode_and_mask(alignment)
+            # Always mask the problematic_sites as well. We need to do this
+            # for follow-up matching to inspect recombinants, as tsinfer
+            # needs us to keep all sites in the table when doing mirrored
+            # coordinates.
+            ma.alignment[problematic_sites] = -1
+            sample.alignment_qc = ma.qc_summary()
+            sample.masked_sites = ma.masked_sites
+            sample.alignment = ma.alignment[keep_sites]
+            samples.append(sample)
+            num_Ns = ma.original_base_composition.get("N", 0)
+            non_nuc_counts = dict(ma.original_base_composition)
+            for nuc in "ACGT":
+                del non_nuc_counts[nuc]
+                counts = ",".join(
+                    f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
+                )
+            num_masked = len(ma.masked_sites)
+            logger.debug(f"Mask {strain}: masked={num_masked} {counts}")
+
+    return samples
+
+
 def extend(
     *,
     alignment_store,
@@ -594,18 +568,21 @@ def extend(
         f"mutations={base_ts.num_mutations};date={base_ts.metadata['sc2ts']['date']}"
     )
 
+    metadata_matches = list(metadata_db.get(date))
+    # TODO implement this.
+    assert max_daily_samples is None
+
     samples = preprocess(
-        date,
-        metadata_db=metadata_db,
-        alignment_store=alignment_store,
-        base_ts=base_ts,
-        max_daily_samples=max_daily_samples,
-        show_progress=show_progress,
+        metadata_matches, base_ts, date, alignment_store, show_progress=show_progress
     )
 
     if len(samples) == 0:
         logger.warning(f"Nothing to do for {date}")
         return base_ts
+
+    logger.info(
+        f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
+    )
 
     match_samples(
         date,

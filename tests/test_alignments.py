@@ -7,27 +7,27 @@ from sc2ts import core
 
 
 class TestAlignmentsStore:
-    def test_info(self, alignments_store):
-        assert "contains" in str(alignments_store)
+    def test_info(self, fx_alignment_store):
+        assert "contains" in str(fx_alignment_store)
 
-    def test_len(self, alignments_store):
-        assert len(alignments_store) == 55
+    def test_len(self, fx_alignment_store):
+        assert len(fx_alignment_store) == 55
 
-    def test_fetch_known(self, alignments_store):
-        a = alignments_store["SRR11772659"]
+    def test_fetch_known(self, fx_alignment_store):
+        a = fx_alignment_store["SRR11772659"]
         assert a.shape == (core.REFERENCE_SEQUENCE_LENGTH,)
         assert a[0] == "X"
         assert a[1] == "N"
         assert a[-1] == "N"
 
-    def test_keys(self, alignments_store):
-        keys = list(alignments_store.keys())
-        assert len(keys) == len(alignments_store)
+    def test_keys(self, fx_alignment_store):
+        keys = list(fx_alignment_store.keys())
+        assert len(keys) == len(fx_alignment_store)
         assert "SRR11772659" in keys
 
-    def test_in(self, alignments_store):
-        assert "SRR11772659" in alignments_store
-        assert "NOT_IN_STORE" not in alignments_store
+    def test_in(self, fx_alignment_store):
+        assert "SRR11772659" in fx_alignment_store
+        assert "NOT_IN_STORE" not in fx_alignment_store
 
 
 def test_get_gene_coordinates():
@@ -89,8 +89,8 @@ class TestEncodeAligment:
         with pytest.raises(ValueError):
             sa.decode_alignment(np.array(a))
 
-    def test_encode_real(self, alignments_store):
-        h = alignments_store["SRR11772659"]
+    def test_encode_real(self, fx_alignment_store):
+        h = fx_alignment_store["SRR11772659"]
         a = sa.encode_alignment(h)
         assert a[0] == -1
         assert a[-1] == -1
@@ -145,8 +145,8 @@ class TestMasking:
 
 
 class TestEncodeAndMask:
-    def test_known(self, alignments_store):
-        a = alignments_store["SRR11772659"]
+    def test_known(self, fx_alignment_store):
+        a = fx_alignment_store["SRR11772659"]
         ma = sa.encode_and_mask(a)
         assert ma.original_base_composition == {
             "T": 9566,
