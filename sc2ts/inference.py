@@ -421,22 +421,22 @@ def match_samples(
     #         rerun_batch.append(sample)
 
     rerun_batch = samples
-    precision = 12
+    precision = 6
     logger.info(f"Rerunning batch of {len(rerun_batch)} at p={precision}")
     match_tsinfer(
         samples=rerun_batch,
         ts=base_ts,
         num_mismatches=num_mismatches,
-        precision=12,
+        precision=precision,
         num_threads=num_threads,
         show_progress=show_progress,
     )
-    # for sample in samples_to_rerun:
-    #     hmm_cost = sample.get_hmm_cost(num_mismatches)
-    #     # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
-    #     logger.debug(
-    #         f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
-    #     )
+    for sample in rerun_batch:
+        hmm_cost = sample.get_hmm_cost(num_mismatches)
+        # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
+        logger.debug(
+            f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+        )
 
     # remaining_samples = samples
     # for cost, precision in [(0, 0), (1, 2)]: #, (2, 3)]:
@@ -463,7 +463,8 @@ def match_samples(
     #     remaining_samples = samples_to_rerun
 
     # Return in sorted order so that results are deterministic
-    return sorted(samples, key=lambda s: s.strain)
+    # return sorted(samples, key=lambda s: s.strain)
+    return samples
 
 
 def check_base_ts(ts):
