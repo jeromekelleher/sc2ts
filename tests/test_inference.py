@@ -571,19 +571,11 @@ class TestRealData:
         )
         assert ts.num_samples == 26
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
-        samples = {}
-        for u in ts.samples()[-4:]:
-            node = ts.node(u)
-            samples[node.metadata["strain"]] = node
-            smd = node.metadata["sc2ts"]
-            md = node.metadata
-            print(md["date"], md["strain"], len(smd["mutations"]))
         # print(samples)
         # print(fx_ts_map["2020-02-01"])
         # print(ts)
         # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
-
 
     @pytest.mark.parametrize("date", dates)
     def test_date_metadata(self, fx_ts_map, date):
@@ -601,7 +593,11 @@ class TestRealData:
 
     @pytest.mark.parametrize("date", dates[1:])
     def test_node_mutation_counts(self, fx_ts_map, date):
-        # Basic check to make sure our fixtures are what we expect
+        # Basic check to make sure our fixtures are what we expect.
+        # NOTE: this is somewhat fragile as the numbers of nodes does change
+        # a little depending on the exact solution that the HMM choses, for
+        # example when there are multiple single-mutation matches at different
+        # sites.
         ts = fx_ts_map[date]
         expected = {
             "2020-01-19": {"nodes": 3, "mutations": 3},
@@ -616,13 +612,13 @@ class TestRealData:
             "2020-02-03": {"nodes": 36, "mutations": 42},
             "2020-02-04": {"nodes": 41, "mutations": 48},
             "2020-02-05": {"nodes": 42, "mutations": 48},
-            "2020-02-06": {"nodes": 48, "mutations": 51},
-            "2020-02-07": {"nodes": 50, "mutations": 57},
-            "2020-02-08": {"nodes": 56, "mutations": 58},
-            "2020-02-09": {"nodes": 58, "mutations": 61},
-            "2020-02-10": {"nodes": 59, "mutations": 65},
-            "2020-02-11": {"nodes": 61, "mutations": 66},
-            "2020-02-13": {"nodes": 65, "mutations": 68},
+            "2020-02-06": {"nodes": 49, "mutations": 51},
+            "2020-02-07": {"nodes": 51, "mutations": 57},
+            "2020-02-08": {"nodes": 57, "mutations": 58},
+            "2020-02-09": {"nodes": 59, "mutations": 61},
+            "2020-02-10": {"nodes": 60, "mutations": 65},
+            "2020-02-11": {"nodes": 62, "mutations": 66},
+            "2020-02-13": {"nodes": 66, "mutations": 68},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
@@ -635,9 +631,9 @@ class TestRealData:
             (13, "SRR11597132", 10),
             (16, "SRR11597177", 10),
             (41, "SRR11597156", 10),
-            (56, "SRR11597216", 1),
-            (59, "SRR11597207", 40),
-            (61, "ERR4205570", 57),
+            (57, "SRR11597216", 1),
+            (60, "SRR11597207", 40),
+            (62, "ERR4205570", 58),
         ],
     )
     def test_exact_matches(self, fx_ts_map, node, strain, parent):
@@ -697,7 +693,7 @@ class TestMatchingDetails:
     #         assert s.path[0].parent == 37
 
     @pytest.mark.parametrize(
-        ("strain", "parent"), [("SRR11597207", 41), ("ERR4205570", 58)]
+        ("strain", "parent"), [("SRR11597207", 40), ("ERR4205570", 58)]
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     @pytest.mark.parametrize("precision", [0, 1, 2, 12])

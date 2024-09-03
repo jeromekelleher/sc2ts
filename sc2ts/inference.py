@@ -102,10 +102,7 @@ class MatchDb:
                 pkl_compressed,
             )
             data.append(args)
-            pango = sample.metadata.get("Viridian_pangolin", "Unknown")
-            logger.debug(
-                f"MatchDB insert: {sample.strain} {date} {pango} hmm_cost={hmm_cost[j]}"
-            )
+            logger.debug(f"MatchDB insert: hmm_cost={hmm_cost[j]} {sample.summary()}")
         # Batch insert, for efficiency.
         with self.conn:
             self.conn.executemany(sql, data)
@@ -150,11 +147,7 @@ class MatchDb:
             for row in self.conn.execute(sql):
                 pkl = row.pop("pickle")
                 sample = pickle.loads(bz2.decompress(pkl))
-                pango = sample.metadata.get("Viridian_pangolin", "Unknown")
-                logger.debug(
-                    f"MatchDb got: {sample.strain} {sample.date} {pango} "
-                    f"hmm_cost={row['hmm_cost']}"
-                )
+                logger.debug(f"MatchDb got: {sample.summary()} hmm_cost={row['hmm_cost']}")
                 # print(row)
                 yield sample
 
@@ -364,6 +357,18 @@ class Sample:
     # def __str__(self):
     #     return f"{self.strain}: {self.path} + {self.mutations}"
 
+    def path_summary(self):
+        return ",".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in self.path)
+
+    def mutation_summary(self):
+        return "[" + ",".join(str(mutation) for mutation in self.mutations) + "]"
+
+    def summary(self):
+        pango = self.metadata.get("Viridian_pangolin", "Unknown")
+        return (f"{self.strain} {self.date} {pango} path={self.path_summary()} "
+            f"mutations({len(self.mutations)})={self.mutation_summary()}"
+        )
+
     @property
     def breakpoints(self):
         breakpoints = [seg.left for seg in self.path]
@@ -415,9 +420,7 @@ def match_samples(
         exceeding_threshold = []
         for sample in run_batch:
             cost = sample.get_hmm_cost(num_mismatches)
-            logger.debug(
-                f"HMM@p={precision}: {sample.strain} hmm_cost={cost} path={sample.path}"
-            )
+            logger.debug(f"HMM@p={precision}: hmm_cost={cost} {sample.summary()}")
             if cost > cost_threshold:
                 sample.path.clear()
                 sample.mutations.clear()
@@ -441,11 +444,9 @@ def match_samples(
         show_progress=show_progress,
     )
     for sample in run_batch:
-        hmm_cost = sample.get_hmm_cost(num_mismatches)
+        cost = sample.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
-        logger.debug(
-            f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
-        )
+        logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
     return samples
 
 
@@ -1439,7 +1440,7 @@ def update_path_info(samples, ts, sample_paths, sample_mutations):
             sample.mutations.append(
                 MatchMutation(
                     site_id=site_id,
-                    site_position=site_pos,
+                    site_position=int(site_pos),
                     derived_state=derived_state,
                     inherited_state=inherited_state,
                     is_reversion=is_reversion,
