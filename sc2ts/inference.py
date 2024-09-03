@@ -398,72 +398,54 @@ def match_samples(
     num_threads=None,
 ):
     # First pass, compute the matches at precision=0.
-    # precision = 0
-    # match_tsinfer(
-    #     samples=samples,
-    #     ts=base_ts,
-    #     num_mismatches=num_mismatches,
-    #     precision=precision,
-    #     num_threads=num_threads,
-    #     show_progress=show_progress,
-    # )
+    run_batch = samples
 
-    # cost_threshold = 1
-    # rerun_batch = []
-    # for sample in samples:
-    #     cost = sample.get_hmm_cost(num_mismatches)
-    #     logger.debug(
-    #         f"HMM@p={precision}: {sample.strain} hmm_cost={cost} path={sample.path}"
-    #         )
-    #     if cost > cost_threshold:
-    #         sample.path.clear()
-    #         sample.mutations.clear()
-    #         rerun_batch.append(sample)
+    # WIP
+    for precision, cost_threshold in [(0, 0), (1, 1)]:  # , (2, 2)]:
+        logger.info(f"Running batch of {len(run_batch)} at p={precision}")
+        match_tsinfer(
+            samples=run_batch,
+            ts=base_ts,
+            num_mismatches=num_mismatches,
+            precision=precision,
+            num_threads=num_threads,
+            show_progress=show_progress,
+        )
 
-    rerun_batch = samples
+        exceeding_threshold = []
+        for sample in run_batch:
+            cost = sample.get_hmm_cost(num_mismatches)
+            logger.debug(
+                f"HMM@p={precision}: {sample.strain} hmm_cost={cost} path={sample.path}"
+            )
+            if cost > cost_threshold:
+                sample.path.clear()
+                sample.mutations.clear()
+                exceeding_threshold.append(sample)
+
+        num_matches_found = len(run_batch) - len(exceeding_threshold)
+        logger.info(
+            f"{num_matches_found} final matches for found p={precision}; "
+            f"{len(exceeding_threshold)} remain"
+        )
+        run_batch = exceeding_threshold
+
     precision = 6
-    logger.info(f"Rerunning batch of {len(rerun_batch)} at p={precision}")
+    logger.info(f"Running final batch of {len(run_batch)} at p={precision}")
     match_tsinfer(
-        samples=rerun_batch,
+        samples=run_batch,
         ts=base_ts,
         num_mismatches=num_mismatches,
         precision=precision,
         num_threads=num_threads,
         show_progress=show_progress,
     )
-    for sample in rerun_batch:
+    for sample in run_batch:
         hmm_cost = sample.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
         logger.debug(
             f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
         )
-
-    # remaining_samples = samples
-    # for cost, precision in [(0, 0), (1, 2)]: #, (2, 3)]:
-    #     match_tsinfer(
-    #         samples=remaining_samples,
-    #         ts=base_ts,
-    #         num_mismatches=num_mismatches,
-    #         precision=precision,
-    #         num_threads=num_threads,
-    #         show_progress=show_progress,
-    #         mirror_coordinates=mirror_coordinates,
-    #     )
-    #     samples_to_rerun = []
-    #     for sample in remaining_samples:
-    #         hmm_cost = sample.get_hmm_cost(num_mismatches)
-    #         # print(f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}")
-    #         logger.debug(
-    #             f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
-    #         )
-    #         if hmm_cost > cost:
-    #             sample.path.clear()
-    #             sample.mutations.clear()
-    #             samples_to_rerun.append(sample)
-    #     remaining_samples = samples_to_rerun
-
-    # Return in sorted order so that results are deterministic
-    # return sorted(samples, key=lambda s: s.strain)
     return samples
 
 
