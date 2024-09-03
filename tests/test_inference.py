@@ -561,6 +561,30 @@ class TestRealData:
 
         assert ts.tables.equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
+    def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        assert ts.num_samples == 26
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
+        samples = {}
+        for u in ts.samples()[-4:]:
+            node = ts.node(u)
+            samples[node.metadata["strain"]] = node
+            smd = node.metadata["sc2ts"]
+            md = node.metadata
+            print(md["date"], md["strain"], len(smd["mutations"]))
+        # print(samples)
+        # print(fx_ts_map["2020-02-01"])
+        # print(ts)
+        # print(fx_ts_map["2020-02-02"])
+        ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
+
+
     @pytest.mark.parametrize("date", dates)
     def test_date_metadata(self, fx_ts_map, date):
         ts = fx_ts_map[date]
@@ -675,7 +699,7 @@ class TestMatchingDetails:
     @pytest.mark.parametrize(
         ("strain", "parent"), [("SRR11597207", 41), ("ERR4205570", 58)]
     )
-    @pytest.mark.parametrize("num_mismatches", [1, 2, 3, 4])
+    @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_exact_matches(
         self,
@@ -707,7 +731,7 @@ class TestMatchingDetails:
         ("strain", "parent", "position", "derived_state"),
         [("SRR11597218", 10, 289, "T"), ("ERR4206593", 58, 26994, "T")],
     )
-    @pytest.mark.parametrize("num_mismatches", [1, 2, 3, 4])
+    @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_one_mismatch(
         self,

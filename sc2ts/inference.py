@@ -392,22 +392,51 @@ def match_samples(
     date,
     samples,
     *,
-    match_db,
     base_ts,
     num_mismatches=None,
     show_progress=False,
     num_threads=None,
-    precision=None,
-    mirror_coordinates=False,
 ):
-    if num_mismatches is None:
-        # Default to no recombination
-        num_mismatches = 1000
+    # First pass, compute the matches at precision=0.
+    # precision = 0
+    # match_tsinfer(
+    #     samples=samples,
+    #     ts=base_ts,
+    #     num_mismatches=num_mismatches,
+    #     precision=precision,
+    #     num_threads=num_threads,
+    #     show_progress=show_progress,
+    # )
 
-    # FIXME Something wrong here, we don't seem to get precisely the same
-    # ARG for some reason. Need to track it down
-    # Also: should only run the things at low precision that have that HMM cost.
-    # Start out by setting everything to have 0 mutations and work up from there.
+    # cost_threshold = 1
+    # rerun_batch = []
+    # for sample in samples:
+    #     cost = sample.get_hmm_cost(num_mismatches)
+    #     logger.debug(
+    #         f"HMM@p={precision}: {sample.strain} hmm_cost={cost} path={sample.path}"
+    #         )
+    #     if cost > cost_threshold:
+    #         sample.path.clear()
+    #         sample.mutations.clear()
+    #         rerun_batch.append(sample)
+
+    rerun_batch = samples
+    precision = 12
+    logger.info(f"Rerunning batch of {len(rerun_batch)} at p={precision}")
+    match_tsinfer(
+        samples=rerun_batch,
+        ts=base_ts,
+        num_mismatches=num_mismatches,
+        precision=12,
+        num_threads=num_threads,
+        show_progress=show_progress,
+    )
+    # for sample in samples_to_rerun:
+    #     hmm_cost = sample.get_hmm_cost(num_mismatches)
+    #     # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
+    #     logger.debug(
+    #         f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+    #     )
 
     # remaining_samples = samples
     # for cost, precision in [(0, 0), (1, 2)]: #, (2, 3)]:
@@ -433,24 +462,8 @@ def match_samples(
     #             samples_to_rerun.append(sample)
     #     remaining_samples = samples_to_rerun
 
-    samples_to_rerun = samples
-    match_tsinfer(
-        samples=samples_to_rerun,
-        ts=base_ts,
-        num_mismatches=num_mismatches,
-        precision=12,
-        num_threads=num_threads,
-        show_progress=show_progress,
-        mirror_coordinates=mirror_coordinates,
-    )
-    for sample in samples_to_rerun:
-        hmm_cost = sample.get_hmm_cost(num_mismatches)
-        # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
-        logger.debug(
-            f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}"
-        )
-
-    match_db.add(samples, date, num_mismatches)
+    # Return in sorted order so that results are deterministic
+    return sorted(samples, key=lambda s: s.strain)
 
 
 def check_base_ts(ts):
@@ -526,7 +539,6 @@ def extend(
         min_group_size = 10
 
     # TMP
-    precision = 6
     check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
@@ -549,17 +561,16 @@ def extend(
         f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
     )
 
-    match_samples(
+    samples = match_samples(
         date,
         samples,
         base_ts=base_ts,
-        match_db=match_db,
         num_mismatches=num_mismatches,
         show_progress=show_progress,
         num_threads=num_threads,
-        precision=precision,
     )
 
+    match_db.add(samples, date, num_mismatches)
     match_db.create_mask_table(base_ts)
     ts = increment_time(date, base_ts)
 
@@ -810,23 +821,21 @@ def solve_num_mismatches(ts, k):
     NOTE! This is NOT taking into account the spatial distance along
     the genome, and so is not a very good model in some ways.
     """
+    # We can match against any node in tsinfer
     m = ts.num_sites
-    n = ts.num_nodes  # We can match against any node in tsinfer
-    if k == 0:
-        # Pathological things happen when k=0
-        r = 1e-3
-        mu = 1e-20
-    else:
-        # NOTE: the magnitude of mu matters because it puts a limit
-        # on how low we can push the HMM precision. We should be able to solve
-        # for the optimal value of this parameter such that the magnitude of the
-        # values within the HMM are as large as possible (so that we can truncate
-        # usefully).
-        mu = 1e-2
-        denom = (1 - mu) ** k + (n - 1) * mu**k
-        r = n * mu**k / denom
-        assert mu < 0.5
-        assert r < 0.5
+    n = ts.num_nodes
+    # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
+    assert k > 1
+
+    # NOTE: the magnitude of mu matters because it puts a limit
+    # on how low we can push the HMM precision. We should be able to solve
+    # for the optimal value of this parameter such that the magnitude of the
+    # values within the HMM are as large as possible (so that we can truncate
+    # usefully).
+    # mu = 1e-2
+    mu = 0.125
+    denom = (1 - mu) ** k + (n - 1) * mu**k
+    r = n * mu**k / denom
 
     # Add a little bit of extra mass for recombination so that we deterministically
     # chose to recombine over k mutations
