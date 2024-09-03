@@ -404,9 +404,10 @@ def match_samples(
 ):
     # First pass, compute the matches at precision=0.
     run_batch = samples
-
-    # WIP
-    for precision, cost_threshold in [(0, 0), (1, 1)]:  # , (2, 2)]:
+    
+    # Values based on https://github.com/jeromekelleher/sc2ts/issues/242,
+    # but somewhat arbitrary.
+    for precision, cost_threshold in [(0, 1), (1, 2), (2, 3)]:
         logger.info(f"Running batch of {len(run_batch)} at p={precision}")
         match_tsinfer(
             samples=run_batch,
