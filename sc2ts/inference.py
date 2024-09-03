@@ -404,35 +404,36 @@ def match_samples(
         # Default to no recombination
         num_mismatches = 1000
 
-    remaining_samples = samples
     # FIXME Something wrong here, we don't seem to get precisely the same
     # ARG for some reason. Need to track it down
     # Also: should only run the things at low precision that have that HMM cost.
     # Start out by setting everything to have 0 mutations and work up from there.
 
-    for cost, precision in [(0, 0), (1, 2)]: #, (2, 3)]:
-        match_tsinfer(
-            samples=remaining_samples,
-            ts=base_ts,
-            num_mismatches=num_mismatches,
-            precision=precision,
-            num_threads=num_threads,
-            show_progress=show_progress,
-            mirror_coordinates=mirror_coordinates,
-        )
-        samples_to_rerun = []
-        for sample in remaining_samples:
-            hmm_cost = sample.get_hmm_cost(num_mismatches)
-            # print(f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}")
-            logger.debug(
-                f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
-            )
-            if hmm_cost > cost:
-                sample.path.clear()
-                sample.mutations.clear()
-                samples_to_rerun.append(sample)
-        remaining_samples = samples_to_rerun
+    # remaining_samples = samples
+    # for cost, precision in [(0, 0), (1, 2)]: #, (2, 3)]:
+    #     match_tsinfer(
+    #         samples=remaining_samples,
+    #         ts=base_ts,
+    #         num_mismatches=num_mismatches,
+    #         precision=precision,
+    #         num_threads=num_threads,
+    #         show_progress=show_progress,
+    #         mirror_coordinates=mirror_coordinates,
+    #     )
+    #     samples_to_rerun = []
+    #     for sample in remaining_samples:
+    #         hmm_cost = sample.get_hmm_cost(num_mismatches)
+    #         # print(f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}")
+    #         logger.debug(
+    #             f"HMM@p={precision}: {sample.strain} hmm_cost={hmm_cost} path={sample.path}"
+    #         )
+    #         if hmm_cost > cost:
+    #             sample.path.clear()
+    #             sample.mutations.clear()
+    #             samples_to_rerun.append(sample)
+    #     remaining_samples = samples_to_rerun
 
+    samples_to_rerun = samples
     match_tsinfer(
         samples=samples_to_rerun,
         ts=base_ts,
@@ -605,6 +606,18 @@ def update_top_level_metadata(ts, date):
     return tables.tree_sequence()
 
 
+def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, time=0):
+    metadata = {
+        **sample.metadata,
+        "sc2ts": {
+            "qc": sample.alignment_qc,
+            "path": [x.asdict() for x in sample.path],
+            "mutations": [x.asdict() for x in sample.mutations],
+        },
+    }
+    return tables.nodes.add_row(flags=flags, time=time, metadata=metadata)
+
+
 def match_path_ts(samples, ts, path, reversions):
     """
     Given the specified list of samples with equal copying paths,
@@ -623,17 +636,7 @@ def match_path_ts(samples, ts, path, reversions):
     )
     for sample in samples:
         assert sample.path == path
-        metadata = {
-            **sample.metadata,
-            "sc2ts": {
-                "qc": sample.alignment_qc,
-                "path": [x.asdict() for x in sample.path],
-                "mutations": [x.asdict() for x in sample.mutations],
-            },
-        }
-        node_id = tables.nodes.add_row(
-            flags=tskit.NODE_IS_SAMPLE, time=0, metadata=metadata
-        )
+        node_id = add_sample_to_tables(sample, tables)
         tables.edges.add_row(0, ts.sequence_length, parent=0, child=node_id)
         for mut in sample.mutations:
             if mut.site_id not in site_id_map:
@@ -671,10 +674,10 @@ def add_exact_matches(match_db, ts, date):
     for sample in samples:
         assert len(sample.path) == 1
         assert len(sample.mutations) == 0
-        node_id = tables.nodes.add_row(
+        node_id = add_sample_to_tables(
+            sample,
+            tables,
             flags=tskit.NODE_IS_SAMPLE | core.NODE_IS_EXACT_MATCH,
-            time=0,
-            metadata=sample.metadata,
         )
         parent = sample.path[0].parent
         logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")

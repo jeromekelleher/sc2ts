@@ -35,6 +35,7 @@ def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
             a.append(fasta, show_progress=False)
     return sc2ts.AlignmentStore(cache_path)
 
+
 @pytest.fixture
 def fx_metadata_db(fx_data_cache):
     cache_path = fx_data_cache / "metadata.db"
@@ -44,26 +45,46 @@ def fx_metadata_db(fx_data_cache):
     return sc2ts.MetadataDb(cache_path)
 
 
+# TODO make this a session fixture cacheing the tree sequences.
 @pytest.fixture
-def fx_ts_2020_02_10(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store):
-    target_date = "2020-02-10"
-    cache_path = fx_data_cache / f"{target_date}.ts"
+def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store):
+    dates = [
+        "2020-01-01",
+        "2020-01-19",
+        "2020-01-24",
+        "2020-01-25",
+        "2020-01-28",
+        "2020-01-29",
+        "2020-01-30",
+        "2020-01-31",
+        "2020-02-01",
+        "2020-02-02",
+        "2020-02-03",
+        "2020-02-04",
+        "2020-02-05",
+        "2020-02-06",
+        "2020-02-07",
+        "2020-02-08",
+        "2020-02-09",
+        "2020-02-10",
+        "2020-02-11",
+        "2020-02-13",
+    ]
+    cache_path = fx_data_cache / f"{dates[-1]}.ts"
     if not cache_path.exists():
         last_ts = sc2ts.initial_ts()
         match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
-        for date in fx_metadata_db.date_sample_counts():
-            print("INFERRING", date)
+        for date in dates:
             last_ts = sc2ts.extend(
                 alignment_store=fx_alignment_store,
                 metadata_db=fx_metadata_db,
                 base_ts=last_ts,
                 date=date,
                 match_db=match_db,
-                min_group_size=2,
             )
-            if date == target_date:
-                break
-        last_ts.dump(cache_path)
-    return tskit.load(cache_path)
-
-
+            print(
+                f"INFERRED {date} nodes={last_ts.num_nodes} mutations={last_ts.num_mutations}"
+            )
+            cache_path = fx_data_cache / f"{date}.ts"
+            last_ts.dump(cache_path)
+    return {date: tskit.load(fx_data_cache / f"{date}.ts") for date in dates}

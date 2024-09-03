@@ -9,7 +9,7 @@ num_threads=8
 
 # Paths
 datadir=testrun
-run_id=tmp-dev
+run_id=tmp-dev-hp
 # run_id=upgma-mds-$max_daily_samples-md-$max_submission_delay-mm-$mismatches
 resultsdir=results/$run_id
 results_prefix=$resultsdir/$run_id-
@@ -17,9 +17,9 @@ logfile=logs/$run_id.log
 
 alignments=$datadir/alignments.db
 metadata=$datadir/metadata.db
-matches=$resultsdir/matces.db
+matches=$resultsdir/matches.db
 
-dates=`python3 -m sc2ts list-dates $metadata | grep -v 2021-12-31`
+dates=`python3 -m sc2ts list-dates $metadata | grep -v 2021-12-31 | head -n 14`
 echo $dates
 
 options="--num-threads $num_threads -vv -l $logfile "
