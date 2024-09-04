@@ -402,18 +402,18 @@ def match_samples(
     show_progress=False,
     num_threads=None,
 ):
-    # First pass, compute the matches at precision=0.
     run_batch = samples
     
-    # Values based on https://github.com/jeromekelleher/sc2ts/issues/242,
-    # but somewhat arbitrary.
-    for precision, cost_threshold in [(0, 1), (1, 2), (2, 3)]:
-        logger.info(f"Running batch of {len(run_batch)} at p={precision}")
+    mu = 0.125 ## FIXME
+    for k in range(num_mismatches):
+        # To catch k mismatches we need a likelihood threshold of mu**k
+        likelihood_threshold = mu**k - 1e-15
+        logger.info(f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}")
         match_tsinfer(
             samples=run_batch,
             ts=base_ts,
             num_mismatches=num_mismatches,
-            precision=precision,
+            likelihood_threshold=likelihood_threshold,
             num_threads=num_threads,
             show_progress=show_progress,
         )
@@ -421,27 +421,26 @@ def match_samples(
         exceeding_threshold = []
         for sample in run_batch:
             cost = sample.get_hmm_cost(num_mismatches)
-            logger.debug(f"HMM@p={precision}: hmm_cost={cost} {sample.summary()}")
-            if cost > cost_threshold:
+            logger.debug(f"HMM@k={k}: hmm_cost={cost} {sample.summary()}")
+            if cost > k + 1:
                 sample.path.clear()
                 sample.mutations.clear()
                 exceeding_threshold.append(sample)
 
         num_matches_found = len(run_batch) - len(exceeding_threshold)
         logger.info(
-            f"{num_matches_found} final matches for found p={precision}; "
+            f"{num_matches_found} final matches found at k={k}; "
             f"{len(exceeding_threshold)} remain"
         )
         run_batch = exceeding_threshold
 
-    precision = 6
-    logger.info(f"Running final batch of {len(run_batch)} at p={precision}")
+    logger.info(f"Running final batch of {len(run_batch)} at full precision")
     match_tsinfer(
         samples=run_batch,
         ts=base_ts,
         num_mismatches=num_mismatches,
-        precision=precision,
         num_threads=num_threads,
+        likelihood_threshold=1e-200,
         show_progress=show_progress,
     )
     for sample in run_batch:
@@ -798,7 +797,7 @@ def add_matching_results(
     return ts  # , excluded_samples, added_samples
 
 
-def solve_num_mismatches(ts, k):
+def solve_num_mismatches(k, num_sites, mu=0.125):
     """
     Return the low-level LS parameters corresponding to accepting
     k mismatches in favour of a single recombination.
@@ -806,28 +805,18 @@ def solve_num_mismatches(ts, k):
     NOTE! This is NOT taking into account the spatial distance along
     the genome, and so is not a very good model in some ways.
     """
-    # We can match against any node in tsinfer
-    m = ts.num_sites
-    n = ts.num_nodes
     # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
     assert k > 1
 
-    # NOTE: the magnitude of mu matters because it puts a limit
-    # on how low we can push the HMM precision. We should be able to solve
-    # for the optimal value of this parameter such that the magnitude of the
-    # values within the HMM are as large as possible (so that we can truncate
-    # usefully).
-    # mu = 1e-2
-    mu = 0.125
-    denom = (1 - mu) ** k + (n - 1) * mu**k
-    r = n * mu**k / denom
+    denom = (1 - mu) ** k 
+    r = mu**k / denom
 
     # Add a little bit of extra mass for recombination so that we deterministically
     # chose to recombine over k mutations
     # NOTE: the magnitude of this value will depend also on mu, see above.
-    r += r * 0.01
-    ls_recomb = np.full(m - 1, r)
-    ls_mismatch = np.full(m, mu)
+    r += r * 0.125
+    ls_recomb = np.full(num_sites - 1, r)
+    ls_mismatch = np.full(num_sites, mu)
     return ls_recomb, ls_mismatch
 
 
@@ -1268,7 +1257,7 @@ def match_tsinfer(
     ts,
     *,
     num_mismatches,
-    precision=None,
+    likelihood_threshold=None,
     num_threads=0,
     show_progress=False,
     mirror_coordinates=False,
@@ -1284,7 +1273,7 @@ def match_tsinfer(
     sd = convert_tsinfer_sample_data(ts, genotypes)
 
     L = int(ts.sequence_length)
-    ls_recomb, ls_mismatch = solve_num_mismatches(ts, num_mismatches)
+    ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, ts.num_sites)
     pm = tsinfer.inference._get_progress_monitor(
         show_progress,
         generate_ancestors=False,
@@ -1309,7 +1298,7 @@ def match_tsinfer(
         mismatch=ls_mismatch,
         progress_monitor=pm,
         num_threads=num_threads,
-        precision=precision,
+        likelihood_threshold=likelihood_threshold
     )
     results = manager.run_match(np.arange(sd.num_samples))
 

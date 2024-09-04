@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.testing as nt
 import pytest
 import tsinfer
 import tskit
@@ -6,6 +7,18 @@ import msprime
 
 import sc2ts
 import util
+
+
+class TestSolveNumMismatches:
+
+    @pytest.mark.parametrize(
+        ["k", "expected_rho"],
+        [(2, 0.02295918), (3, 0.00327988), (4, 0.00046855), (1000, 0)],
+    )
+    def test_examples(self, k, expected_rho):
+        rho, mu = sc2ts.solve_num_mismatches(k, num_sites=2)
+        assert mu[0] == 0.125
+        nt.assert_almost_equal(rho[0], expected_rho)
 
 
 class TestInitialTs:
@@ -612,13 +625,13 @@ class TestRealData:
             "2020-02-03": {"nodes": 36, "mutations": 42},
             "2020-02-04": {"nodes": 41, "mutations": 48},
             "2020-02-05": {"nodes": 42, "mutations": 48},
-            "2020-02-06": {"nodes": 49, "mutations": 51},
-            "2020-02-07": {"nodes": 51, "mutations": 57},
-            "2020-02-08": {"nodes": 57, "mutations": 58},
-            "2020-02-09": {"nodes": 59, "mutations": 61},
-            "2020-02-10": {"nodes": 60, "mutations": 65},
-            "2020-02-11": {"nodes": 62, "mutations": 66},
-            "2020-02-13": {"nodes": 66, "mutations": 68},
+            "2020-02-06": {"nodes": 48, "mutations": 51},
+            "2020-02-07": {"nodes": 50, "mutations": 57},
+            "2020-02-08": {"nodes": 56, "mutations": 58},
+            "2020-02-09": {"nodes": 58, "mutations": 61},
+            "2020-02-10": {"nodes": 59, "mutations": 65},
+            "2020-02-11": {"nodes": 61, "mutations": 66},
+            "2020-02-13": {"nodes": 65, "mutations": 68},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
@@ -631,9 +644,9 @@ class TestRealData:
             (13, "SRR11597132", 10),
             (16, "SRR11597177", 10),
             (41, "SRR11597156", 10),
-            (57, "SRR11597216", 1),
-            (60, "SRR11597207", 40),
-            (62, "ERR4205570", 58),
+            (56, "SRR11597216", 1),
+            (59, "SRR11597207", 40),
+            (61, "ERR4205570", 57),
         ],
     )
     def test_exact_matches(self, fx_ts_map, node, strain, parent):
@@ -693,10 +706,9 @@ class TestMatchingDetails:
     #         assert s.path[0].parent == 37
 
     @pytest.mark.parametrize(
-        ("strain", "parent"), [("SRR11597207", 40), ("ERR4205570", 58)]
+        ("strain", "parent"), [("SRR11597207", 40), ("ERR4205570", 57)]
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
-    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_exact_matches(
         self,
         fx_ts_map,
@@ -705,17 +717,18 @@ class TestMatchingDetails:
         strain,
         parent,
         num_mismatches,
-        precision,
     ):
         ts = fx_ts_map["2020-02-10"]
         samples = sc2ts.preprocess(
             [fx_metadata_db[strain]], ts, "2020-02-20", fx_alignment_store
         )
+        # FIXME
+        mu = 0.125
         sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=num_mismatches,
-            precision=precision,
+            likelihood_threshold = mu**num_mismatches - 1e-12,
             num_threads=0,
         )
         s = samples[0]
@@ -725,10 +738,10 @@ class TestMatchingDetails:
 
     @pytest.mark.parametrize(
         ("strain", "parent", "position", "derived_state"),
-        [("SRR11597218", 10, 289, "T"), ("ERR4206593", 58, 26994, "T")],
+        [("SRR11597218", 10, 289, "T"), ("ERR4206593", 57, 26994, "T")],
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
-    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
+    # @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_one_mismatch(
         self,
         fx_ts_map,
@@ -739,7 +752,6 @@ class TestMatchingDetails:
         position,
         derived_state,
         num_mismatches,
-        precision,
     ):
         ts = fx_ts_map["2020-02-10"]
         samples = sc2ts.preprocess(
@@ -749,7 +761,8 @@ class TestMatchingDetails:
             samples=samples,
             ts=ts,
             num_mismatches=num_mismatches,
-            precision=precision,
+            # FIXME
+            likelihood_threshold=0.12499999,
             num_threads=0,
         )
         s = samples[0]
@@ -760,30 +773,27 @@ class TestMatchingDetails:
         assert s.path[0].parent == parent
 
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
-    @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_two_mismatches(
         self,
         fx_ts_map,
         fx_alignment_store,
         fx_metadata_db,
         num_mismatches,
-        precision,
     ):
         strain = "ERR4204459"
         ts = fx_ts_map["2020-02-10"]
         samples = sc2ts.preprocess(
             [fx_metadata_db[strain]], ts, "2020-02-20", fx_alignment_store
         )
+        mu = 0.125
         sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=num_mismatches,
-            precision=precision,
+            likelihood_threshold=mu**2 - 1e-12,
             num_threads=0,
         )
         s = samples[0]
         assert len(s.path) == 1
         assert s.path[0].parent == 5
         assert len(s.mutations) == 2
-        # assert s.mutations[0].site_position == position
-        # assert s.mutations[0].derived_state == derived_state
