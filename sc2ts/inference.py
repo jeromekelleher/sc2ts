@@ -403,9 +403,9 @@ def match_samples(
     num_threads=None,
 ):
     run_batch = samples
-    
+
     mu = 0.125 ## FIXME
-    for k in range(num_mismatches):
+    for k in range(int(num_mismatches)):
         # To catch k mismatches we need a likelihood threshold of mu**k
         likelihood_threshold = mu**k - 1e-15
         logger.info(f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}")
@@ -808,7 +808,7 @@ def solve_num_mismatches(k, num_sites, mu=0.125):
     # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
     assert k > 1
 
-    denom = (1 - mu) ** k 
+    denom = (1 - mu) ** k
     r = mu**k / denom
 
     # Add a little bit of extra mass for recombination so that we deterministically
