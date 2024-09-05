@@ -407,10 +407,15 @@ def match_samples(
 ):
     run_batch = samples
 
-    mu = 0.125  ## FIXME
+    # ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, 2)
+    # rho = ls_recomb[0]
+    # mu = ls_mismatch[0]
+    mu = 0.125
+    # print(rho, mu)
     for k in range(2):
         # To catch k mismatches we need a likelihood threshold of mu**k
         likelihood_threshold = mu**k - 1e-15
+        # print(k, likelihood_threshold)
         logger.info(
             f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}"
         )
@@ -812,13 +817,14 @@ def solve_num_mismatches(k, num_sites, mu=0.125):
     # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
     assert k > 1
 
-    denom = (1 - mu) ** k
-    r = mu**k / denom
+    # denom = (1 - mu) ** k
+    # r = mu**k / denom
 
     # Add a little bit of extra mass for recombination so that we deterministically
     # chose to recombine over k mutations
     # NOTE: the magnitude of this value will depend also on mu, see above.
-    r += r * 0.125
+    # r += r * 0.125
+    r = mu**k + 1e-3
     ls_recomb = np.full(num_sites - 1, r)
     ls_mismatch = np.full(num_sites, mu)
     return ls_recomb, ls_mismatch
