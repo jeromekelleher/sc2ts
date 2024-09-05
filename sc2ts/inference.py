@@ -147,7 +147,9 @@ class MatchDb:
             for row in self.conn.execute(sql):
                 pkl = row.pop("pickle")
                 sample = pickle.loads(bz2.decompress(pkl))
-                logger.debug(f"MatchDb got: {sample.summary()} hmm_cost={row['hmm_cost']}")
+                logger.debug(
+                    f"MatchDb got: {sample.summary()} hmm_cost={row['hmm_cost']}"
+                )
                 # print(row)
                 yield sample
 
@@ -365,7 +367,8 @@ class Sample:
 
     def summary(self):
         pango = self.metadata.get("Viridian_pangolin", "Unknown")
-        return (f"{self.strain} {self.date} {pango} path={self.path_summary()} "
+        return (
+            f"{self.strain} {self.date} {pango} path={self.path_summary()} "
             f"mutations({len(self.mutations)})={self.mutation_summary()}"
         )
 
@@ -404,11 +407,13 @@ def match_samples(
 ):
     run_batch = samples
 
-    mu = 0.125 ## FIXME
-    for k in range(int(num_mismatches)):
+    mu = 0.125  ## FIXME
+    for k in range(2):
         # To catch k mismatches we need a likelihood threshold of mu**k
         likelihood_threshold = mu**k - 1e-15
-        logger.info(f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}")
+        logger.info(
+            f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}"
+        )
         match_tsinfer(
             samples=run_batch,
             ts=base_ts,
@@ -440,7 +445,6 @@ def match_samples(
         ts=base_ts,
         num_mismatches=num_mismatches,
         num_threads=num_threads,
-        likelihood_threshold=1e-200,
         show_progress=show_progress,
     )
     for sample in run_batch:
@@ -1274,6 +1278,13 @@ def match_tsinfer(
 
     L = int(ts.sequence_length)
     ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, ts.num_sites)
+    rho = ls_recomb[0]
+    mu = ls_mismatch[0]
+
+    if likelihood_threshold is None:
+        # Let's say a double break with 5 mutations is the most unlikely thing
+        # we're interested in solving for exactly.
+        likelihood_threshold = rho**2 * mu**5
     pm = tsinfer.inference._get_progress_monitor(
         show_progress,
         generate_ancestors=False,
@@ -1298,7 +1309,7 @@ def match_tsinfer(
         mismatch=ls_mismatch,
         progress_monitor=pm,
         num_threads=num_threads,
-        likelihood_threshold=likelihood_threshold
+        likelihood_threshold=likelihood_threshold,
     )
     results = manager.run_match(np.arange(sd.num_samples))
 
