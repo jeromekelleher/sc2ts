@@ -407,10 +407,12 @@ def match_samples(
 ):
     run_batch = samples
 
-    # ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, 2)
-    # rho = ls_recomb[0]
-    # mu = ls_mismatch[0]
-    mu = 0.125
+    ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, 2)
+    rho = ls_recomb[0]
+    mu = ls_mismatch[0]
+    # print("rho = ", rho)
+    # print("mu = ", mu)
+    # mu = 0.125
     # print(rho, mu)
     for k in range(2):
         # To catch k mismatches we need a likelihood threshold of mu**k
@@ -454,7 +456,7 @@ def match_samples(
     )
     for sample in run_batch:
         cost = sample.get_hmm_cost(num_mismatches)
-        # print(f"Final HMM pass:{sample.strain} hmm_cost={hmm_cost} path={sample.path}")
+        # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
         logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
     return samples
 
@@ -531,7 +533,6 @@ def extend(
     if min_group_size is None:
         min_group_size = 10
 
-    # TMP
     check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
@@ -539,6 +540,8 @@ def extend(
     )
 
     metadata_matches = list(metadata_db.get(date))
+    # metadata_matches = list(metadata_db.query(
+    #     "SELECT * FROM samples WHERE strain=='ERR4209451'"))
     # TODO implement this.
     assert max_daily_samples is None
 
@@ -816,15 +819,31 @@ def solve_num_mismatches(k, num_sites, mu=0.125):
     """
     # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
     assert k > 1
+    mu = 0.0125
+
+    # p_k_mismatches = (1 - mu) ** k
+    # p_recomb = r
 
     # denom = (1 - mu) ** k
     # r = mu**k / denom
 
+    # print("mu^3", mu ** 3)
     # Add a little bit of extra mass for recombination so that we deterministically
     # chose to recombine over k mutations
     # NOTE: the magnitude of this value will depend also on mu, see above.
     # r += r * 0.125
-    r = mu**k + 1e-3
+    # r = mu**k + 1e-3
+
+    # r += 1e-4
+    # r = (mu ** (k - 1))
+
+    denom = mu**k + (1 - 4*mu)**k
+    r = mu**k / denom
+    # print("r before", r)
+    # Add a tiny bit of extra mass so that we deterministically recombine
+    r += r * 0.1
+    # print("r = ", r)
+
     ls_recomb = np.full(num_sites - 1, r)
     ls_mismatch = np.full(num_sites, mu)
     return ls_recomb, ls_mismatch
