@@ -691,6 +691,15 @@ def match_path_ts(samples, ts, path, reversions):
         "samples": [sample.strain for sample in samples],
         "path": [seg.asdict() for seg in path],
     }
+    # FIXME this doesn't work because we don't actually
+    # use this node in the output trees. What we probably want to
+    # do is create a unique ID that we put into the metadata of
+    # every node we ultimately attach from this tree. That could
+    # be a hash of the sample IDs, I guess. It could record
+    # the number of samples also, usefully. Basically we want
+    # to enable tracing around the larger tree later, and to
+    # figure out which nodes were added at as part of a particular
+    # group, on a particular day.
     tables.nodes.add_row(time=1, metadata={"sc2ts": md})
     path = samples[0].path
     site_id_map = {}
