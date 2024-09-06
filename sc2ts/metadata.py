@@ -69,6 +69,12 @@ class MetadataDb(collections.abc.Mapping):
     def close(self):
         self.conn.close()
 
+    def query(self, sql, args=None):
+        logger.debug(f"Running query:{sql}")
+        with self.conn:
+            for row in self.conn.execute(sql):
+                yield row
+
     def get(self, date):
         sql = "SELECT * FROM samples WHERE date==?"
         with self.conn:
