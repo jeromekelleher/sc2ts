@@ -407,13 +407,8 @@ def match_samples(
 ):
     run_batch = samples
 
-    ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, 2)
-    rho = ls_recomb[0]
-    mu = ls_mismatch[0]
-    # print("rho = ", rho)
-    # print("mu = ", mu)
-    # mu = 0.125
-    # print(rho, mu)
+    mu, rho = solve_num_mismatches(num_mismatches)
+
     for k in range(2):
         # To catch k mismatches we need a likelihood threshold of mu**k
         likelihood_threshold = mu**k - 1e-15
@@ -424,7 +419,8 @@ def match_samples(
         match_tsinfer(
             samples=run_batch,
             ts=base_ts,
-            num_mismatches=num_mismatches,
+            mu=mu,
+            rho=rho,
             likelihood_threshold=likelihood_threshold,
             num_threads=num_threads,
             show_progress=show_progress,
@@ -450,14 +446,25 @@ def match_samples(
     match_tsinfer(
         samples=run_batch,
         ts=base_ts,
-        num_mismatches=num_mismatches,
+        mu=mu,
+        rho=rho,
         num_threads=num_threads,
         show_progress=show_progress,
     )
+    recombinants = []
     for sample in run_batch:
         cost = sample.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
         logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
+        if len(sample.path) > 1:
+            recombinants.append(sample)
+
+    # for sample in recombinants:
+    #     sample.metadata["sc2ts"]
+
+    # import sys
+
+    # sys.exit(0)
     return samples
 
 
@@ -539,9 +546,10 @@ def extend(
         f"mutations={base_ts.num_mutations};date={base_ts.metadata['sc2ts']['date']}"
     )
 
-    metadata_matches = list(metadata_db.get(date))
-    # metadata_matches = list(metadata_db.query(
-    #     "SELECT * FROM samples WHERE strain=='ERR4209451'"))
+    # metadata_matches = list(metadata_db.get(date))
+    metadata_matches = list(
+        metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
+    )
     # TODO implement this.
     assert max_daily_samples is None
 
@@ -583,11 +591,8 @@ def extend(
     )
 
     logger.info("Looking for retrospective matches")
-    # TODO add this as a parameter. Only consider sequences with a date from the
-    # past month for retrospective insertion.
-    max_insertion_delay = 30
     assert min_group_size is not None
-    earliest_date = parse_date(date) - datetime.timedelta(days=max_insertion_delay)
+    earliest_date = parse_date(date) - datetime.timedelta(days=retrospective_window)
     ts = add_matching_results(
         f"match_date<'{date}' AND match_date>'{earliest_date}'",
         ts=ts,
@@ -809,44 +814,42 @@ def add_matching_results(
     return ts  # , excluded_samples, added_samples
 
 
-def solve_num_mismatches(k, num_sites, mu=0.125):
+def solve_num_mismatches(k):
     """
     Return the low-level LS parameters corresponding to accepting
     k mismatches in favour of a single recombination.
 
-    NOTE! This is NOT taking into account the spatial distance along
-    the genome, and so is not a very good model in some ways.
+    The equation is
+
+    r(1 - r)^(m-1) (1 - 4 mu)^m = (1 - r)^m (1 - 4 mu)^(m - k) mu^k
+
+    Solving for r gives
+
+    r = mu^k / (mu^k + (1 - 4 mu)^k
+
+    The LHS is
+    1. P[one recombination]
+    2. P[not recombining m - 1 times]
+    3. P[not mutating m times]
+
+    The RHS is
+    1. P[not recombining m times]
+    2. P[not mutating m - k times]
+    3. P[mutating k times]
+
+    The 1 - 4mu terms come from having 5 alleles.
+
     """
     # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
     assert k > 1
     mu = 0.0125
 
-    # p_k_mismatches = (1 - mu) ** k
-    # p_recomb = r
-
-    # denom = (1 - mu) ** k
-    # r = mu**k / denom
-
-    # print("mu^3", mu ** 3)
-    # Add a little bit of extra mass for recombination so that we deterministically
-    # chose to recombine over k mutations
-    # NOTE: the magnitude of this value will depend also on mu, see above.
-    # r += r * 0.125
-    # r = mu**k + 1e-3
-
-    # r += 1e-4
-    # r = (mu ** (k - 1))
-
-    denom = mu**k + (1 - 4*mu)**k
-    r = mu**k / denom
+    denom = mu**k + (1 - 4 * mu) ** k
+    rho = mu**k / denom
     # print("r before", r)
     # Add a tiny bit of extra mass so that we deterministically recombine
-    r += r * 0.1
-    # print("r = ", r)
-
-    ls_recomb = np.full(num_sites - 1, r)
-    ls_mismatch = np.full(num_sites, mu)
-    return ls_recomb, ls_mismatch
+    rho += rho * 0.1
+    return mu, rho
 
 
 # Work around tsinfer's reshuffling of the allele indexes
@@ -917,95 +920,95 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     return tables.tree_sequence()
 
 
-def process_recombinant(ts, tables, path, children):
-    """
-    Given a path of (left, right, parent) values and the set of children
-    that share this path, insert a recombinant node representing that
-    shared path, and push mutations shared by all of those children
-    above the recombinant.
-    """
-    logger.info(f"Adding recombinant for {path} with {len(children)} children")
-    min_parent_time = ts.nodes_time[0]
-    for _, _, parent in path:
-        min_parent_time = min(ts.nodes_time[parent], min_parent_time)
+# def process_recombinant(ts, tables, path, children):
+#     """
+#     Given a path of (left, right, parent) values and the set of children
+#     that share this path, insert a recombinant node representing that
+#     shared path, and push mutations shared by all of those children
+#     above the recombinant.
+#     """
+#     logger.info(f"Adding recombinant for {path} with {len(children)} children")
+#     min_parent_time = ts.nodes_time[0]
+#     for _, _, parent in path:
+#         min_parent_time = min(ts.nodes_time[parent], min_parent_time)
 
-    child_mutations = {}
-    # Store a list of tuples here rather than a mapping because JSON
-    # only supports string keys.
-    mutations_md = []
-    for child in children:
-        mutations = node_mutation_descriptors(ts, child)
-        child_mutations[child] = mutations
-        mutations_md.append(
-            (
-                int(child),
-                sorted(
-                    [
-                        (desc.site, desc.inherited_state, desc.derived_state)
-                        for desc in mutations
-                    ]
-                ),
-            )
-        )
-    recomb_node_time = min_parent_time / 2
-    recomb_node = tables.nodes.add_row(
-        time=recomb_node_time,
-        flags=core.NODE_IS_RECOMBINANT,
-        metadata={"path": path, "mutations": mutations_md},
-    )
+#     child_mutations = {}
+#     # Store a list of tuples here rather than a mapping because JSON
+#     # only supports string keys.
+#     mutations_md = []
+#     for child in children:
+#         mutations = node_mutation_descriptors(ts, child)
+#         child_mutations[child] = mutations
+#         mutations_md.append(
+#             (
+#                 int(child),
+#                 sorted(
+#                     [
+#                         (desc.site, desc.inherited_state, desc.derived_state)
+#                         for desc in mutations
+#                     ]
+#                 ),
+#             )
+#         )
+#     recomb_node_time = min_parent_time / 2
+#     recomb_node = tables.nodes.add_row(
+#         time=recomb_node_time,
+#         flags=core.NODE_IS_RECOMBINANT,
+#         metadata={"path": path, "mutations": mutations_md},
+#     )
 
-    for left, right, parent in path:
-        tables.edges.add_row(left, right, parent, recomb_node)
-    for child in children:
-        tables.edges.add_row(0, ts.sequence_length, recomb_node, child)
+#     for left, right, parent in path:
+#         tables.edges.add_row(left, right, parent, recomb_node)
+#     for child in children:
+#         tables.edges.add_row(0, ts.sequence_length, recomb_node, child)
 
-    # Push any mutations shared by *all* children over the recombinant.
-    # child_mutations is a mapping from child node to the mapping of
-    # mutation descriptors to their original mutation IDs
-    child_mutation_sets = [set(mapping.keys()) for mapping in child_mutations.values()]
-    shared_mutations = set.intersection(*child_mutation_sets)
-    mutations_to_delete = []
-    for child in children:
-        for desc in shared_mutations:
-            mutations_to_delete.append(child_mutations[child][desc])
-    for desc in shared_mutations:
-        tables.mutations.add_row(
-            site=desc.site,
-            node=recomb_node,
-            time=recomb_node_time,
-            derived_state=desc.derived_state,
-            metadata={"type": "recomb_overlap"},
-        )
-    return mutations_to_delete
+#     # Push any mutations shared by *all* children over the recombinant.
+#     # child_mutations is a mapping from child node to the mapping of
+#     # mutation descriptors to their original mutation IDs
+#     child_mutation_sets = [set(mapping.keys()) for mapping in child_mutations.values()]
+#     shared_mutations = set.intersection(*child_mutation_sets)
+#     mutations_to_delete = []
+#     for child in children:
+#         for desc in shared_mutations:
+#             mutations_to_delete.append(child_mutations[child][desc])
+#     for desc in shared_mutations:
+#         tables.mutations.add_row(
+#             site=desc.site,
+#             node=recomb_node,
+#             time=recomb_node_time,
+#             derived_state=desc.derived_state,
+#             metadata={"type": "recomb_overlap"},
+#         )
+#     return mutations_to_delete
 
 
-def insert_recombinants(ts):
-    """
-    Examine all time-0 samples and see if there are any recombinants.
-    For each unique recombinant (copying path) insert a new node.
-    """
-    recombinants = collections.defaultdict(list)
-    edges_to_delete = []
-    for u in ts.samples(time=0):
-        edges = np.where(ts.edges_child == u)[0]
-        if len(edges) > 1:
-            path = []
-            for eid in edges:
-                edge = ts.edge(eid)
-                path.append((edge.left, edge.right, edge.parent))
-                edges_to_delete.append(eid)
-            path = tuple(sorted(path))
-            recombinants[path].append(u)
+# def insert_recombinants(ts):
+#     """
+#     Examine all time-0 samples and see if there are any recombinants.
+#     For each unique recombinant (copying path) insert a new node.
+#     """
+#     recombinants = collections.defaultdict(list)
+#     edges_to_delete = []
+#     for u in ts.samples(time=0):
+#         edges = np.where(ts.edges_child == u)[0]
+#         if len(edges) > 1:
+#             path = []
+#             for eid in edges:
+#                 edge = ts.edge(eid)
+#                 path.append((edge.left, edge.right, edge.parent))
+#                 edges_to_delete.append(eid)
+#             path = tuple(sorted(path))
+#             recombinants[path].append(u)
 
-    if len(recombinants) == 0:
-        return ts
+#     if len(recombinants) == 0:
+#         return ts
 
-    tables = ts.dump_tables()
-    mutations_to_delete = []
-    for path, nodes in recombinants.items():
-        mutations_to_delete.extend(process_recombinant(ts, tables, path, nodes))
+#     tables = ts.dump_tables()
+#     mutations_to_delete = []
+#     for path, nodes in recombinants.items():
+#         mutations_to_delete.extend(process_recombinant(ts, tables, path, nodes))
 
-    return update_tables(tables, edges_to_delete, mutations_to_delete)
+#     return update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
 def coalesce_mutations(ts, samples=None):
@@ -1284,8 +1287,9 @@ def convert_tsinfer_sample_data(ts, genotypes):
 def match_tsinfer(
     samples,
     ts,
+    mu,
+    rho,
     *,
-    num_mismatches,
     likelihood_threshold=None,
     num_threads=0,
     show_progress=False,
@@ -1302,10 +1306,8 @@ def match_tsinfer(
     sd = convert_tsinfer_sample_data(ts, genotypes)
 
     L = int(ts.sequence_length)
-    ls_recomb, ls_mismatch = solve_num_mismatches(num_mismatches, ts.num_sites)
-    rho = ls_recomb[0]
-    mu = ls_mismatch[0]
-
+    ls_recomb = np.full(ts.num_sites - 1, rho)
+    ls_mismatch = np.full(ts.num_sites, mu)
     if likelihood_threshold is None:
         # Let's say a double break with 5 mutations is the most unlikely thing
         # we're interested in solving for exactly.
