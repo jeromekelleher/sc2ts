@@ -565,6 +565,8 @@ def extend(
         hmm_cost_threshold = 5
     if min_group_size is None:
         min_group_size = 10
+    if retrospective_window is None:
+        retrospective_window = 30
 
     check_base_ts(base_ts)
     logger.info(
