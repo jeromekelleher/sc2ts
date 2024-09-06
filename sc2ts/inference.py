@@ -8,6 +8,7 @@ import pickle
 import os
 import sqlite3
 import pathlib
+import random
 
 import tqdm
 import tskit
@@ -579,7 +580,13 @@ def extend(
     #     metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
     # )
     # TODO implement this.
-    assert max_daily_samples is None
+    if max_daily_samples is not None:
+        if max_daily_samples < len(metadata_matches):
+            # FIXME this isn't very random - use a hash of the seed and the current
+            # date in future.
+            rng = random.Random(random_seed)
+            metadata_matches = rng.sample(metadata_matches, max_daily_samples)
+            logger.info(f"Subset to {len(metadata_matches)} samples")
 
     samples = preprocess(
         metadata_matches, base_ts, date, alignment_store, show_progress=show_progress
