@@ -643,6 +643,7 @@ def extend(
         match_db=match_db,
         date=date,
         min_group_size=min_group_size,
+        min_different_dates=3,  # TODO parametrize
         show_progress=show_progress,
     )
     return update_top_level_metadata(ts, date)
@@ -775,6 +776,7 @@ def add_matching_results(
     ts,
     date,
     min_group_size=1,
+    min_different_dates=1,
     show_progress=False,
 ):
     logger.info(f"Querying match DB WHERE: {where_clause}")
@@ -813,7 +815,16 @@ def add_matching_results(
         disable=not show_progress,
     ) as bar:
         for (path, reversions), match_samples in bar:
-            if len(match_samples) < min_group_size:
+            different_dates = set(sample.date for sample in match_samples)
+            # TODO (1) add group ID from hash of samples (2) better logging of path
+            logger.info(
+                f"Group of {len(match_samples)} has {len(different_dates)} different dates"
+                f"at {path}, {reversions} "
+            )
+            if (
+                len(match_samples) < min_group_size
+                or len(different_dates) < min_different_dates
+            ):
                 continue
 
             added_samples.extend(match_samples)
