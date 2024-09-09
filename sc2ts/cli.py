@@ -216,22 +216,22 @@ def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
 @click.command()
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.option("--counts/--no-counts", default=False)
+@click.option("--after", default="1900-01-01", help="show dates after the specified value")
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def list_dates(metadata, counts, verbose, log_file):
+def list_dates(metadata, counts, after, verbose, log_file):
     """
     List the dates included in specified metadataDB
     """
     setup_logging(verbose, log_file)
     with sc2ts.MetadataDb(metadata) as metadata_db:
         counter = metadata_db.date_sample_counts()
-        if counts:
-            for k, v in counter.items():
-                print(k, v, sep="\t")
-
-        else:
-            for k in counter:
-                print(k)
+        for k in counter:
+            if k > after:
+                if counts:
+                    print(k, counter[k], sep="\t")
+                else:
+                    print(k)
 
 
 @click.command()
