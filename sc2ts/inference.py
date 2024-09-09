@@ -577,28 +577,35 @@ def extend(
     )
 
     metadata_matches = list(metadata_db.get(date))
+
+    logger.info(f"Got {len(metadata_matches)} metadata matches")
+    # first check for samples that are in the alignment_store
+    samples_with_aligments = []
+    for md in metadata_matches:
+        if md["strain"] in alignment_store:
+            samples_with_aligments.append(md)
+
+    logger.info(f"Verified {len(samples_with_aligments)} have alignments")
     # metadata_matches = list(
     #     metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
     # )
     # TODO implement this.
     if max_daily_samples is not None:
-        if max_daily_samples < len(metadata_matches):
-            logger.info(f"Got {len(metadata_matches)} metadata matches")
-            # first check for samples that are in the alignment_store
-            samples_with_aligments = []
-            for md in metadata_matches:
-                if md["strain"] in alignment_store:
-                    samples_with_aligments.append(md)
-
-            logger.info(f"Verified {len(samples_with_aligments)} have alignments")
+        if max_daily_samples < len(samples_with_aligments):
             seed_prefix = bytes(np.array([random_seed], dtype=int).data)
             seed_suffix = hashlib.sha256(date.encode()).digest()
             rng = random.Random(seed_prefix + seed_suffix)
-            metadata_matches = rng.sample(samples_with_aligments, max_daily_samples)
+            samples_with_aligments = rng.sample(
+                samples_with_aligments, max_daily_samples
+            )
             logger.info(f"Subset to {len(metadata_matches)} samples")
 
     samples = preprocess(
-        metadata_matches, base_ts, date, alignment_store, show_progress=show_progress
+        samples_with_aligments,
+        base_ts,
+        date,
+        alignment_store,
+        show_progress=show_progress,
     )
 
     if len(samples) == 0:
