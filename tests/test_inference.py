@@ -666,9 +666,9 @@ class TestRealData:
         md = x.metadata
         assert md["strain"] == strain
         sc2ts_md = md["sc2ts"]
-        assert len(sc2ts_md["path"]) == 1
-        assert len(sc2ts_md["mutations"]) == 0
-        assert sc2ts_md["path"][0] == {
+        hmm_md = sc2ts_md["hmm"][0]
+        assert len(hmm_md["path"]) == 1
+        assert hmm_md["path"][0] == {
             "parent": parent,
             "left": 0,
             "right": ts.sequence_length,
