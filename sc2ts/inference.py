@@ -466,31 +466,31 @@ def match_samples(
         cost = sample.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
         logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
-        if len(sample.path) > 1:
-            sample.is_recombinant = True
-            recombinants.append(sample)
+        # if len(sample.path) > 1:
+        #     sample.is_recombinant = True
+        #     recombinants.append(sample)
 
-    if len(recombinants) > 0:
-        for mirror in [False, True]:
-            logger.info(
-                f"Running {len(run_batch)} recombinants at maximum precision in"
-                f"{['forward', 'backward'][int(mirror)]} direction."
-            )
-            match_tsinfer(
-                samples=recombinants,
-                ts=base_ts,
-                mu=mu,
-                rho=rho,
-                num_threads=num_threads,
-                show_progress=show_progress,
-                # Maximum possible precision
-                likelihood_threshold=1e-200,
-                mirror_coordinates=mirror,
-            )
-        for sample in recombinants:
-            # We may want to try to improve the location of the breakpoints
-            # later. For now, just log the info.
-            logger.info(f"Recombinant: {sample.summary()}")
+    # if len(recombinants) > 0:
+        # for mirror in [False, True]:
+        #     logger.info(
+        #         f"Running {len(run_batch)} recombinants at maximum precision in"
+        #         f"{['forward', 'backward'][int(mirror)]} direction."
+        #     )
+        #     match_tsinfer(
+        #         samples=recombinants,
+        #         ts=base_ts,
+        #         mu=mu,
+        #         rho=rho,
+        #         num_threads=num_threads,
+        #         show_progress=show_progress,
+        #         # Maximum possible precision
+        #         likelihood_threshold=1e-200,
+        #         mirror_coordinates=mirror,
+        #     )
+        # for sample in recombinants:
+        #     # We may want to try to improve the location of the breakpoints
+        #     # later. For now, just log the info.
+        #     logger.info(f"Recombinant: {sample.summary()}")
 
     return samples
 
@@ -584,6 +584,7 @@ def extend(
         if max_daily_samples < len(metadata_matches):
             # FIXME this isn't very random - use a hash of the seed and the current
             # date in future.
+            random_seed=None
             rng = random.Random(random_seed)
             metadata_matches = rng.sample(metadata_matches, max_daily_samples)
             logger.info(f"Subset to {len(metadata_matches)} samples")
