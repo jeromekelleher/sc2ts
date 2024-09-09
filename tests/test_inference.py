@@ -563,13 +563,13 @@ class TestRealData:
         assert list(ts.mutations_time) == [0, 0, 0]
         assert list(ts.mutations_site) == [8632, 17816, 27786]
         sc2ts_md = ts.node(2).metadata["sc2ts"]
-        assert len(sc2ts_md["mutations"]) == 3
-        for mut_md, mut in zip(sc2ts_md["mutations"], ts.mutations()):
+        hmm_md = sc2ts_md["hmm"][0]
+        assert len(hmm_md["mutations"]) == 3
+        for mut_md, mut in zip(hmm_md["mutations"], ts.mutations()):
             assert mut_md["derived_state"] == mut.derived_state
-            assert mut_md["site_id"] == mut.site
             assert mut_md["site_position"] == ts.sites_position[mut.site]
             assert mut_md["inherited_state"] == ts.site(mut.site).ancestral_state
-        assert sc2ts_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
+        assert hmm_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
         assert sc2ts_md["qc"] == {
             "num_masked_sites": 133,
             "original_base_composition": {
