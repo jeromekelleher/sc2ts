@@ -5,6 +5,7 @@ import datetime
 import dataclasses
 import collections
 import pickle
+import hashlib
 import os
 import sqlite3
 import pathlib
@@ -471,26 +472,26 @@ def match_samples(
         #     recombinants.append(sample)
 
     # if len(recombinants) > 0:
-        # for mirror in [False, True]:
-        #     logger.info(
-        #         f"Running {len(run_batch)} recombinants at maximum precision in"
-        #         f"{['forward', 'backward'][int(mirror)]} direction."
-        #     )
-        #     match_tsinfer(
-        #         samples=recombinants,
-        #         ts=base_ts,
-        #         mu=mu,
-        #         rho=rho,
-        #         num_threads=num_threads,
-        #         show_progress=show_progress,
-        #         # Maximum possible precision
-        #         likelihood_threshold=1e-200,
-        #         mirror_coordinates=mirror,
-        #     )
-        # for sample in recombinants:
-        #     # We may want to try to improve the location of the breakpoints
-        #     # later. For now, just log the info.
-        #     logger.info(f"Recombinant: {sample.summary()}")
+    # for mirror in [False, True]:
+    #     logger.info(
+    #         f"Running {len(run_batch)} recombinants at maximum precision in"
+    #         f"{['forward', 'backward'][int(mirror)]} direction."
+    #     )
+    #     match_tsinfer(
+    #         samples=recombinants,
+    #         ts=base_ts,
+    #         mu=mu,
+    #         rho=rho,
+    #         num_threads=num_threads,
+    #         show_progress=show_progress,
+    #         # Maximum possible precision
+    #         likelihood_threshold=1e-200,
+    #         mirror_coordinates=mirror,
+    #     )
+    # for sample in recombinants:
+    #     # We may want to try to improve the location of the breakpoints
+    #     # later. For now, just log the info.
+    #     logger.info(f"Recombinant: {sample.summary()}")
 
     return samples
 
@@ -582,11 +583,18 @@ def extend(
     # TODO implement this.
     if max_daily_samples is not None:
         if max_daily_samples < len(metadata_matches):
-            # FIXME this isn't very random - use a hash of the seed and the current
-            # date in future.
-            random_seed=None
-            rng = random.Random(random_seed)
-            metadata_matches = rng.sample(metadata_matches, max_daily_samples)
+            logger.info(f"Got {len(metadata_matches)} metadata matches")
+            # first check for samples that are in the alignment_store
+            samples_with_aligments = []
+            for md in metadata_matches:
+                if md["strain"] in alignment_store:
+                    samples_with_aligments.append(md)
+
+            logger.info(f"Verified {len(samples_with_aligments)} have alignments")
+            seed_prefix = bytes(np.array([random_seed], dtype=int).data)
+            seed_suffix = hashlib.sha256(date.encode()).digest()
+            rng = random.Random(seed_prefix + seed_suffix)
+            metadata_matches = rng.sample(samples_with_aligments, max_daily_samples)
             logger.info(f"Subset to {len(metadata_matches)} samples")
 
     samples = preprocess(
