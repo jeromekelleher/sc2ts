@@ -198,6 +198,20 @@ def info_matches(match_db, verbose, log_file):
             percent = count / total * 100
             print(f"{cost}\t{percent:.1f}\t{count}")
 
+@click.command()
+@click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def info_ts(ts_path, verbose, log_file):
+    """
+    Information about a sc2ts inferred ARG
+    """
+    setup_logging(verbose, log_file)
+    ts = tszip.load(ts_path)
+
+    ti = sc2ts.TreeInfo(ts, quick=True)
+    print("info", ti.node_counts())
+    # TODO more
 
 def add_provenance(ts, output_file):
     # Record provenance here because this is where the arguments are provided.
@@ -262,6 +276,13 @@ def list_dates(metadata, counts, after, verbose, log_file):
                 else:
                     print(k)
 
+
+def summarise_base(ts, date, progress):
+    ti = sc2ts.TreeInfo(ts, quick=True)
+    node_info = "; ".join(f"{k}:{v}" for k, v in ti.node_counts().items())
+    logger.info(f"Loaded {node_info}")
+    if progress:
+        print(f"{date} Start base: {node_info}", file=sys.stderr)
 
 @click.command()
 @click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
@@ -356,7 +377,7 @@ def extend(
     """
     setup_logging(verbose, log_file)
     base = tskit.load(base_ts)
-    logger.debug(f"Loaded base ts from {base_ts}")
+    summarise_base(base, date, progress)
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
@@ -552,6 +573,7 @@ cli.add_command(import_metadata)
 cli.add_command(info_alignments)
 cli.add_command(info_metadata)
 cli.add_command(info_matches)
+cli.add_command(info_ts)
 cli.add_command(export_alignments)
 cli.add_command(export_metadata)
 
