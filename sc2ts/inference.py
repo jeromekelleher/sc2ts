@@ -28,6 +28,36 @@ from . import metadata
 logger = logging.getLogger(__name__)
 
 
+def get_progress(iterable, date, phase, show_progress, total=None):
+    bar_format = (
+        "{desc:<22}{percentage:3.0f}%|{bar}"
+        "| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]"
+    )
+    return tqdm.tqdm(
+        iterable,
+        total=total,
+        desc=f"{date}:{phase}",
+        disable=not show_progress,
+        bar_format=bar_format,
+        dynamic_ncols=True,
+        smoothing=0.01,
+        unit_scale=True,
+    )
+
+
+class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
+    def __init__(self, date, phase, *args, **kwargs):
+        self.date = date
+        self.phase = phase
+        super().__init__(*args, **kwargs)
+
+    def get(self, key, total):
+        self.current_instance = get_progress(
+            None, self.date, phase=self.phase, show_progress=self.enabled, total=total
+        )
+        return self.current_instance
+
+
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
@@ -287,60 +317,6 @@ def increment_time(date, ts):
     return tables.tree_sequence()
 
 
-def _validate_samples(ts, samples, alignment_store, show_progress):
-    strains = [ts.node(u).metadata["strain"] for u in samples]
-    G = np.zeros((ts.num_sites, len(samples)), dtype=np.int8)
-    keep_sites = ts.sites_position.astype(int)
-    strains_iter = enumerate(strains)
-    with tqdm.tqdm(
-        strains_iter,
-        desc="Read",
-        total=len(strains),
-        position=1,
-        leave=False,
-        disable=not show_progress,
-    ) as bar:
-        for j, strain in bar:
-            ma = alignments.encode_and_mask(alignment_store[strain])
-            G[:, j] = ma.alignment[keep_sites]
-
-    vars_iter = ts.variants(samples=samples, alleles=tuple(core.ALLELES))
-    with tqdm.tqdm(
-        vars_iter,
-        desc="Check",
-        total=ts.num_sites,
-        position=1,
-        leave=False,
-        disable=not show_progress,
-    ) as bar:
-        for var in bar:
-            original = G[var.site.id]
-            non_missing = original != -1
-            if not np.all(var.genotypes[non_missing] == original[non_missing]):
-                raise ValueError("Data mismatch")
-
-
-def validate(ts, alignment_store, show_progress=False):
-    """
-    Check that all the samples in the specified tree sequence are correctly
-    representing the original alignments.
-    """
-    samples = ts.samples()[1:]
-    chunk_size = 10**3
-    offset = 0
-    num_chunks = ts.num_samples // chunk_size
-    for chunk_index in tqdm.tqdm(
-        range(num_chunks), position=0, disable=not show_progress
-    ):
-        chunk = samples[offset : offset + chunk_size]
-        offset += chunk_size
-        _validate_samples(ts, chunk, alignment_store, show_progress)
-
-    if ts.num_samples % chunk_size != 0:
-        chunk = samples[offset:]
-        _validate_samples(ts, chunk, alignment_store, show_progress)
-
-
 @dataclasses.dataclass
 class Sample:
     strain: str
@@ -437,6 +413,8 @@ def match_samples(
             likelihood_threshold=likelihood_threshold,
             num_threads=num_threads,
             show_progress=show_progress,
+            date=date,
+            phase=f"match({k})",
         )
 
         exceeding_threshold = []
@@ -461,6 +439,8 @@ def match_samples(
         rho=rho,
         num_threads=num_threads,
         show_progress=show_progress,
+        date=date,
+        phase=f"match(F)",
     )
     recombinants = []
     for sample in run_batch:
@@ -509,11 +489,7 @@ def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
     problematic_sites = core.get_problematic_sites()
 
     samples = []
-    with tqdm.tqdm(
-        samples_md,
-        desc=f"Preprocess",
-        disable=not show_progress,
-    ) as bar:
+    with get_progress(samples_md, date, "preprocess", show_progress) as bar:
         for md in bar:
             strain = md["strain"]
             try:
@@ -639,6 +615,7 @@ def extend(
         date=date,
         min_group_size=1,
         show_progress=show_progress,
+        phase="add(close)",
     )
 
     logger.info("Looking for retrospective matches")
@@ -652,6 +629,7 @@ def extend(
         min_group_size=min_group_size,
         min_different_dates=3,  # TODO parametrize
         show_progress=show_progress,
+        phase="add(retro)",
     )
     return update_top_level_metadata(ts, date)
 
@@ -785,6 +763,7 @@ def add_matching_results(
     min_group_size=1,
     min_different_dates=1,
     show_progress=False,
+    phase=None,
 ):
     logger.info(f"Querying match DB WHERE: {where_clause}")
     samples = match_db.get(where_clause)
@@ -814,13 +793,7 @@ def add_matching_results(
 
     attach_nodes = []
     added_samples = []
-
-    with tqdm.tqdm(
-        grouped_matches.items(),
-        desc=f"Build:{date}",
-        total=len(grouped_matches),
-        disable=not show_progress,
-    ) as bar:
+    with get_progress(list(grouped_matches.items()), date, phase, show_progress) as bar:
         for (path, reversions), match_samples in bar:
             different_dates = set(sample.date for sample in match_samples)
             # TODO (1) add group ID from hash of samples (2) better logging of path
@@ -1283,6 +1256,8 @@ def match_tsinfer(
     likelihood_threshold=None,
     num_threads=0,
     show_progress=False,
+    date=None,
+    phase=None,
     mirror_coordinates=False,
 ):
     if len(samples) == 0:
@@ -1302,12 +1277,8 @@ def match_tsinfer(
         # Let's say a double break with 5 mutations is the most unlikely thing
         # we're interested in solving for exactly.
         likelihood_threshold = rho**2 * mu**5
-    pm = tsinfer.inference._get_progress_monitor(
-        show_progress,
-        generate_ancestors=False,
-        match_ancestors=False,
-        match_samples=False,
-    )
+
+    pm = TsinferProgressMonitor(date, phase, enabled=show_progress)
 
     # This is just working around tsinfer's input checking logic. The actual value
     # we're incrementing by has no effect.

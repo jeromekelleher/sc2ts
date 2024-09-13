@@ -20,6 +20,8 @@ dependencies = [
   "scipy",
   "click",
   "zarr<2.18",
+  "humanize",
+  "resource",
 ]
 dynamic = ["version"]
 

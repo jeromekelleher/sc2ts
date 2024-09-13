@@ -3,13 +3,12 @@ import collections
 import concurrent
 import logging
 import platform
-import random
-import pathlib
 import sys
 import contextlib
 import dataclasses
 import datetime
-import pickle
+import time
+import os
 
 import numpy as np
 import tqdm
@@ -18,13 +17,41 @@ import tszip
 import tsinfer
 import click
 import daiquiri
+import humanize
 import pandas as pd
+
+try:
+    import resource
+except ImportError:
+    resource = None  # resource.getrusage absent on windows, so skip outputting max mem
 
 import sc2ts
 from . import core
-from . import inference
+from . import utils
 
 logger = logging.getLogger(__name__)
+
+__before = time.time()
+
+
+def summarise_usage():
+    wall_time = time.time() - __before
+    user_time = os.times().user
+    sys_time = os.times().system
+    if resource is None:
+        # Don't report max memory on Windows. We could do this using the psutil lib, via
+        # psutil.Process(os.getpid()).get_ext_memory_info().peak_wset if demand exists
+        maxmem_str = "?"
+    else:
+        max_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if sys.platform != "darwin":
+            max_mem *= 1024  # Linux and other OSs (e.g. freeBSD) report maxrss in kb
+        maxmem_str = "; max_memory=" + humanize.naturalsize(max_mem, binary=True)
+    return (
+        f"Done in {humanize.naturaldelta(wall_time)}; "
+        f"elapsed={wall_time:.2f}; user={user_time:.2f}; sys={sys_time:.2f}"
+        + maxmem_str
+    )
 
 
 def get_environment():
@@ -207,16 +234,18 @@ def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
             f"Excluding additional {len(additional_problematic)} problematic sites"
         )
 
-    base_ts = inference.initial_ts(additional_problematic)
+    base_ts = sc2ts.initial_ts(additional_problematic)
     base_ts.dump(ts)
     logger.info(f"New base ts at {ts}")
-    inference.MatchDb.initialise(match_db)
+    sc2ts.MatchDb.initialise(match_db)
 
 
 @click.command()
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.option("--counts/--no-counts", default=False)
-@click.option("--after", default="1900-01-01", help="show dates after the specified value")
+@click.option(
+    "--after", default="1900-01-01", help="show dates after the specified value"
+)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def list_dates(metadata, counts, after, verbose, log_file):
@@ -342,7 +371,7 @@ def extend(
                     abort=True,
                 )
                 match_db.delete_newer(date)
-        ts_out = inference.extend(
+        ts_out = sc2ts.extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             base_ts=base,
@@ -358,6 +387,10 @@ def extend(
             show_progress=progress,
         )
         add_provenance(ts_out, output_ts)
+    resource_usage = f"{date}:{summarise_usage()}"
+    logger.info(resource_usage)
+    if progress:
+        print(resource_usage, file=sys.stderr)
 
 
 @click.command()
@@ -372,7 +405,7 @@ def validate(alignment_db, ts_file, verbose):
 
     ts = tszip.load(ts_file)
     with sc2ts.AlignmentStore(alignment_db) as alignment_store:
-        inference.validate(ts, alignment_store, show_progress=True)
+        sc2ts.validate(ts, alignment_store, show_progress=True)
 
 
 @click.command()
