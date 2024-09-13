@@ -89,6 +89,11 @@ jobs:
         run: |
           sc2ts validate -v testrun/alignments.db testrun/2020-02-02.ts
 
+
+      - name: Info
+        run: |
+          sc2ts info-ts testrun/2020-02-02.ts
+
       - name: MatchDB
         run: |
           sc2ts info-matches testrun/match.db
