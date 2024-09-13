@@ -6,3 +6,4 @@ from .alignments import *
 from .metadata import *
 from .inference import *
 from .validation import *
+from .info import *
