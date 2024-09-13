@@ -96,7 +96,7 @@ class TestAddMatchingResults:
         #     0   29904
         ts = util.example_binary(2)
         L = ts.sequence_length
-        x = L / 2
+        x = L // 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
         date = "2021-01-05"
         ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db", date=date)
@@ -286,20 +286,25 @@ class TestMatchTsinfer:
 
 
 class TestMatchPathTs:
-    def match_path_ts(self, samples, ts):
-        # FIXME this API is terrible
-        ts2 = sc2ts.match_path_ts(samples, ts, samples[0].path, [])
-        assert ts2.num_samples == len(samples)
-        for u, sample in zip(ts.samples()[1:], samples):
+    def match_path_ts(self, samples):
+        group = sc2ts.SampleGroup(samples, samples[0].path, [])
+        ts = sc2ts.match_path_ts(group)
+        assert ts.num_samples == len(samples)
+        for u, sample in zip(ts.samples(), samples):
             node = ts.node(u)
             assert node.time == 0
-            assert node.metadata == sample.metadata
-        return ts2
+            md = dict(node.metadata)
+            sc2ts_md = md.pop("sc2ts")
+            assert md == sample.metadata
+            assert sc2ts_md["group_id"] == group.sample_hash
+            assert "hmm" in sc2ts_md
+            # TODO test HMM properties recorded in metadata
+        return ts
 
     def test_one_sample(self):
         ts = sc2ts.initial_ts()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -341,7 +346,7 @@ class TestMatchPathTs:
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, c)]], mutations=[[(0, "G"), (1, "G")]]
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -358,7 +363,7 @@ class TestMatchPathTs:
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(100, "X")]]
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -374,7 +379,7 @@ class TestMatchPathTs:
             [[(0, ts.sequence_length, 1)], [(0, ts.sequence_length, 1)]],
             mutations=[[(100, "X")], [(200, "Y")]],
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0, 2: 0}
@@ -396,7 +401,7 @@ class TestMatchPathTs:
             [[(0, ts.sequence_length, 1)]],
             mutations=[[(j, f"{j}") for j in range(num_mutations)]],
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -424,7 +429,7 @@ class TestMatchPathTs:
         sc2ts.update_path_info(
             samples, ts, [s.path for s in samples], [s.mutations for s in samples]
         )
-        self.match_path_ts(samples, ts)
+        self.match_path_ts(samples)
 
 
 class TestMirrorTsCoords:
@@ -582,7 +587,7 @@ class TestRealData:
             "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
         }
 
-        assert ts.tables.equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
+        ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
@@ -595,8 +600,7 @@ class TestRealData:
         assert ts.num_samples == 26
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
         # print(samples)
-        # print(fx_ts_map["2020-02-01"])
-        # print(ts)
+        print(ts.tables.mutations)
         # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
