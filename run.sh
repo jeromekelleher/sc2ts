@@ -20,7 +20,6 @@ metadata=$datadir/metadata.db
 matches=$resultsdir/matches.db
 
 dates=`python3 -m sc2ts list-dates $metadata | grep -v 2021-12-31 | head -n 14`
-echo $dates
 
 options="--num-threads $num_threads -vv -l $logfile "
 # options+="--max-submission-delay $max_submission_delay "
