@@ -317,6 +317,14 @@ def increment_time(date, ts):
     return tables.tree_sequence()
 
 
+def path_summary(path):
+    return ",".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
+
+
+def mutation_summary(mutations):
+    return "[" + ",".join(str(mutation) for mutation in mutations) + "]"
+
+
 @dataclasses.dataclass
 class Sample:
     strain: str
@@ -342,31 +350,25 @@ class Sample:
     def mutations(self):
         return self.forward_mutations
 
-    def path_summary(self, path):
-        return ",".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
-
-    def mutation_summary(self, mutations):
-        return "[" + ",".join(str(mutation) for mutation in mutations) + "]"
-
     def summary(self):
         pango = self.metadata.get("Viridian_pangolin", "Unknown")
         s = f"{self.strain} {self.date} {pango} "
         if self.is_recombinant:
             s += (
-                f"forward_path={self.path_summary(self.forward_path)} "
+                f"forward_path={path_summary(self.forward_path)} "
                 f"forward_mutations({len(self.forward_mutations)})"
-                f"={self.mutation_summary(self.forward_mutations)} "
+                f"={mutation_summary(self.forward_mutations)} "
             )
             s += (
-                f"reverse_path={self.path_summary(self.reverse_path)} "
+                f"reverse_path={path_summary(self.reverse_path)} "
                 f"reverse_mutations({len(self.reverse_mutations)})"
-                f"={self.mutation_summary(self.reverse_mutations)}"
+                f"={mutation_summary(self.reverse_mutations)}"
             )
         else:
             s += (
-                f"path={self.path_summary(self.forward_path)} "
+                f"path={path_summary(self.forward_path)} "
                 f"mutations({len(self.forward_mutations)})"
-                f"={self.mutation_summary(self.forward_mutations)}"
+                f"={mutation_summary(self.forward_mutations)}"
             )
         return s
 
@@ -674,51 +676,28 @@ def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, time=0):
     return tables.nodes.add_row(flags=flags, time=time, metadata=metadata)
 
 
-def match_path_ts(samples, ts, path, reversions):
+def match_path_ts(group, ts):
     """
-    Given the specified list of samples with equal copying paths,
+    Given the specified SampleGroup
     return the tree sequence rooted at zero representing the data.
     """
     tables = tskit.TableCollection(ts.sequence_length)
     tables.nodes.metadata_schema = ts.table_metadata_schemas.node
-    # Zero is the attach node
-    md = {
-        "samples": [sample.strain for sample in samples],
-        "path": [seg.asdict() for seg in path],
-    }
-    # FIXME this doesn't work because we don't actually
-    # use this node in the output trees. What we probably want to
-    # do is create a unique ID that we put into the metadata of
-    # every node we ultimately attach from this tree. That could
-    # be a hash of the sample IDs, I guess. It could record
-    # the number of samples also, usefully. Basically we want
-    # to enable tracing around the larger tree later, and to
-    # figure out which nodes were added at as part of a particular
-    # group, on a particular day.
-    tables.nodes.add_row(time=1, metadata={"sc2ts": md})
-    path = samples[0].path
+    tables.nodes.add_row(time=1)
     site_id_map = {}
     first_sample = len(tables.nodes)
-    logger.debug(
-        f"Adding group of {len(samples)} with path={path} and "
-        f"reversions={reversions}"
-    )
-    for sample in samples:
-        assert sample.path == path
+    print("ADD", group.summary())
+    for sample in group:
+        assert sample.path == list(group.path)
         node_id = add_sample_to_tables(sample, tables)
         tables.edges.add_row(0, ts.sequence_length, parent=0, child=node_id)
         for mut in sample.mutations:
+            assert len(group.reversions) == 0
+
             if mut.site_id not in site_id_map:
                 new_id = tables.sites.add_row(mut.site_position, mut.inherited_state)
                 site_id_map[mut.site_id] = new_id
 
-    # Now add the mutations
-    for node_id, sample in enumerate(samples, first_sample):
-        logger.debug(
-            f"Adding {sample.strain}:{sample.date} with "
-            f"{len(sample.mutations)} mutations"
-        )
-        for mut in sample.mutations:
             tables.mutations.add_row(
                 site=site_id_map[mut.site_id],
                 node=node_id,
@@ -726,8 +705,8 @@ def match_path_ts(samples, ts, path, reversions):
                 derived_state=mut.derived_state,
             )
     tables.sort()
+    print(tables)
     return tables.tree_sequence()
-    # print(tables)
 
 
 def add_exact_matches(match_db, ts, date):
@@ -755,6 +734,41 @@ def add_exact_matches(match_db, ts, date):
     return tables.tree_sequence()
 
 
+@dataclasses.dataclass
+class SampleGroup:
+    """
+    A Group of samples that get added into the overall ARG in as
+    a "local" tree.
+    """
+
+    samples: List = None
+    path: List = None
+    reversions: List = None
+    sample_hash: str = None
+    date_count: dict = dataclasses.field(default_factory=collections.Counter)
+
+    def __post_init__(self):
+        m = hashlib.md5()
+        for s in self.samples:
+            m.update(s.strain.encode())
+            self.date_count[s.date] += 1
+        self.sample_hash = m.hexdigest()
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __iter__(self):
+        return iter(self.samples)
+
+    def summary(self):
+        return (
+            f"Group {self.sample_hash} has {len(self.samples)} samples "
+            f"over {len(self.date_count)} different dates "
+            f"attaching at {path_summary(self.path)} and "
+            f"reversions={self.reversions}"
+        )
+
+
 def add_matching_results(
     where_clause,
     match_db,
@@ -770,7 +784,6 @@ def add_matching_results(
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
-    excluded_samples = []
     site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
     num_samples = 0
     for sample in samples:
@@ -788,44 +801,42 @@ def add_matching_results(
         logger.info("No candidate samples found in MatchDb")
         return ts
 
-    tables = ts.dump_tables()
+    groups = [
+        SampleGroup(samples, path, reversions)
+        for (path, reversions), samples in grouped_matches.items()
+    ]
     logger.info(f"Got {len(grouped_matches)} distinct paths for {num_samples} samples")
+
+    tables = ts.dump_tables()
 
     attach_nodes = []
     added_samples = []
-    with get_progress(list(grouped_matches.items()), date, phase, show_progress) as bar:
-        for (path, reversions), match_samples in bar:
-            different_dates = set(sample.date for sample in match_samples)
-            # TODO (1) add group ID from hash of samples (2) better logging of path
-            logger.debug(
-                f"Group of {len(match_samples)} has {len(different_dates)} different dates"
-                f" at {path}, {reversions} "
-            )
+    with get_progress(groups, date, phase, show_progress) as bar:
+        for group in bar:
+            logger.debug(group.summary())
             if (
-                len(match_samples) < min_group_size
-                or len(different_dates) < min_different_dates
+                len(group) < min_group_size
+                or len(group.date_count) < min_different_dates
             ):
                 continue
 
-            added_samples.extend(match_samples)
+            # # print(path, reversions, len(match_samples))
+            # # Delete the reversions from these samples so that we don't
+            # # build them into the trees
+            # if len(reversions) > 0:
+            #     for sample in group.samples:
+            #         new_muts = [
+            #             mut
+            #             for mut in sample.mutations
+            #             if (mut.site_id, mut.derived_state) not in reversions
+            #         ]
+            #         assert len(new_muts) == len(sample.mutations) - len(reversions)
+            #         # FIXME this is quick hack to get things working, but we
+            #         # shouldn't be assuming that we're always using the
+            #         # forward mutations.
+            #         sample.forward_mutations = new_muts
 
-            # print(path, reversions, len(match_samples))
-            # Delete the reversions from these samples so that we don't
-            # build them into the trees
-            if len(reversions) > 0:
-                for sample in match_samples:
-                    new_muts = [
-                        mut
-                        for mut in sample.mutations
-                        if (mut.site_id, mut.derived_state) not in reversions
-                    ]
-                    assert len(new_muts) == len(sample.mutations) - len(reversions)
-                    # FIXME this is quick hack to get things working, but we
-                    # shouldn't be assuming that we're always using the
-                    # forward mutations.
-                    sample.forward_mutations = new_muts
-
-            flat_ts = match_path_ts(match_samples, ts, path, reversions)
+            flat_ts = match_path_ts(group, ts)
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
                 poly_ts = flat_ts
             else:
@@ -839,7 +850,7 @@ def add_matching_results(
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
-            nodes = attach_tree(ts, tables, path, reversions, poly_ts, date)
+            nodes = attach_tree(ts, tables, group, poly_ts, date)
             # print(nodes)
             logger.debug(
                 f"Path {path}: samples={poly_ts.num_samples} "
@@ -1585,12 +1596,13 @@ def trim_branches(ts):
 def attach_tree(
     parent_ts,
     parent_tables,
-    attach_path,
-    reversions,
+    group,
     child_ts,
     date,
     epsilon=None,
 ):
+    attach_path = group.path
+    reversions = group.reversions
     if epsilon is None:
         epsilon = 1e-6  # In time units of days ago
 
