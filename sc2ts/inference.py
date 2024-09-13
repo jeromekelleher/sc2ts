@@ -28,6 +28,36 @@ from . import metadata
 logger = logging.getLogger(__name__)
 
 
+def get_progress(iterable, date, phase, show_progress, total=None):
+    return tqdm.tqdm(iterable, total=total, desc=f"{date}:{phase}", disable=not show_progress)
+
+
+class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
+    def __init__(self, date, title, *args, **kwargs):
+        self.date = date
+        self.title = title
+
+        super().__init__(*args, **kwargs)
+
+    def get(self, key, total):
+        bar_format = (
+            "{desc}{percentage:3.0f}%|{bar}"
+            "| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]"
+        )
+        self.current_instance = get_progress(None, self.date, self.title, self.enabled,
+                total=total)
+
+        # tqdm.tqdm(
+        #     desc=self.desc,
+        #     total=total,
+        #     disable=not self.enabled,
+        #     bar_format=bar_format,
+        #     dynamic_ncols=True,
+        #     smoothing=0.01,
+        #     unit_scale=True,
+        # )
+        return self.current_instance
+
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
@@ -455,11 +485,7 @@ def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
     problematic_sites = core.get_problematic_sites()
 
     samples = []
-    with tqdm.tqdm(
-        samples_md,
-        desc=f"Preprocess",
-        disable=not show_progress,
-    ) as bar:
+    with get_progress(samples_md, date, "preprocess", show_progress) as bar:
         for md in bar:
             strain = md["strain"]
             try:
@@ -761,12 +787,7 @@ def add_matching_results(
     attach_nodes = []
     added_samples = []
 
-    with tqdm.tqdm(
-        grouped_matches.items(),
-        desc=f"Build:{date}",
-        total=len(grouped_matches),
-        disable=not show_progress,
-    ) as bar:
+    with get_progress(list(grouped_matches.items()), date, "build", show_progress) as bar:
         for (path, reversions), match_samples in bar:
             different_dates = set(sample.date for sample in match_samples)
             # TODO (1) add group ID from hash of samples (2) better logging of path
@@ -1218,28 +1239,6 @@ def convert_tsinfer_sample_data(ts, genotypes):
     data["sites/ancestral_allele"] = ancestral_allele
     resize_copy(data["sites/metadata"], ts.num_sites)
     return sd
-
-
-class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
-    def __init__(self, desc, *args, **kwargs):
-        self.desc = desc
-        super().__init__(*args, **kwargs)
-
-    def get(self, key, total):
-        bar_format = (
-            "{desc}{percentage:3.0f}%|{bar}"
-            "| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]"
-        )
-        self.current_instance = tqdm.tqdm(
-            desc=self.desc,
-            total=total,
-            disable=not self.enabled,
-            bar_format=bar_format,
-            dynamic_ncols=True,
-            smoothing=0.01,
-            unit_scale=True,
-        )
-        return self.current_instance
 
 
 def match_tsinfer(

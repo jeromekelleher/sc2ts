@@ -3,13 +3,10 @@ import collections
 import concurrent
 import logging
 import platform
-import random
-import pathlib
 import sys
 import contextlib
 import dataclasses
 import datetime
-import pickle
 
 import numpy as np
 import tqdm
@@ -22,7 +19,6 @@ import pandas as pd
 
 import sc2ts
 from . import core
-from . import inference
 
 logger = logging.getLogger(__name__)
 
@@ -207,16 +203,18 @@ def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
             f"Excluding additional {len(additional_problematic)} problematic sites"
         )
 
-    base_ts = inference.initial_ts(additional_problematic)
+    base_ts = sc2ts.initial_ts(additional_problematic)
     base_ts.dump(ts)
     logger.info(f"New base ts at {ts}")
-    inference.MatchDb.initialise(match_db)
+    sc2ts.MatchDb.initialise(match_db)
 
 
 @click.command()
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.option("--counts/--no-counts", default=False)
-@click.option("--after", default="1900-01-01", help="show dates after the specified value")
+@click.option(
+    "--after", default="1900-01-01", help="show dates after the specified value"
+)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def list_dates(metadata, counts, after, verbose, log_file):
@@ -342,7 +340,7 @@ def extend(
                     abort=True,
                 )
                 match_db.delete_newer(date)
-        ts_out = inference.extend(
+        ts_out = sc2ts.extend(
             alignment_store=alignment_store,
             metadata_db=metadata_db,
             base_ts=base,
@@ -372,7 +370,7 @@ def validate(alignment_db, ts_file, verbose):
 
     ts = tszip.load(ts_file)
     with sc2ts.AlignmentStore(alignment_db) as alignment_store:
-        inference.validate(ts, alignment_store, show_progress=True)
+        sc2ts.validate(ts, alignment_store, show_progress=True)
 
 
 @click.command()
