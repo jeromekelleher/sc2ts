@@ -797,9 +797,9 @@ def add_matching_results(
         for (path, reversions), match_samples in bar:
             different_dates = set(sample.date for sample in match_samples)
             # TODO (1) add group ID from hash of samples (2) better logging of path
-            logger.info(
+            logger.debug(
                 f"Group of {len(match_samples)} has {len(different_dates)} different dates"
-                f"at {path}, {reversions} "
+                f" at {path}, {reversions} "
             )
             if (
                 len(match_samples) < min_group_size
