@@ -1,3 +1,5 @@
+import collections
+
 import numpy as np
 import numpy.testing as nt
 import pytest
@@ -617,6 +619,84 @@ class TestRealData:
     def test_date_validate(self, fx_ts_map, fx_alignment_store, date):
         ts = fx_ts_map[date]
         sc2ts.validate(ts, fx_alignment_store)
+
+    def test_mutation_type_metadata(self, fx_ts_map):
+        ts = fx_ts_map[self.dates[-1]]
+        for mutation in ts.mutations():
+            md = mutation.metadata["sc2ts"]
+            assert md["type"] in ["parsimony", "overlap"]
+
+    def test_node_type_metadata(self, fx_ts_map):
+        ts = fx_ts_map[self.dates[-1]]
+        assert ts.node(0).metadata["sc2ts"]["type"] == "vestigial"
+        assert ts.node(1).metadata["sc2ts"]["type"] == "reference"
+        non_sample_node_counts = collections.Counter()
+        exact_matches = 0
+        for node in list(ts.nodes())[2:]:
+            md = node.metadata["sc2ts"]
+            if node.is_sample():
+                # All samples are either exact matches, or added as part of a group
+                assert "hmm" in md
+                if node.flags & sc2ts.NODE_IS_EXACT_MATCH:
+                    exact_matches += 1
+                else:
+                    assert "group_id" in md
+            else:
+                non_sample_node_counts[md["type"]] += 1
+        assert exact_matches > 0
+        assert set(non_sample_node_counts.keys()) == {
+            "local",
+            "mutation_overlap",
+            "reversion_push",
+        }
+
+    @pytest.mark.parametrize(
+        ["gid", "date", "internal", "strains"],
+        [
+            (
+                "02984ed831cd3c72d206959449dcf8c9",
+                "2020-01-19",
+                0,
+                ["SRR11772659"],
+            ),
+            (
+                "0c36395a702379413ffc855f847873c6",
+                "2020-01-24",
+                1,
+                ["SRR11397727", "SRR11397730"],
+            ),
+            (
+                "9d00e2a016661caea4c2d9abf83375b8",
+                "2020-01-30",
+                1,
+                ["SRR12162232", "SRR12162233", "SRR12162234", "SRR12162235"],
+            ),
+            (
+                "2f508c7ba05387dec0adbf2db4a7481a",
+                "2020-02-04",
+                1,
+                ["SRR11597174", "SRR11597188", "SRR11597136", "SRR11597175"],
+            ),
+        ],
+    )
+    def test_group(self, fx_ts_map, gid, date, internal, strains):
+        ts = fx_ts_map[self.dates[-1]]
+        samples = []
+        num_internal = 0
+        got_strains = []
+        for node in ts.nodes():
+            md = node.metadata
+            group = md["sc2ts"].get("group_id", None)
+            if group == gid:
+                if node.is_sample():
+                    got_strains.append(md["strain"])
+                    assert md["date"] == date
+                else:
+                    assert md["sc2ts"]["date_added"] == date
+                    assert md["sc2ts"]["type"] == "local"
+                    num_internal += 1
+        assert num_internal == internal
+        assert got_strains == strains
 
     @pytest.mark.parametrize("date", dates[1:])
     def test_node_mutation_counts(self, fx_ts_map, date):

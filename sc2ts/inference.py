@@ -287,11 +287,17 @@ def initial_ts(additional_problematic_sites=list()):
     # TODO should probably make the ultimate ancestor time something less
     # plausible or at least configurable. However, this will be removed
     # in later versions when we remove the dependence on tsinfer.
-    tables.nodes.add_row(time=1, metadata={"strain": "Vestigial_ignore"})
+    tables.nodes.add_row(
+        time=1, metadata={"strain": "Vestigial_ignore", "sc2ts": {"type": "vestigial"}}
+    )
     tables.nodes.add_row(
         flags=tskit.NODE_IS_SAMPLE,
         time=0,
-        metadata={"strain": core.REFERENCE_STRAIN, "date": core.REFERENCE_DATE},
+        metadata={
+            "strain": core.REFERENCE_STRAIN,
+            "date": core.REFERENCE_DATE,
+            "sc2ts": {"type": "reference"},
+        },
     )
     tables.edges.add_row(0, L, 0, 1)
     return tables.tree_sequence()
@@ -695,7 +701,7 @@ def match_path_ts(group):
         tables.edges.add_row(0, tables.sequence_length, parent=0, child=node_id)
         for mut in sample.mutations:
             if (mut.site_id, mut.derived_state) in group.reversions:
-                # We don't include any of the marked reversions so that they 
+                # We don't include any of the marked reversions so that they
                 # aren't used in tree building.
                 continue
 
@@ -752,10 +758,13 @@ class SampleGroup:
     date_count: dict = dataclasses.field(default_factory=collections.Counter)
 
     def __post_init__(self):
-        m = hashlib.md5()
+        strains = []
         for s in self.samples:
-            m.update(s.strain.encode())
             self.date_count[s.date] += 1
+            strains.append(s.strain)
+        m = hashlib.md5()
+        for strain in sorted(strains):
+            m.update(strain.encode())
         self.sample_hash = m.hexdigest()
 
     def __len__(self):
@@ -1065,7 +1074,13 @@ def coalesce_mutations(ts, samples=None):
         tables.nodes.add_row(
             flags=core.NODE_IS_MUTATION_OVERLAP,
             time=group_parent_time,
-            metadata={"overlap": md_overlap, "sibs": md_sibs},
+            metadata={
+                "sc2ts": {
+                    "type": "mutation_overlap",
+                    "overlap": md_overlap,
+                    "sibs": md_sibs,
+                }
+            },
         )
         for mut_desc in overlap:
             tables.mutations.add_row(
@@ -1073,7 +1088,7 @@ def coalesce_mutations(ts, samples=None):
                 derived_state=mut_desc.derived_state,
                 node=group_parent,
                 time=group_parent_time,
-                metadata={"type": "overlap"},
+                metadata={"sc2ts": {"type": "overlap"}},
             )
 
     num_del_mutations = len(mutations_to_delete)
@@ -1157,8 +1172,11 @@ def push_up_reversions(ts, samples):
             flags=core.NODE_IS_REVERSION_PUSH,
             time=w_time,
             metadata={
-                "sample": int(sample),
-                "sites": [int(x) for x in sites],
+                "sc2ts": {
+                    "type": "reversion_push",
+                    "sample": int(sample),
+                    "sites": [int(x) for x in sites],
+                }
             },
         )
         # Add new edges to join the sample and parent to w, and then
@@ -1542,8 +1560,9 @@ def infer_binary(ts):
         site = tables.sites.add_row(var.site.position, anc)
         for mut in muts:
             tables.mutations.add_row(
-                site=site, node=mut.node, derived_state=mut.derived_state,
-                metadata=mut.metadata,
+                site=site,
+                node=mut.node,
+                derived_state=mut.derived_state,
             )
     return tables.tree_sequence()
 
@@ -1635,7 +1654,13 @@ def attach_tree(
             node_time[u] = time
         metadata = node.metadata
         if tree.is_internal(u):
-            metadata = {"date_added": date}
+            metadata = {
+                "sc2ts": {
+                    "group_id": group.sample_hash,
+                    "type": "local",
+                    "date_added": date,
+                }
+            }
         new_id = parent_tables.nodes.append(node.replace(time=time, metadata=metadata))
         node_id_map[node.id] = new_id
         for v in tree.children(u):
@@ -1652,8 +1677,6 @@ def attach_tree(
                 seg.left, seg.right, parent=seg.parent, child=node_id_map[child]
             )
 
-    # FIXME WIP start here to get mutation metadata sorted.
-
     # Add the mutations.
     for site in child_ts.sites():
         parent_site_id = parent_ts.site(position=site.position).id
@@ -1664,7 +1687,9 @@ def attach_tree(
                 node=node_id_map[mutation.node],
                 derived_state=mutation.derived_state,
                 time=node_time[mutation.node],
-                metadata={"sc2ts": {"type": "parsimony", "group_id": group.sample_hash}}
+                metadata={
+                    "sc2ts": {"type": "parsimony", "group_id": group.sample_hash}
+                },
             )
     if len(reversions) > 0:
         # FIXME we should either flag these nodes with a specific value
@@ -1681,8 +1706,9 @@ def attach_tree(
                 node=node_id_map[node],
                 derived_state=derived_state,
                 time=node_time[node],
-                metadata={"sc2ts": {"type": "match_reversion", "group_id": group.sample_hash}}
-
+                metadata={
+                    "sc2ts": {"type": "match_reversion", "group_id": group.sample_hash}
+                },
             )
     if len(attach_path) > 1:
         # Update the recombinant flags also.
