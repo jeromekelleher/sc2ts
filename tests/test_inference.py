@@ -33,7 +33,8 @@ class TestInitialTs:
         assert ts.num_samples == 1
         node = ts.node(ts.samples()[0])
         assert node.time == 0
-        assert node.metadata == {"date": "2019-12-26", "strain": "Wuhan/Hu-1/2019"}
+        assert node.metadata == {"date": "2019-12-26", "strain": "Wuhan/Hu-1/2019", 
+                "sc2ts": {"type": "reference"}}
         alignment = next(ts.alignments())
         assert alignment == sc2ts.core.get_reference_sequence()
 
@@ -107,7 +108,7 @@ class TestAddMatchingResults:
         assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
         assert ts2.last().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 3, 5: 6}
         assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
-        assert ts2.node(6).metadata == {"date_added": date}
+        assert ts2.node(6).metadata["sc2ts"]["date_added"] == date
 
     def test_one_sample_recombinant_filtered(self, tmp_path):
         # 4.00┊  0  ┊
@@ -642,6 +643,8 @@ class TestRealData:
                 else:
                     assert "group_id" in md
             else:
+                # FIXME we should be using the flags here, not metadata.
+                # Letting this fail.
                 non_sample_node_counts[md["type"]] += 1
         assert exact_matches > 0
         assert set(non_sample_node_counts.keys()) == {

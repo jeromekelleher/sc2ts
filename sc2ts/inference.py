@@ -1657,7 +1657,6 @@ def attach_tree(
             metadata = {
                 "sc2ts": {
                     "group_id": group.sample_hash,
-                    "type": "local",
                     "date_added": date,
                 }
             }
