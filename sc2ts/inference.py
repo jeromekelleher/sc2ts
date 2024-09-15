@@ -288,7 +288,11 @@ def initial_ts(additional_problematic_sites=list()):
     # plausible or at least configurable. However, this will be removed
     # in later versions when we remove the dependence on tsinfer.
     tables.nodes.add_row(
-        time=1, metadata={"strain": "Vestigial_ignore", "sc2ts": {"type": "vestigial"}}
+        time=1,
+        metadata={
+            "strain": "Vestigial_ignore",
+            "sc2ts": {"notes": "Vestigial root required for technical reasons"},
+        },
     )
     tables.nodes.add_row(
         flags=tskit.NODE_IS_SAMPLE,
@@ -296,7 +300,7 @@ def initial_ts(additional_problematic_sites=list()):
         metadata={
             "strain": core.REFERENCE_STRAIN,
             "date": core.REFERENCE_DATE,
-            "sc2ts": {"type": "reference"},
+            "sc2ts": {"notes": "Reference sequence"},
         },
     )
     tables.edges.add_row(0, L, 0, 1)
@@ -1076,7 +1080,6 @@ def coalesce_mutations(ts, samples=None):
             time=group_parent_time,
             metadata={
                 "sc2ts": {
-                    "type": "mutation_overlap",
                     "overlap": md_overlap,
                     "sibs": md_sibs,
                 }
@@ -1173,7 +1176,6 @@ def push_up_reversions(ts, samples):
             time=w_time,
             metadata={
                 "sc2ts": {
-                    "type": "reversion_push",
                     "sample": int(sample),
                     "sites": [int(x) for x in sites],
                 }

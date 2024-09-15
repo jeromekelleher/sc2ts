@@ -33,8 +33,11 @@ class TestInitialTs:
         assert ts.num_samples == 1
         node = ts.node(ts.samples()[0])
         assert node.time == 0
-        assert node.metadata == {"date": "2019-12-26", "strain": "Wuhan/Hu-1/2019", 
-                "sc2ts": {"type": "reference"}}
+        assert node.metadata == {
+            "date": "2019-12-26",
+            "strain": "Wuhan/Hu-1/2019",
+            "sc2ts": {"notes": "Reference sequence"},
+        }
         alignment = next(ts.alignments())
         assert alignment == sc2ts.core.get_reference_sequence()
 
@@ -603,7 +606,6 @@ class TestRealData:
         assert ts.num_samples == 26
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
         # print(samples)
-        print(ts.tables.mutations)
         # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
@@ -629,9 +631,6 @@ class TestRealData:
 
     def test_node_type_metadata(self, fx_ts_map):
         ts = fx_ts_map[self.dates[-1]]
-        assert ts.node(0).metadata["sc2ts"]["type"] == "vestigial"
-        assert ts.node(1).metadata["sc2ts"]["type"] == "reference"
-        non_sample_node_counts = collections.Counter()
         exact_matches = 0
         for node in list(ts.nodes())[2:]:
             md = node.metadata["sc2ts"]
@@ -642,16 +641,7 @@ class TestRealData:
                     exact_matches += 1
                 else:
                     assert "group_id" in md
-            else:
-                # FIXME we should be using the flags here, not metadata.
-                # Letting this fail.
-                non_sample_node_counts[md["type"]] += 1
         assert exact_matches > 0
-        assert set(non_sample_node_counts.keys()) == {
-            "local",
-            "mutation_overlap",
-            "reversion_push",
-        }
 
     @pytest.mark.parametrize(
         ["gid", "date", "internal", "strains"],
@@ -696,7 +686,6 @@ class TestRealData:
                     assert md["date"] == date
                 else:
                     assert md["sc2ts"]["date_added"] == date
-                    assert md["sc2ts"]["type"] == "local"
                     num_internal += 1
         assert num_internal == internal
         assert got_strains == strains
