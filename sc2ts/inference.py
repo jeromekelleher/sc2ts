@@ -771,6 +771,10 @@ class SampleGroup:
             m.update(strain.encode())
         self.sample_hash = m.hexdigest()
 
+    @property
+    def strains(self):
+        return [s.strain for s in self.samples]
+
     def __len__(self):
         return len(self.samples)
 
@@ -779,10 +783,10 @@ class SampleGroup:
 
     def summary(self):
         return (
-            f"Group {self.sample_hash} has {len(self.samples)} samples "
-            f"over {len(self.date_count)} different dates "
+            f"Group {self.sample_hash} total {len(self.samples)} samples "
+            f"({dict(self.date_count)}) "
             f"attaching at {path_summary(self.path)} and "
-            f"reversions={self.reversions}"
+            f"reversions={self.reversions}; strains={self.strains}"
         )
 
 
@@ -1620,11 +1624,7 @@ def attach_tree(
         raise ValueError("Incompatible sequence length")
 
     tree = child_ts.first()
-    condition = (
-        np.any(child_ts.mutations_node == tree.root)
-        or len(reversions) > 0
-        or len(attach_path) > 1
-    )
+    condition = np.any(child_ts.mutations_node == tree.root) or len(attach_path) > 1
     if condition:
         child_ts = add_root_edge(child_ts)
         tree = child_ts.first()
@@ -1677,6 +1677,15 @@ def attach_tree(
             parent_tables.edges.add_row(
                 seg.left, seg.right, parent=seg.parent, child=node_id_map[child]
             )
+        # Add the reversion mutations over the attach nodes. These will be picked up
+        # by the reversion push code below, so no point in setting metadata.
+        for site_id, derived_state in reversions:
+            parent_tables.mutations.add_row(
+                site=site_id,
+                node=node_id_map[child],
+                derived_state=derived_state,
+                time=node_time[child],
+            )
 
     # Add the mutations.
     for site in child_ts.sites():
@@ -1692,25 +1701,7 @@ def attach_tree(
                     "sc2ts": {"type": "parsimony", "group_id": group.sample_hash}
                 },
             )
-    if len(reversions) > 0:
-        # FIXME we should either flag these nodes with a specific value
-        # or update the reversion push code below to remove them. I think
-        # they'll end up as useless internal nodes? Need to check.
-        # Add the reversions back on over the unary root.
-        node = tree.children(tree.root)[0]
-        assert tree.num_children(tree.root) == 1
-        # print("attaching reversions at ", node, node_id_map[node])
-        # print(child_ts.draw_text())
-        for site_id, derived_state in reversions:
-            parent_tables.mutations.add_row(
-                site=site_id,
-                node=node_id_map[node],
-                derived_state=derived_state,
-                time=node_time[node],
-                metadata={
-                    "sc2ts": {"type": "match_reversion", "group_id": group.sample_hash}
-                },
-            )
+
     if len(attach_path) > 1:
         # Update the recombinant flags also.
         u = node_id_map[tree.children(tree.root)[0]]
