@@ -1,3 +1,5 @@
+import collections
+
 import numpy as np
 import numpy.testing as nt
 import pytest
@@ -31,7 +33,11 @@ class TestInitialTs:
         assert ts.num_samples == 1
         node = ts.node(ts.samples()[0])
         assert node.time == 0
-        assert node.metadata == {"date": "2019-12-26", "strain": "Wuhan/Hu-1/2019"}
+        assert node.metadata == {
+            "date": "2019-12-26",
+            "strain": "Wuhan/Hu-1/2019",
+            "sc2ts": {"notes": "Reference sequence"},
+        }
         alignment = next(ts.alignments())
         assert alignment == sc2ts.core.get_reference_sequence()
 
@@ -96,7 +102,7 @@ class TestAddMatchingResults:
         #     0   29904
         ts = util.example_binary(2)
         L = ts.sequence_length
-        x = L / 2
+        x = L // 2
         samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
         date = "2021-01-05"
         ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db", date=date)
@@ -105,7 +111,7 @@ class TestAddMatchingResults:
         assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
         assert ts2.last().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 3, 5: 6}
         assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
-        assert ts2.node(6).metadata == {"date_added": date}
+        assert ts2.node(6).metadata["sc2ts"]["date_added"] == date
 
     def test_one_sample_recombinant_filtered(self, tmp_path):
         # 4.00┊  0  ┊
@@ -286,20 +292,25 @@ class TestMatchTsinfer:
 
 
 class TestMatchPathTs:
-    def match_path_ts(self, samples, ts):
-        # FIXME this API is terrible
-        ts2 = sc2ts.match_path_ts(samples, ts, samples[0].path, [])
-        assert ts2.num_samples == len(samples)
-        for u, sample in zip(ts.samples()[1:], samples):
+    def match_path_ts(self, samples):
+        group = sc2ts.SampleGroup(samples, samples[0].path, [])
+        ts = sc2ts.match_path_ts(group)
+        assert ts.num_samples == len(samples)
+        for u, sample in zip(ts.samples(), samples):
             node = ts.node(u)
             assert node.time == 0
-            assert node.metadata == sample.metadata
-        return ts2
+            md = dict(node.metadata)
+            sc2ts_md = md.pop("sc2ts")
+            assert md == sample.metadata
+            assert sc2ts_md["group_id"] == group.sample_hash
+            assert "hmm" in sc2ts_md
+            # TODO test HMM properties recorded in metadata
+        return ts
 
     def test_one_sample(self):
         ts = sc2ts.initial_ts()
         samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -341,7 +352,7 @@ class TestMatchPathTs:
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, c)]], mutations=[[(0, "G"), (1, "G")]]
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -358,7 +369,7 @@ class TestMatchPathTs:
         samples = util.get_samples(
             ts, [[(0, ts.sequence_length, 1)]], mutations=[[(100, "X")]]
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -374,7 +385,7 @@ class TestMatchPathTs:
             [[(0, ts.sequence_length, 1)], [(0, ts.sequence_length, 1)]],
             mutations=[[(100, "X")], [(200, "Y")]],
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0, 2: 0}
@@ -396,7 +407,7 @@ class TestMatchPathTs:
             [[(0, ts.sequence_length, 1)]],
             mutations=[[(j, f"{j}") for j in range(num_mutations)]],
         )
-        ts2 = self.match_path_ts(samples, ts)
+        ts2 = self.match_path_ts(samples)
         assert ts2.num_trees == 1
         tree = ts2.first()
         assert tree.parent_dict == {1: 0}
@@ -424,7 +435,7 @@ class TestMatchPathTs:
         sc2ts.update_path_info(
             samples, ts, [s.path for s in samples], [s.mutations for s in samples]
         )
-        self.match_path_ts(samples, ts)
+        self.match_path_ts(samples)
 
 
 class TestMirrorTsCoords:
@@ -582,7 +593,7 @@ class TestRealData:
             "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
         }
 
-        assert ts.tables.equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
+        ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
@@ -595,10 +606,46 @@ class TestRealData:
         assert ts.num_samples == 26
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
         # print(samples)
-        # print(fx_ts_map["2020-02-01"])
-        # print(ts)
         # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
+
+    def test_2020_02_08(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-07"],
+            date="2020-02-08",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+
+        # SRR11597163 has a reversion (4923, 'C')
+        # Site ID 4923 has position 5025
+        for node in ts.nodes():
+            if node.is_sample() and node.metadata["strain"] == "SRR11597163":
+                break
+        assert node.metadata["strain"] == "SRR11597163"
+        scmd = node.metadata["sc2ts"]
+        # We have a mutation from a mismatch
+        assert scmd["hmm"][0]["mutations"] == [
+            {"derived_state": "C", "inherited_state": "T", "site_position": 5025}
+        ]
+        # But no mutations above the node itself.
+        assert np.sum(ts.mutations_node == node.id) == 0
+
+        tree = ts.first()
+        rp_node = ts.node(tree.parent(node.id))
+        assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
+        # TODO not too sure how helpful this metadata actually is, but lets
+        assert rp_node.metadata["sc2ts"] == {"sample": node.id, "sites": [4923]}
+        ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
+
+        sib_sample = ts.node(tree.siblings(node.id)[0])
+        assert sib_sample.metadata["strain"] == "SRR11597168"
+
+        assert np.sum(ts.mutations_node == sib_sample.id) == 1
+        mutation = ts.mutation(np.where(ts.mutations_node == sib_sample.id)[0][0])
+        assert mutation.derived_state == "T"
+        assert mutation.parent == -1
 
     @pytest.mark.parametrize("date", dates)
     def test_date_metadata(self, fx_ts_map, date):
@@ -614,6 +661,79 @@ class TestRealData:
         ts = fx_ts_map[date]
         sc2ts.validate(ts, fx_alignment_store)
 
+    def test_mutation_type_metadata(self, fx_ts_map):
+        ts = fx_ts_map[self.dates[-1]]
+        for mutation in ts.mutations():
+            md = mutation.metadata["sc2ts"]
+            assert md["type"] in ["parsimony", "overlap"]
+
+    def test_node_type_metadata(self, fx_ts_map):
+        ts = fx_ts_map[self.dates[-1]]
+        exact_matches = 0
+        for node in list(ts.nodes())[2:]:
+            md = node.metadata["sc2ts"]
+            if node.is_sample():
+                # All samples are either exact matches, or added as part of a group
+                assert "hmm" in md
+                if node.flags & sc2ts.NODE_IS_EXACT_MATCH:
+                    exact_matches += 1
+                else:
+                    assert "group_id" in md
+        assert exact_matches > 0
+
+    @pytest.mark.parametrize(
+        ["gid", "date", "internal", "strains"],
+        [
+            (
+                "02984ed831cd3c72d206959449dcf8c9",
+                "2020-01-19",
+                0,
+                ["SRR11772659"],
+            ),
+            (
+                "635b05f53af60d8385226cd0e00e97ab",
+                "2020-02-08",
+                0,
+                ["SRR11597163"],
+            ),
+            (
+                "0c36395a702379413ffc855f847873c6",
+                "2020-01-24",
+                1,
+                ["SRR11397727", "SRR11397730"],
+            ),
+            (
+                "9d00e2a016661caea4c2d9abf83375b8",
+                "2020-01-30",
+                1,
+                ["SRR12162232", "SRR12162233", "SRR12162234", "SRR12162235"],
+            ),
+            (
+                "2f508c7ba05387dec0adbf2db4a7481a",
+                "2020-02-04",
+                1,
+                ["SRR11597174", "SRR11597188", "SRR11597136", "SRR11597175"],
+            ),
+        ],
+    )
+    def test_group(self, fx_ts_map, gid, date, internal, strains):
+        ts = fx_ts_map[self.dates[-1]]
+        samples = []
+        num_internal = 0
+        got_strains = []
+        for node in ts.nodes():
+            md = node.metadata
+            group = md["sc2ts"].get("group_id", None)
+            if group == gid:
+                if node.is_sample():
+                    got_strains.append(md["strain"])
+                    assert md["date"] == date
+                else:
+                    assert md["sc2ts"]["date_added"] == date
+                    num_internal += 1
+        assert num_internal == internal
+        assert got_strains == strains
+
     @pytest.mark.parametrize("date", dates[1:])
     def test_node_mutation_counts(self, fx_ts_map, date):
         # Basic check to make sure our fixtures are what we expect.
@@ -625,42 +745,43 @@ class TestRealData:
         expected = {
             "2020-01-19": {"nodes": 3, "mutations": 3},
             "2020-01-24": {"nodes": 6, "mutations": 4},
-            "2020-01-25": {"nodes": 11, "mutations": 6},
-            "2020-01-28": {"nodes": 13, "mutations": 11},
-            "2020-01-29": {"nodes": 16, "mutations": 15},
-            "2020-01-30": {"nodes": 22, "mutations": 19},
-            "2020-01-31": {"nodes": 23, "mutations": 21},
-            "2020-02-01": {"nodes": 28, "mutations": 27},
-            "2020-02-02": {"nodes": 33, "mutations": 36},
-            "2020-02-03": {"nodes": 36, "mutations": 42},
-            "2020-02-04": {"nodes": 41, "mutations": 48},
-            "2020-02-05": {"nodes": 42, "mutations": 48},
-            "2020-02-06": {"nodes": 48, "mutations": 51},
-            "2020-02-07": {"nodes": 50, "mutations": 57},
-            "2020-02-08": {"nodes": 56, "mutations": 58},
-            "2020-02-09": {"nodes": 58, "mutations": 61},
-            "2020-02-10": {"nodes": 59, "mutations": 65},
-            "2020-02-11": {"nodes": 61, "mutations": 66},
-            "2020-02-13": {"nodes": 65, "mutations": 68},
+            "2020-01-25": {"nodes": 10, "mutations": 6},
+            "2020-01-28": {"nodes": 12, "mutations": 11},
+            "2020-01-29": {"nodes": 15, "mutations": 15},
+            "2020-01-30": {"nodes": 21, "mutations": 19},
+            "2020-01-31": {"nodes": 22, "mutations": 21},
+            "2020-02-01": {"nodes": 27, "mutations": 27},
+            "2020-02-02": {"nodes": 32, "mutations": 36},
+            "2020-02-03": {"nodes": 35, "mutations": 42},
+            "2020-02-04": {"nodes": 40, "mutations": 48},
+            "2020-02-05": {"nodes": 41, "mutations": 48},
+            "2020-02-06": {"nodes": 46, "mutations": 51},
+            "2020-02-07": {"nodes": 48, "mutations": 57},
+            "2020-02-08": {"nodes": 53, "mutations": 58},
+            "2020-02-09": {"nodes": 55, "mutations": 61},
+            "2020-02-10": {"nodes": 56, "mutations": 65},
+            "2020-02-11": {"nodes": 58, "mutations": 66},
+            "2020-02-13": {"nodes": 62, "mutations": 68},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
 
     @pytest.mark.parametrize(
-        ["node", "strain", "parent"],
+        ["strain", "parent"],
         [
-            (6, "SRR11397726", 5),
-            (7, "SRR11397729", 5),
-            (13, "SRR11597132", 10),
-            (16, "SRR11597177", 10),
-            (41, "SRR11597156", 10),
-            (56, "SRR11597216", 1),
-            (59, "SRR11597207", 40),
-            (61, "ERR4205570", 57),
+            ("SRR11397726", 5),
+            ("SRR11397729", 5),
+            ("SRR11597132", 9),
+            ("SRR11597177", 9),
+            ("SRR11597156", 9),
+            ("SRR11597216", 1),
+            ("SRR11597207", 39),
+            ("ERR4205570", 54),
         ],
     )
-    def test_exact_matches(self, fx_ts_map, node, strain, parent):
+    def test_exact_matches(self, fx_ts_map, strain, parent):
         ts = fx_ts_map[self.dates[-1]]
+        node = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
         x = ts.node(node)
         assert x.flags == (tskit.NODE_IS_SAMPLE | sc2ts.core.NODE_IS_EXACT_MATCH)
         md = x.metadata
@@ -683,40 +804,9 @@ class TestRealData:
 
 
 class TestMatchingDetails:
-    #     # @pytest.mark.parametrize("num_mismatches", [1, 2, 3, 4])
-    #     # @pytest.mark.parametrize("precision", [0, 1, 2, 12])
-    #     def test_problematic_match(
-    #         self,
-    #         fx_ts_map,
-    #         fx_alignment_store,
-    #         fx_metadata_db,
-    #         # strain,
-    #         # parent,
-    #         # num_mismatches,
-    #         # precision,
-    #     ):
-    #         ts = fx_ts_map["2020-02-05"]
-    #         strain = "SRR11597178"
-    #         samples = sc2ts.preprocess(
-    #             [fx_metadata_db[strain]], ts, "2020-02-06", fx_alignment_store
-    #         )
-    #         sc2ts.match_tsinfer(
-    #             samples=samples,
-    #             ts=ts,
-    #             num_mismatches=3,
-    #             precision=1,
-    #             num_threads=1,
-    #         )
-    #         s = samples[0]
-    #         # assert len(s.mutations) == 0
-    #         assert len(s.path) == 1
-    #         print(s.path)
-    #         print("num utations =", len(s.mutations))
-    #         # print(s.metadata["sc2ts"])
-    #         assert s.path[0].parent == 37
 
     @pytest.mark.parametrize(
-        ("strain", "parent"), [("SRR11597207", 40), ("ERR4205570", 57)]
+        ("strain", "parent"), [("SRR11597207", 39), ("ERR4205570", 54)]
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     def test_exact_matches(
@@ -748,7 +838,7 @@ class TestMatchingDetails:
 
     @pytest.mark.parametrize(
         ("strain", "parent", "position", "derived_state"),
-        [("SRR11597218", 10, 289, "T"), ("ERR4206593", 57, 26994, "T")],
+        [("SRR11597218", 9, 289, "T"), ("ERR4206593", 54, 26994, "T")],
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     # @pytest.mark.parametrize("precision", [0, 1, 2, 12])
