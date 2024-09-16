@@ -1685,6 +1685,12 @@ def attach_tree(
                 node=node_id_map[child],
                 derived_state=derived_state,
                 time=node_time[child],
+                metadata={
+                    "sc2ts": {
+                        "note": "this shouldn't be here",
+                        "group_id": group.sample_hash,
+                    }
+                },
             )
 
     # Add the mutations.
