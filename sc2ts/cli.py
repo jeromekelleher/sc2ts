@@ -35,9 +35,10 @@ __before = time.time()
 
 
 def summarise_usage():
-    wall_time = time.time() - __before
-    user_time = os.times().user
-    sys_time = os.times().system
+    # Measure all times in minutes
+    wall_time = (time.time() - __before) / 60
+    user_time = os.times().user / 60
+    sys_time = os.times().system / 60
     if resource is None:
         # Don't report max memory on Windows. We could do this using the psutil lib, via
         # psutil.Process(os.getpid()).get_ext_memory_info().peak_wset if demand exists
@@ -48,8 +49,7 @@ def summarise_usage():
             max_mem *= 1024  # Linux and other OSs (e.g. freeBSD) report maxrss in kb
         maxmem_str = "; max_memory=" + humanize.naturalsize(max_mem, binary=True)
     return (
-        f"Done in {humanize.naturaldelta(wall_time)}; "
-        f"elapsed={wall_time:.2f}; user={user_time:.2f}; sys={sys_time:.2f}"
+        f"elapsed={wall_time:.2f}m; user={user_time:.2f}m; sys={sys_time:.2f}m"
         + maxmem_str
     )
 
