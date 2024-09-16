@@ -209,9 +209,11 @@ def info_ts(ts_path, verbose, log_file):
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_path)
 
-    ti = sc2ts.TreeInfo(ts, quick=True)
-    print("info", ti.node_counts())
+    ti = sc2ts.TreeInfo(ts, quick=False)
+    # print("info", ti.node_counts())
+    print(ti.summary())
     # TODO more
+    # print(ti.recombinants_summary())
 
 def add_provenance(ts, output_file):
     # Record provenance here because this is where the arguments are provided.
