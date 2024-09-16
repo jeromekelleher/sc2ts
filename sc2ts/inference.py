@@ -783,7 +783,7 @@ class SampleGroup:
 
     def summary(self):
         return (
-            f"Group {self.sample_hash} total {len(self.samples)} samples "
+            f"Group {self.sample_hash} {len(self.samples)} samples "
             f"({dict(self.date_count)}) "
             f"attaching at {path_summary(self.path)} and "
             f"reversions={self.reversions}; strains={self.strains}"
@@ -835,7 +835,7 @@ def add_matching_results(
                 len(group) < min_group_size
                 or len(group.date_count) < min_different_dates
             ):
-                logger.debug("Skipping {group.summary()")
+                logger.debug(f"Skipping {group.summary()}")
                 continue
 
             for sample in group:
