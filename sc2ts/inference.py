@@ -704,7 +704,7 @@ def match_path_ts(group):
         node_id = add_sample_to_tables(sample, tables, group_id=group.sample_hash)
         tables.edges.add_row(0, tables.sequence_length, parent=0, child=node_id)
         for mut in sample.mutations:
-            if (mut.site_id, mut.derived_state) in group.reversions:
+            if (mut.site_id, mut.derived_state) in group.immediate_reversions:
                 # We don't include any of the marked reversions so that they
                 # aren't used in tree building.
                 continue
@@ -757,7 +757,7 @@ class SampleGroup:
 
     samples: List = None
     path: List = None
-    reversions: List = None
+    immediate_reversions: List = None
     sample_hash: str = None
     date_count: dict = dataclasses.field(default_factory=collections.Counter)
 
@@ -786,7 +786,8 @@ class SampleGroup:
             f"Group {self.sample_hash} {len(self.samples)} samples "
             f"({dict(self.date_count)}) "
             f"attaching at {path_summary(self.path)} and "
-            f"reversions={self.reversions}; strains={self.strains}"
+            f"immediate_reversions={self.immediate_reversions}; "
+            f"strains={self.strains}"
         )
 
 
@@ -808,12 +809,12 @@ def add_matching_results(
     num_samples = 0
     for sample in match_db.get(where_clause):
         path = tuple(sample.path)
-        reversions = tuple(
+        immediate_reversions = tuple(
             (mut.site_id, mut.derived_state)
             for mut in sample.mutations
             if mut.is_immediate_reversion
         )
-        grouped_matches[(path, reversions)].append(sample)
+        grouped_matches[(path, immediate_reversions)].append(sample)
         num_samples += 1
 
     if num_samples == 0:
@@ -821,8 +822,8 @@ def add_matching_results(
         return ts
 
     groups = [
-        SampleGroup(samples, path, reversions)
-        for (path, reversions), samples in grouped_matches.items()
+        SampleGroup(samples, path, immediate_reversions)
+        for (path, immediate_reversions), samples in grouped_matches.items()
     ]
     logger.info(f"Got {len(groups)} groups for {num_samples} samples")
 
@@ -1191,6 +1192,11 @@ def push_up_reversions(ts, samples):
         tables.edges.add_row(0, ts.sequence_length, parent=w, child=sample)
         tables.edges.add_row(0, ts.sequence_length, parent=grandparent, child=w)
 
+        # Move any non-reversions mutations above the parent to the new node.
+        for mut in np.where(ts.mutations_node == parent)[0]:
+            row = tables.mutations[mut]
+            if row.site not in sites:
+                tables.mutations[mut] = row.replace(node=w, time=w_time)
         for site in sites:
             # Delete the reversion mutations above the sample
             muts = np.where(
@@ -1198,11 +1204,6 @@ def push_up_reversions(ts, samples):
             )[0]
             assert len(muts) == 1
             mutations_to_delete.extend(muts)
-        # Move any non-reversions mutations above the parent to the new node.
-        for mut in np.where(ts.mutations_node == parent)[0]:
-            row = tables.mutations[mut]
-            if row.site not in sites:
-                tables.mutations[mut] = row.replace(node=w, time=w_time)
 
     num_del_mutations = len(mutations_to_delete)
     num_new_nodes = len(tables.nodes) - ts.num_nodes
@@ -1611,7 +1612,6 @@ def attach_tree(
     epsilon=None,
 ):
     attach_path = group.path
-    reversions = group.reversions
     if epsilon is None:
         epsilon = 1e-6  # In time units of days ago
 
@@ -1624,7 +1624,11 @@ def attach_tree(
         raise ValueError("Incompatible sequence length")
 
     tree = child_ts.first()
-    condition = np.any(child_ts.mutations_node == tree.root) or len(attach_path) > 1
+    condition = (
+        np.any(child_ts.mutations_node == tree.root)
+        or len(attach_path) > 1
+        or len(group.immediate_reversions) > 0
+    )
     if condition:
         child_ts = add_root_edge(child_ts)
         tree = child_ts.first()
@@ -1677,15 +1681,6 @@ def attach_tree(
             parent_tables.edges.add_row(
                 seg.left, seg.right, parent=seg.parent, child=node_id_map[child]
             )
-        # Add the reversion mutations over the attach nodes. These will be picked up
-        # by the reversion push code below, so no point in setting metadata.
-        for site_id, derived_state in reversions:
-            parent_tables.mutations.add_row(
-                site=site_id,
-                node=node_id_map[child],
-                derived_state=derived_state,
-                time=node_time[child],
-            )
 
     # Add the mutations.
     for site in child_ts.sites():
@@ -1702,6 +1697,31 @@ def attach_tree(
                 },
             )
 
+    if len(group.immediate_reversions) > 0:
+        # Flag the node as an NODE_IS_IMMEDIATE_REVERSION_PARENT.
+        # It should be removed, along with the mutations we're adding here by
+        # push_up_reversions in all cases except recombinants (which we've wussed
+        # out on handling properly).
+        node = tree.children(tree.root)[0]
+        assert tree.num_children(tree.root) == 1
+        u = node_id_map[node]
+        row = parent_tables.nodes[u]
+        parent_tables.nodes[u] = row.replace(
+            flags=core.NODE_IS_IMMEDIATE_REVERSION_PARENT
+        )
+        # print("attaching reversions at ", node, node_id_map[node])
+        # print(child_ts.draw_text())
+        for site_id, derived_state in group.immediate_reversions:
+            parent_tables.mutations.add_row(
+                site=site_id,
+                node=u,
+                derived_state=derived_state,
+                time=node_time[node],
+                metadata={
+                    "sc2ts": {"type": "match_reversion", "group_id": group.sample_hash}
+                },
+            )
+
     if len(attach_path) > 1:
         # Update the recombinant flags also.
         u = node_id_map[tree.children(tree.root)[0]]
@@ -1711,7 +1731,7 @@ def attach_tree(
     return [node_id_map[u] for u in tree.children(tree.root)]
 
 
-def add_root_edge(ts):
+def add_root_edge(ts, flags=0):
     """
     Add another node and edge above the root and rescale time back to
     0-1.
@@ -1721,7 +1741,7 @@ def add_root_edge(ts):
     root = ts.first().root
     # FIXME this is bogus. We should be doing all the time scaling by numbers
     # of mutations.
-    new_root = tables.nodes.add_row(time=1.25)
+    new_root = tables.nodes.add_row(time=1.25, flags=flags)
     tables.edges.add_row(0, ts.sequence_length, parent=new_root, child=root)
     tables.nodes.time /= np.max(tables.nodes.time)
     return tables.tree_sequence()
