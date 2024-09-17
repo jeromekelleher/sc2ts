@@ -1119,7 +1119,7 @@ def coalesce_mutations(ts, samples=None):
 
 # NOTE: "samples" is a bad name here, this is actually the set of attach_nodes
 # that we get from making a local tree from a group.
-def push_up_reversions(ts, samples, date):
+def push_up_reversions(ts, samples, date="1999-01-01"):
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
 
