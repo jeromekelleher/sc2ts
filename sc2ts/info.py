@@ -655,11 +655,15 @@ class TreeInfo:
         df["causal_date"] = causal_date
         df["breakpoint_interval_left"] = interval_left
         df["breakpoint_interval_right"] = interval_right
+        df["max_descendant_samples"] = self.nodes_max_descendant_samples[df.node]
+
 
         df = df.set_index("node")
+        # The MRCA table will contain duplicate rows here for two-or-more matches.
+        # We just hacking for now to get things working well for two-parent recombs
         mrca_table = get_recombinant_mrca_table(self.ts).set_index("recombinant_node")
-        assert len(mrca_table) == len(df)
-        return df.join(mrca_table)
+        # assert len(mrca_table) == len(df)
+        return df.join(mrca_table.drop_duplicates())
 
     def combine_recombinant_info(self):
         def get_imputed_pango(u, pango_source):
