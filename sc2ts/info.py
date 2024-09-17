@@ -1,6 +1,7 @@
 import collections
 import warnings
 
+import numba
 import tskit
 import numpy as np
 import tqdm
@@ -10,11 +11,145 @@ from matplotlib import colors
 from IPython.display import Markdown, HTML
 
 from . import core
+from . import utils
+
+
+def get_recombinant_samples(ts):
+    """
+    Returns a map of recombinant nodes and their causal samples IDs.
+    Only one causal strain per recombinant node is returned, chosen arbitrarily.
+    """
+    recomb_nodes = np.where((ts.nodes_flags & core.NODE_IS_RECOMBINANT) > 0)[0]
+    tree = ts.first()
+    out = {}
+    for u in recomb_nodes:
+        node = ts.node(u)
+        recomb_date = node.metadata["date_added"]
+        causal_sample = -1
+        # Search the subtree for a causal sample.
+        for v in tree.nodes(u, order="levelorder"):
+            child = ts.node(v)
+            if child.is_sample() and child.metadata["date"] <= recomb_date:
+                edge = ts.edge(tree.edge(v))
+                assert edge.left == 0 and edge.right == ts.sequence_length
+                causal_sample = child
+                break
+        assert causal_sample != -1
+        out[u] = causal_sample.id
+    assert len(set(out.values())) == len(recomb_nodes)
+    assert len(out) == len(recomb_nodes)
+    return out
+
+
+@numba.njit
+def _get_root_path(parent, node):
+    u = node
+    path = []
+    while u != -1:
+        path.append(u)
+        u = parent[u]
+    return path
+
+
+def get_root_path(tree, node):
+    return _get_root_path(tree.parent_array, node)
+
+
+@numba.njit
+def _get_path_mrca(path1, path2, node_time):
+    j1 = 0
+    j2 = 0
+    while True:
+        if path1[j1] == path2[j2]:
+            return path1[j1]
+        elif node_time[path1[j1]] < node_time[path2[j2]]:
+            j1 += 1
+        elif node_time[path2[j2]] < node_time[path1[j1]]:
+            j2 += 1
+        else:
+            # Time is equal, but the nodes differ
+            j1 += 1
+            j2 += 1
+
+
+def get_path_mrca(path1, path2, node_time):
+    assert path1[-1] == path2[-1]
+    return _get_path_mrca(
+        np.array(path1, dtype=np.int32), np.array(path2, dtype=np.int32), node_time
+    )
+
+
+def get_recombinant_edges(ts):
+    """
+    Return the partial edges from the tree sequence grouped by child (which must
+    be flagged as a recombinant node).
+    """
+    partial_edges = np.where(
+        np.logical_or(ts.edges_left != 0, ts.edges_right != ts.sequence_length)
+    )[0]
+    edges = collections.defaultdict(list)
+    for edge_id in partial_edges:
+        edge = ts.edge(edge_id)
+        assert ts.nodes_flags[edge.child] == core.NODE_IS_RECOMBINANT
+        edges[edge.child].append(edge)
+
+    # Check that they are in order and completely cover the region
+    for child_edges in edges.values():
+        child_edges.sort(key=lambda e: e.left)
+        assert len(child_edges) >= 2
+        assert child_edges[0].left == 0
+        assert child_edges[-1].right == ts.sequence_length
+        last_edge = child_edges[0]
+        for edge in child_edges[1:]:
+            assert edge.left == last_edge.right
+            last_edge = edge
+    return edges
+
+
+def get_recombinant_mrca_table(ts):
+    """
+    Return a pandas data frame of the recombinant breakpoints from the
+    specified tree sequence. For each partial edge (which must have a
+    node marked as NODE_IS_RECOMBINANT as child), return a row in
+    the dataframe giving the breakpoint, the left parent, right parent
+    and the most recent common ancestor of these parent nodes.
+    """
+
+    recombinant_edges = get_recombinant_edges(ts)
+    # Split these up into adjacent pairs
+    breakpoint_pairs = []
+    for child, child_edges in recombinant_edges.items():
+        for j in range(len(child_edges) - 1):
+            assert child_edges[j].child == child
+            breakpoint_pairs.append((child_edges[j], child_edges[j + 1]))
+    assert len(breakpoint_pairs) >= len(recombinant_edges)
+
+    data = []
+    tree = ts.first()
+    for left_edge, right_edge in sorted(breakpoint_pairs, key=lambda x: x[1].left):
+        assert left_edge.right == right_edge.left
+        assert left_edge.child == right_edge.child
+        recombinant_node = left_edge.child
+        bp = left_edge.right
+        tree.seek(bp)
+        assert tree.interval.left == bp
+        right_path = get_root_path(tree, right_edge.parent)
+        tree.prev()
+        assert tree.interval.right == bp
+        left_path = get_root_path(tree, left_edge.parent)
+        mrca = get_path_mrca(left_path, right_path, ts.nodes_time)
+        row = {
+            "recombinant_node": recombinant_node,
+            "breakpoint": bp,
+            "left_parent": left_edge.parent,
+            "right_parent": right_edge.parent,
+            "mrca": mrca,
+        }
+        data.append(row)
+    return pd.DataFrame(data, dtype=np.int32)
 
 
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
-
-
 def find_runs(x):
     """Find runs of consecutive items in an array."""
 
@@ -492,19 +627,43 @@ class TreeInfo:
 
     def recombinants_summary(self):
         df = self._collect_node_data(self.recombinants)
+        if len(df) == 0:
+            return
         sample_map = get_recombinant_samples(self.ts)
         causal_strain = []
         causal_pango = []
         causal_date = []
+        interval_left = []
+        interval_right = []
         for u in df.node:
             md = self.nodes_metadata[sample_map[u]]
             causal_strain.append(md["strain"])
             causal_pango.append(md[self.pango_source])
             causal_date.append(md["date"])
+            try:
+                hmm_md = self.nodes_metadata[u]["sc2ts"]["hmm"]
+                # print(hmm_md)
+                assert hmm_md[0]["direction"] == "forward"
+                assert hmm_md[1]["direction"] == "reverse"
+                interval_left.append(hmm_md[1]["path"][0]["right"])
+                interval_right.append(hmm_md[0]["path"][0]["right"])
+            except KeyError:
+                interval_left.append(0)
+                interval_right.append(0)
         df["causal_strain"] = causal_strain
         df["causal_pango"] = causal_pango
         df["causal_date"] = causal_date
-        return df
+        df["breakpoint_interval_left"] = interval_left
+        df["breakpoint_interval_right"] = interval_right
+        df["max_descendant_samples"] = self.nodes_max_descendant_samples[df.node]
+
+
+        df = df.set_index("node")
+        # The MRCA table will contain duplicate rows here for two-or-more matches.
+        # We just hacking for now to get things working well for two-parent recombs
+        mrca_table = get_recombinant_mrca_table(self.ts).set_index("recombinant_node")
+        # assert len(mrca_table) == len(df)
+        return df.join(mrca_table.drop_duplicates())
 
     def combine_recombinant_info(self):
         def get_imputed_pango(u, pango_source):
@@ -517,7 +676,7 @@ class TreeInfo:
             lineage = self.nodes_metadata[u]["Imputed_" + pango_source]
             return lineage
 
-        df_arg = sc2ts.utils.get_recombinant_mrca_table(self.ts)
+        df_arg = utils.get_recombinant_mrca_table(self.ts)
         arg_info = collections.defaultdict(list)
         for _, row in df_arg.iterrows():
             arg_info[row.recombinant_node].append(row)
