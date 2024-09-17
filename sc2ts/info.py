@@ -280,7 +280,7 @@ class TreeInfo:
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
         imr_nodes = np.sum(
-            (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
+            (self.ts.nodes_flags == core.NODE_IS_IMMEDIATE_REVERSION_MARKER)
         )
 
         samples = self.ts.samples()
