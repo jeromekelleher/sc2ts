@@ -414,7 +414,6 @@ def pad_sites(ts):
 def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
-    # base_ts = pad_sites(base_ts)
     mu, rho = solve_num_mismatches(num_mismatches)
     for mirror in [False, True]:
         logger.info(
@@ -435,6 +434,7 @@ def match_recombinants(
     for sample in samples:
         # We may want to try to improve the location of the breakpoints
         # later. For now, just log the info.
+        sample.is_recombinant = True
         logger.info(f"Recombinant: {sample.summary()}")
 
 
@@ -504,14 +504,14 @@ def match_samples(
             sample.is_recombinant = True
             recombinants.append(sample)
 
-    if len(recombinants) > 0:
-        match_recombinants(
-            recombinants,
-            base_ts,
-            num_mismatches=num_mismatches,
-            show_progress=show_progress,
-            num_threads=num_threads,
-        )
+    # if len(recombinants) > 0:
+    #     match_recombinants(
+    #         recombinants,
+    #         base_ts,
+    #         num_mismatches=num_mismatches,
+    #         show_progress=show_progress,
+    #         num_threads=num_threads,
+    #     )
 
     return samples
 

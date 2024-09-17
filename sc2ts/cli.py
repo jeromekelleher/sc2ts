@@ -198,6 +198,7 @@ def info_matches(match_db, verbose, log_file):
             percent = count / total * 100
             print(f"{cost}\t{percent:.1f}\t{count}")
 
+
 @click.command()
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("-v", "--verbose", count=True)
@@ -214,6 +215,7 @@ def info_ts(ts_path, verbose, log_file):
     print(ti.summary())
     # TODO more
     # print(ti.recombinants_summary())
+
 
 def add_provenance(ts, output_file):
     # Record provenance here because this is where the arguments are provided.
@@ -285,6 +287,7 @@ def summarise_base(ts, date, progress):
     logger.info(f"Loaded {node_info}")
     if progress:
         print(f"{date} Start base: {node_info}", file=sys.stderr)
+
 
 @click.command()
 @click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
@@ -475,9 +478,16 @@ def export_metadata(ts_file, verbose):
 
 def examine_recombinant(work):
     base_ts = tszip.load(work.ts_path)
+    # NOTE: this is needed because we have to have all the sites in the trees
+    # for tsinfer matching to work in the reverse direction. There is the
+    # possibility of subtle differences in the match path because of this.
+    # We probably won't offer this interface anyway for long, though, and
+    # the forward/backward in the inference
+    base_ts = sc2ts.pad_sites(base_ts)
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(
-            sc2ts.AlignmentStore(work.alignments))
+            sc2ts.AlignmentStore(work.alignments)
+        )
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(work.metadata))
         metadata_matches = list(
             metadata_db.query(f"SELECT * FROM samples WHERE strain=='{work.strain}'")
@@ -489,12 +499,18 @@ def examine_recombinant(work):
             alignment_store,
             show_progress=False,
         )
-        sc2ts.match_recombinants(samples,
-            base_ts, num_mismatches=work.num_mismatches, show_progress=False,
-            num_threads=0)
-        samples[0].is_recombinant = True
+        try:
+            sc2ts.match_recombinants(
+                samples,
+                base_ts,
+                num_mismatches=work.num_mismatches,
+                show_progress=False,
+                num_threads=0,
+            )
+        except Exception as e:
+            print("ERROR in matching", samples[0].strain)
+            raise e
     return samples[0]
-
 
 
 @dataclasses.dataclass(frozen=True)
@@ -527,8 +543,6 @@ def annotate_recombinants(
     ts = tszip.load(tsz_prefix + base_date + ".ts.tsz")
 
     recomb_samples = sc2ts.utils.get_recombinant_samples(ts)
-    print(recomb_samples)
-
     mismatches = [num_mismatches]
 
     work = []
@@ -552,26 +566,25 @@ def annotate_recombinants(
             )
 
     results = {}
-    with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-        for item in work:
-            sample = examine_recombinant(item)
-            results[item.recombinant] = sample
+    # for item in work:
+    #     sample = examine_recombinant(item)
+    #     results[item.recombinant] = sample
+    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+        future_to_work = {
+            executor.submit(examine_recombinant, item): item for item in work
+        }
 
-        # future_to_work = {
-        #     executor.submit(examine_recombinant, item): item for item in work
-        # }
-
-        # bar = tqdm.tqdm(
-        #     concurrent.futures.as_completed(future_to_work), total=len(work)
-        # )
-        # for future in bar:
-        #     try:
-        #         data = future.result()
-        #     except Exception as exc:
-        #         print(f"Work item: {future_to_work[future]} raised exception!")
-        #         raise exc
-        #     work = future_to_work[future]
-        #     results[work.recombinant] = data
+        bar = tqdm.tqdm(
+            concurrent.futures.as_completed(future_to_work), total=len(work)
+        )
+        for future in bar:
+            try:
+                data = future.result()
+            except Exception as exc:
+                print(f"Work item: {future_to_work[future]} raised exception!")
+                print(exc)
+            work = future_to_work[future]
+            results[work.recombinant] = data
 
     tables = ts.dump_tables()
     # This is probably very inefficient as we're writing back the metadata column
@@ -589,7 +602,7 @@ def annotate_recombinants(
                 "direction": "reverse",
                 "path": [x.asdict() for x in sample.reverse_path],
                 "mutations": [x.asdict() for x in sample.reverse_mutations],
-            }
+            },
         ]
         d = row.metadata
         d["sc2ts"] = {"hmm": hmm_md}
