@@ -201,9 +201,10 @@ def info_matches(match_db, verbose, log_file):
 
 @click.command()
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("-R", "--recombinants", is_flag=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_ts(ts_path, verbose, log_file):
+def info_ts(ts_path, recombinants, verbose, log_file):
     """
     Information about a sc2ts inferred ARG
     """
@@ -214,7 +215,8 @@ def info_ts(ts_path, verbose, log_file):
     # print("info", ti.node_counts())
     print(ti.summary())
     # TODO more
-    # print(ti.recombinants_summary())
+    if recombinants:
+        print(ti.recombinants_summary())
 
 
 def add_provenance(ts, output_file):
