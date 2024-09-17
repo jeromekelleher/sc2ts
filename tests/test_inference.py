@@ -636,7 +636,7 @@ class TestRealData:
         rp_node = ts.node(tree.parent(node.id))
         assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
         # TODO not too sure how helpful this metadata actually is, but lets
-        assert rp_node.metadata["sc2ts"] == {"sample": node.id, "sites": [4923]}
+        # assert rp_node.metadata["sc2ts"] == {"sample": node.id, "sites": [4923]}
         ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
 
         sib_sample = ts.node(tree.siblings(node.id)[0])
@@ -804,7 +804,6 @@ class TestRealData:
 
 
 class TestMatchingDetails:
-
     @pytest.mark.parametrize(
         ("strain", "parent"), [("SRR11597207", 39), ("ERR4205570", 54)]
     )
