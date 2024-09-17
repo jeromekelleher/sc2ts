@@ -14,6 +14,7 @@ from . import core
 
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
 
+
 def find_runs(x):
     """Find runs of consecutive items in an array."""
 
@@ -110,15 +111,18 @@ class TreeInfo:
         pr_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
+        immediate_reversion_marker = np.sum(
+            (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
+        )
 
         nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
-        non_samples = (self.ts.nodes_flags & tskit.NODE_IS_SAMPLE) == 0
         return {
             "sample": self.ts.num_samples,
             "ex": exact_matches,
             "mc": mc_nodes,
             "pr": pr_nodes,
             "re": re_nodes,
+            "imr": immediate_reversion_marker,
             "zero_muts": nodes_with_zero_muts,
         }
 
@@ -275,6 +279,9 @@ class TreeInfo:
         pr_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
+        imr_nodes = np.sum(
+            (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
+        )
 
         samples = self.ts.samples()
         nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
@@ -294,6 +301,7 @@ class TreeInfo:
             ("mc_nodes", mc_nodes),
             ("pr_nodes", pr_nodes),
             ("re_nodes", re_nodes),
+            ("imr_nodes", imr_nodes),
             ("mutations", self.ts.num_mutations),
             ("recurrent", np.sum(self.ts.mutations_parent != -1)),
             ("reversions", np.sum(self.mutations_is_reversion)),
