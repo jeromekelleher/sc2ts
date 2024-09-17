@@ -253,59 +253,13 @@ class Recombinant:
         return dataclasses.asdict(self)
 
 
-def pad_sites(ts):
-    """
-    Fill in missing sites with the reference state.
-    """
-    ref = core.get_reference_sequence()
-    missing_sites = set(np.arange(1, len(ref)))
-    missing_sites -= set(ts.sites_position.astype(int))
-    tables = ts.dump_tables()
-    for pos in missing_sites:
-        tables.sites.add_row(pos, ref[pos])
-    tables.sort()
-    return tables.tree_sequence()
-
-
-def examine_recombinant(strain, ts, alignment_store, num_mismatches=3):
-    # We need to do this because tsinfer won't work on the mirrored
-    # coordinates unless we have all positions in the site-table.
-    # This is just an annoying detail of tsinfer's implementation.
-    ts = pad_sites(ts)
-    num_mismatches = num_mismatches
-    data = []
-    for mirror in [True, False]:
-        sample = sc2ts.Sample({"strain": strain})
-        samples = sc2ts.match(
-            samples=[sample],
-            alignment_store=alignment_store,
-            base_ts=ts,
-            num_mismatches=num_mismatches,
-            precision=14,
-            num_threads=0,
-            mirror_coordinates=mirror,
-        )
-        assert len(samples) == 1
-        sample = samples[0]
-        data.append(
-            {
-                "strain": strain,
-                "num_mismatches": num_mismatches,
-                "direction": ["backward", "forward"][int(not mirror)],
-                "breakpoints": sample.breakpoints,
-                "parents": sample.parents,
-                "mutations": [str(mut) for mut in sample.mutations],
-            }
-        )
-    return data
-
 
 def get_recombinant_samples(ts):
     """
     Returns a map of recombinant nodes and their causal samples IDs.
     Only one causal strain per recombinant node is returned, chosen arbitrarily.
     """
-    recomb_nodes = get_recombinants(ts)
+    recomb_nodes = np.where((ts.nodes_flags & sc2ts.NODE_IS_RECOMBINANT) > 0)[0]
     tree = ts.first()
     out = {}
     for u in recomb_nodes:

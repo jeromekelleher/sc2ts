@@ -397,6 +397,47 @@ class Sample:
         return num_mismatches * (len(self.path) - 1) + len(self.mutations)
 
 
+def pad_sites(ts):
+    """
+    Fill in missing sites with the reference state.
+    """
+    ref = core.get_reference_sequence()
+    missing_sites = set(np.arange(1, len(ref)))
+    missing_sites -= set(ts.sites_position.astype(int))
+    tables = ts.dump_tables()
+    for pos in missing_sites:
+        tables.sites.add_row(pos, ref[pos])
+    tables.sort()
+    return tables.tree_sequence()
+
+
+def match_recombinants(
+    samples, base_ts, num_mismatches, show_progress=False, num_threads=None
+):
+    # base_ts = pad_sites(base_ts)
+    mu, rho = solve_num_mismatches(num_mismatches)
+    for mirror in [False, True]:
+        logger.info(
+            f"Running {len(samples)} recombinants at maximum precision in "
+            f"{['forward', 'backward'][int(mirror)]} direction."
+        )
+        match_tsinfer(
+            samples=samples,
+            ts=base_ts,
+            mu=mu,
+            rho=rho,
+            num_threads=num_threads,
+            show_progress=show_progress,
+            # Maximum possible precision
+            likelihood_threshold=1e-200,
+            mirror_coordinates=mirror,
+        )
+    for sample in samples:
+        # We may want to try to improve the location of the breakpoints
+        # later. For now, just log the info.
+        logger.info(f"Recombinant: {sample.summary()}")
+
+
 def match_samples(
     date,
     samples,
@@ -459,31 +500,18 @@ def match_samples(
         cost = sample.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
         logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
-        # if len(sample.path) > 1:
-        #     sample.is_recombinant = True
-        #     recombinants.append(sample)
+        if len(sample.path) > 1:
+            sample.is_recombinant = True
+            recombinants.append(sample)
 
-    # if len(recombinants) > 0:
-    # for mirror in [False, True]:
-    #     logger.info(
-    #         f"Running {len(run_batch)} recombinants at maximum precision in"
-    #         f"{['forward', 'backward'][int(mirror)]} direction."
-    #     )
-    #     match_tsinfer(
-    #         samples=recombinants,
-    #         ts=base_ts,
-    #         mu=mu,
-    #         rho=rho,
-    #         num_threads=num_threads,
-    #         show_progress=show_progress,
-    #         # Maximum possible precision
-    #         likelihood_threshold=1e-200,
-    #         mirror_coordinates=mirror,
-    #     )
-    # for sample in recombinants:
-    #     # We may want to try to improve the location of the breakpoints
-    #     # later. For now, just log the info.
-    #     logger.info(f"Recombinant: {sample.summary()}")
+    if len(recombinants) > 0:
+        match_recombinants(
+            recombinants,
+            base_ts,
+            num_mismatches=num_mismatches,
+            show_progress=show_progress,
+            num_threads=num_threads,
+        )
 
     return samples
 
@@ -673,9 +701,10 @@ def add_sample_to_tables(
     if sample.is_recombinant:
         hmm_md.append(
             {
+
                 "direction": "reverse",
-                "path": [x.asdict() for x in sample.forward_path],
-                "mutations": [x.asdict() for x in sample.forward_mutations],
+                "path": [x.asdict() for x in sample.reverse_path],
+                "mutations": [x.asdict() for x in sample.reverse_mutations],
             }
         )
     sc2ts_md = {
