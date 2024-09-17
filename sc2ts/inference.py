@@ -1265,6 +1265,7 @@ def delete_immediate_reversion_nodes(ts, attach_nodes):
     tables = ts.dump_tables()
     edges_to_delete = []
     for u in nodes_to_delete:
+        logger.debug(f"Deleting immediate reversion node {u}")
         edges_to_delete.append(tree.edge(u))
         parent = tree.parent(u)
         assert tree.num_children(u) > 0
@@ -1697,8 +1698,9 @@ def attach_tree(
         raise ValueError("Incompatible sequence length")
 
     tree = child_ts.first()
+    has_root_mutations = np.any(child_ts.mutations_node == tree.root)
     condition = (
-        np.any(child_ts.mutations_node == tree.root)
+        has_root_mutations
         or len(attach_path) > 1
         or len(group.immediate_reversions) > 0
     )
@@ -1783,9 +1785,12 @@ def attach_tree(
         assert tree.num_children(tree.root) == 1
         u = node_id_map[node]
         row = parent_tables.nodes[u]
-        parent_tables.nodes[u] = row.replace(
-            flags=core.NODE_IS_IMMEDIATE_REVERSION_MARKER
-        )
+        if not has_root_mutations:
+            # We only really want to remove this if there are no nodes
+            logger.debug(f"Flagging reversion at node {u} for {group.summary()}")
+            parent_tables.nodes[u] = row.replace(
+                flags=core.NODE_IS_IMMEDIATE_REVERSION_MARKER
+            )
         # print("attaching reversions at ", node, node_id_map[node])
         # print(child_ts.draw_text())
         for site_id, derived_state in group.immediate_reversions:
