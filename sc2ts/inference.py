@@ -882,7 +882,7 @@ def add_matching_results(
     tables.build_index()
     tables.compute_mutation_parents()
     ts = tables.tree_sequence()
-    ts = push_up_reversions(ts, attach_nodes)
+    ts = push_up_reversions(ts, attach_nodes, date)
     ts = coalesce_mutations(ts, attach_nodes)
     ts = delete_immediate_reversion_nodes(ts, attach_nodes)
     return ts
@@ -1119,7 +1119,7 @@ def coalesce_mutations(ts, samples=None):
 
 # NOTE: "samples" is a bad name here, this is actually the set of attach_nodes
 # that we get from making a local tree from a group.
-def push_up_reversions(ts, samples):
+def push_up_reversions(ts, samples, date):
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
 
@@ -1192,8 +1192,11 @@ def push_up_reversions(ts, samples):
             time=w_time,
             metadata={
                 "sc2ts": {
-                    "sample": int(sample),
+                    # FIXME it's not clear how helpful the metadata is here
+                    # If we had separate pass for each group, it would probably
+                    # be easier to reason about.
                     "sites": [int(x) for x in sites],
+                    "date_added": date,
                 }
             },
         )
