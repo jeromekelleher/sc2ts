@@ -14,9 +14,7 @@ import tszip
 import numpy as np
 import pandas as pd
 
-# TODO where do we use this? This is a *great* example of why not to use
-# this style, because we have loads of variables called "tree" in this file.
-from sklearn import tree
+import sklearn
 import tqdm
 import matplotlib.pyplot as plt
 from matplotlib import colors
@@ -767,7 +765,7 @@ def imputation_setup(filepath, verbose=False):
 
     # Get decision tree
     y = df_ohe.index  # lineage labels
-    clf = tree.DecisionTreeClassifier()
+    clf = sklearn.tree.DecisionTreeClassifier()
     clf = clf.fit(df_ohe, y)
 
     if verbose:
