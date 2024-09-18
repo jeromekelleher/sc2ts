@@ -4,26 +4,6 @@ import tskit
 import sc2ts
 
 
-# NOTE: the current API in which we update the Sample objects is
-# really horrible and we need to refactor to make it more testable.
-# This function is a symptom of that.
-def get_samples(ts, paths, mutations=None, date=None):
-    if mutations is None:
-        mutations = [[] for _ in paths]
-
-    # Translate from site IDs to positions
-    updated_mutations = []
-    for sample_mutations in mutations:
-        updated = [
-            (ts.sites_position[site], state) for (site, state) in sample_mutations
-        ]
-        updated_mutations.append(updated)
-    data = "2020-12-29" if date is None else date
-    samples = [sc2ts.Sample(f"strain_{j}", date) for j, _ in enumerate(paths)]
-    sc2ts.update_path_info(samples, ts, paths, updated_mutations)
-    return samples
-
-
 def get_match_db(ts, db_path, samples, date, num_mismatches):
     sc2ts.MatchDb.initialise(db_path)
     match_db = sc2ts.MatchDb(db_path)

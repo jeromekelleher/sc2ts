@@ -42,175 +42,10 @@ class TestInitialTs:
         assert alignment == sc2ts.core.get_reference_sequence()
 
 
-class TestAddMatchingResults:
-    def add_matching_results(
-        self,
-        samples,
-        ts,
-        db_path,
-        date="2020-01-01",
-        num_mismatches=1000,
-        max_hmm_cost=1e7,
-    ):
-        # This is pretty ugly, need to figure out how to neatly factor this
-        # model of Sample object vs metadata vs alignment QC
-        for sample in samples:
-            sample.date = date
-            sample.metadata["date"] = date
-            sample.metadata["strain"] = sample.strain
-
-        match_db = util.get_match_db(ts, db_path, samples, date, num_mismatches)
-        # print("Match DB", len(match_db))
-        # match_db.print_all()
-        ts2 = sc2ts.add_matching_results(
-            f"hmm_cost <= {max_hmm_cost}",
-            match_db=match_db,
-            ts=ts,
-            date=date,
-        )
-        # assert ts2.num_samples == len(samples) + ts.num_samples
-        # for u, sample in zip(ts2.samples()[-len(samples) :], samples):
-        #     node = ts2.node(u)
-        #     assert node.time == 0
-        assert ts2.num_sites == ts.num_sites
-        return ts2
-
-    def test_one_sample(self, tmp_path):
-        # 4.00┊  0  ┊
-        #     ┊  ┃  ┊
-        # 3.00┊  1  ┊
-        #     ┊  ┃  ┊
-        # 2.00┊  4  ┊
-        #     ┊ ┏┻┓ ┊
-        # 1.00┊ 2 3 ┊
-        #     0   29904
-        ts = util.example_binary(2)
-        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db")
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 5: 1}
-
-    def test_one_sample_recombinant(self, tmp_path):
-        # 4.00┊  0  ┊
-        #     ┊  ┃  ┊
-        # 3.00┊  1  ┊
-        #     ┊  ┃  ┊
-        # 2.00┊  4  ┊
-        #     ┊ ┏┻┓ ┊
-        # 1.00┊ 2 3 ┊
-        #     0   29904
-        ts = util.example_binary(2)
-        L = ts.sequence_length
-        x = L // 2
-        samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
-        date = "2021-01-05"
-        ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db", date=date)
-
-        assert ts2.num_trees == 2
-        assert ts2.first().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 2, 5: 6}
-        assert ts2.last().parent_dict == {1: 0, 4: 1, 2: 4, 3: 4, 6: 3, 5: 6}
-        assert ts2.node(6).flags == sc2ts.NODE_IS_RECOMBINANT
-        assert ts2.node(6).metadata["sc2ts"]["date_added"] == date
-
-    def test_one_sample_recombinant_filtered(self, tmp_path):
-        # 4.00┊  0  ┊
-        #     ┊  ┃  ┊
-        # 3.00┊  1  ┊
-        #     ┊  ┃  ┊
-        # 2.00┊  4  ┊
-        #     ┊ ┏┻┓ ┊
-        # 1.00┊ 2 3 ┊
-        #     0   29904
-        ts = util.example_binary(2)
-        L = ts.sequence_length
-        x = L / 2
-        samples = util.get_samples(ts, [[(0, x, 2), (x, L, 3)]])
-        ts2 = self.add_matching_results(
-            samples, ts, tmp_path / "match.db", num_mismatches=1e3, max_hmm_cost=1e3 - 1
-        )
-        assert ts2.num_trees == 1
-        assert ts2.num_nodes == ts.num_nodes
-        assert ts2.num_samples == ts.num_samples
-
-    def test_two_samples_recombinant_one_filtered(self, tmp_path):
-        ts = util.example_binary(2)
-        L = ts.sequence_length
-        x = L / 2
-        new_paths = [
-            [(0, x, 2), (x, L, 3)],  # Added
-            [
-                (0, L / 4, 2),
-                (L / 4, L / 2, 3),
-                (L / 2, 3 / 4 * L, 4),
-                (3 / 4 * L, L, 2),
-            ],  # Filtered
-        ]
-        samples = util.get_samples(ts, new_paths)
-        ts2 = self.add_matching_results(
-            samples, ts, tmp_path / "match.db", num_mismatches=3, max_hmm_cost=4
-        )
-        assert ts2.num_trees == 2
-        assert ts2.num_samples == ts.num_samples + 1
-
-    def test_one_sample_one_mutation(self, tmp_path):
-        ts = sc2ts.initial_ts()
-        ts = sc2ts.increment_time("2020-01-01", ts)
-        samples = util.get_samples(
-            ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
-        )
-        ts2 = self.add_matching_results(samples, ts, tmp_path / "match.db")
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0, 2: 1}
-        assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
-        assert ts2.num_mutations == 1
-        var = next(ts2.variants())
-        assert var.alleles[var.genotypes[1]] == "X"
-
-    def test_one_sample_one_mutation_filtered(self, tmp_path):
-        ts = sc2ts.initial_ts()
-        ts = sc2ts.increment_time("2020-01-01", ts)
-        samples = util.get_samples(
-            ts, [[(0, ts.sequence_length, 1)]], mutations=[[(0, "X")]]
-        )
-        ts2 = self.add_matching_results(
-            samples, ts, tmp_path / "match.db", num_mismatches=0.0, max_hmm_cost=0.0
-        )
-        assert ts2.num_trees == ts.num_trees
-        assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
-        assert ts2.num_mutations == 0
-
-    def test_two_samples_one_mutation_one_filtered(self, tmp_path):
-        ts = sc2ts.initial_ts()
-        ts = sc2ts.increment_time("2020-01-01", ts)
-        x = int(ts.sequence_length / 2)
-        new_paths = [
-            [(0, ts.sequence_length, 1)],
-            [(0, ts.sequence_length, 1)],
-        ]
-        new_mutations = [
-            [(0, "X")],  # Added
-            [(0, "X"), (x, "X")],  # Filtered
-        ]
-        samples = util.get_samples(
-            ts,
-            paths=new_paths,
-            mutations=new_mutations,
-        )
-        ts2 = self.add_matching_results(
-            samples, ts, tmp_path / "match.db", num_mismatches=3, max_hmm_cost=1
-        )
-        assert ts2.num_trees == ts.num_trees
-        assert ts2.site(0).ancestral_state == ts.site(0).ancestral_state
-        assert ts2.num_mutations == 1
-        var = next(ts2.variants())
-        assert var.alleles[var.genotypes[1]] == "X"
-
 
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
-        sc2ts.inference.match_tsinfer(
+        return sc2ts.inference.match_tsinfer(
             samples=samples,
             ts=ts,
             mu=0.125,
@@ -218,12 +53,6 @@ class TestMatchTsinfer:
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
-        if mirror_coordinates:
-            # Quick hack to make the tests here work, as they use
-            # attributes defined by the forward path.
-            for sample in samples:
-                sample.forward_path = sample.reverse_path
-                sample.forward_mutations = sample.reverse_mutations
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
@@ -231,15 +60,15 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
         ma = sc2ts.alignments.encode_and_mask(alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
         samples[0].alignment = h
-        self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
-        assert samples[0].breakpoints == [0, ts.sequence_length]
-        assert samples[0].parents == [ts.num_nodes - 1]
-        assert len(samples[0].mutations) == 0
+        matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
+        assert matches[0].breakpoints == [0, ts.sequence_length]
+        assert matches[0].parents == [ts.num_nodes - 1]
+        assert len(matches[0].mutations) == 0
 
     @pytest.mark.parametrize("mirror", [False, True])
     @pytest.mark.parametrize("site_id", [0, 10, 19])
@@ -248,18 +77,18 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
         ma = sc2ts.alignments.encode_and_mask(alignment)
         h = ma.alignment[ts.sites_position.astype(int)]
         # Mutate to gap
         h[site_id] = sc2ts.core.ALLELES.index("-")
         samples[0].alignment = h
-        self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
-        assert samples[0].breakpoints == [0, ts.sequence_length]
-        assert samples[0].parents == [ts.num_nodes - 1]
-        assert len(samples[0].mutations) == 1
-        mut = samples[0].mutations[0]
+        matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
+        assert matches[0].breakpoints == [0, ts.sequence_length]
+        assert matches[0].parents == [ts.num_nodes - 1]
+        assert len(matches[0].mutations) == 1
+        mut = matches[0].mutations[0]
         assert mut.site_id == site_id
         assert mut.site_position == ts.sites_position[site_id]
         assert mut.derived_state == "-"
@@ -274,168 +103,23 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
+        samples = [sc2ts.Sample("test", "2020-01-01")]
+        alignment = sc2ts.core.get_reference_sequence(as_array=True)
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
         ma = sc2ts.alignments.encode_and_mask(alignment)
         ref = ma.alignment[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
         samples[0].alignment = h
-        self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
-        assert samples[0].breakpoints == [0, ts.sequence_length]
-        assert samples[0].parents == [ts.num_nodes - 1]
-        muts = samples[0].mutations
+        matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
+        assert matches[0].breakpoints == [0, ts.sequence_length]
+        assert matches[0].parents == [ts.num_nodes - 1]
+        muts = matches[0].mutations
         assert len(muts) > 0
         assert len(muts) == np.sum(ref != allele)
         for site_id, mut in zip(np.where(ref != allele)[0], muts):
             assert mut.site_id == site_id
             assert mut.derived_state == sc2ts.core.ALLELES[allele]
 
-
-class TestMatchPathTs:
-    def match_path_ts(self, samples):
-        group = sc2ts.SampleGroup(samples, samples[0].path, [])
-        ts = sc2ts.match_path_ts(group)
-        assert ts.num_samples == len(samples)
-        for u, sample in zip(ts.samples(), samples):
-            node = ts.node(u)
-            assert node.time == 0
-            md = dict(node.metadata)
-            sc2ts_md = md.pop("sc2ts")
-            assert md == sample.metadata
-            assert sc2ts_md["group_id"] == group.sample_hash
-            assert "hmm" in sc2ts_md
-            # TODO test HMM properties recorded in metadata
-        return ts
-
-    def test_one_sample(self):
-        ts = sc2ts.initial_ts()
-        samples = util.get_samples(ts, [[(0, ts.sequence_length, 1)]])
-        ts2 = self.match_path_ts(samples)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0}
-
-    def test_one_sample_match_recombinant(self):
-        # 3.00┊  0  ┊  0  ┊
-        #     ┊  ┃  ┊  ┃  ┊
-        # 2.00┊  1  ┊  1  ┊
-        #     ┊ ┏┻┓ ┊ ┏┻┓ ┊
-        # 1.00┊ 3 2 ┊ 2 3 ┊
-        #     ┊   ┃ ┊   ┃ ┊
-        # 0.00┊   4 ┊   4 ┊
-        #    0   14952 29904
-        # Our target node is 4
-
-        ts = sc2ts.initial_ts()
-        L = ts.sequence_length
-        tables = ts.dump_tables()
-        tables.nodes.time += 2
-        u = ts.num_nodes - 1
-        a = tables.nodes.add_row(flags=0, time=1)
-        b = tables.nodes.add_row(flags=0, time=1)
-        c = tables.nodes.add_row(flags=1, time=0)
-        tables.edges.add_row(0, L, parent=u, child=a)
-        tables.edges.add_row(0, L, parent=u, child=b)
-        tables.edges.add_row(0, L // 2, parent=a, child=c)
-        tables.edges.add_row(L // 2, L, parent=b, child=c)
-        # Redo the sites to make things simpler
-        tables.sites.clear()
-        tables.sites.add_row(L // 4, "A")
-        tables.sites.add_row(3 * L // 4, "A")
-        # Put mutations over 3 at both sites. We should only inherit from
-        # the second one.
-        tables.mutations.add_row(site=0, derived_state="T", node=3)
-        tables.mutations.add_row(site=1, derived_state="T", node=3)
-        tables.sort()
-        ts = tables.tree_sequence()
-
-        samples = util.get_samples(
-            ts, [[(0, ts.sequence_length, c)]], mutations=[[(0, "G"), (1, "G")]]
-        )
-        ts2 = self.match_path_ts(samples)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0}
-        assert ts2.num_sites == 2
-        assert ts2.num_mutations == 2
-        assert ts2.site(0).position == ts.site(0).position
-        assert ts2.site(0).ancestral_state == "A"
-        assert ts2.site(1).position == ts.site(1).position
-        assert ts2.site(1).ancestral_state == "T"
-        assert list(ts2.haplotypes()) == ["GG"]
-
-    def test_one_sample_one_mutation(self):
-        ts = sc2ts.initial_ts()
-        samples = util.get_samples(
-            ts, [[(0, ts.sequence_length, 1)]], mutations=[[(100, "X")]]
-        )
-        ts2 = self.match_path_ts(samples)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0}
-        assert ts2.num_sites == 1
-        assert ts2.site(0).ancestral_state == ts.site(100).ancestral_state
-        assert list(ts2.haplotypes()) == ["X"]
-
-    def test_two_sample_one_mutation_each(self):
-        ts = sc2ts.initial_ts()
-
-        samples = util.get_samples(
-            ts,
-            [[(0, ts.sequence_length, 1)], [(0, ts.sequence_length, 1)]],
-            mutations=[[(100, "X")], [(200, "Y")]],
-        )
-        ts2 = self.match_path_ts(samples)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0, 2: 0}
-        assert ts2.num_sites == 2
-        site0 = ts2.site(0)
-        site1 = ts2.site(1)
-        assert site0.ancestral_state == ts.site(100).ancestral_state
-        assert site1.ancestral_state == ts.site(200).ancestral_state
-        assert len(site0.mutations) == 1
-        assert len(site1.mutations) == 1
-        assert site0.mutations[0].derived_state == "X"
-        assert site1.mutations[0].derived_state == "Y"
-
-    @pytest.mark.parametrize("num_mutations", range(1, 6))
-    def test_one_sample_k_mutations(self, num_mutations):
-        ts = sc2ts.initial_ts()
-        samples = util.get_samples(
-            ts,
-            [[(0, ts.sequence_length, 1)]],
-            mutations=[[(j, f"{j}") for j in range(num_mutations)]],
-        )
-        ts2 = self.match_path_ts(samples)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.parent_dict == {1: 0}
-        assert ts2.num_sites == num_mutations
-        for j in range(num_mutations):
-            assert ts2.site(j).ancestral_state == ts.site(j).ancestral_state
-        assert list(ts2.haplotypes()) == ["".join(f"{j}" for j in range(num_mutations))]
-
-    def test_n_samples_metadata(self):
-        ts = sc2ts.initial_ts()
-        samples = []
-        for j in range(10):
-            strain = f"x{j}"
-            date = "2021-01-01"
-            samples.append(
-                sc2ts.Sample(
-                    strain=strain,
-                    date=date,
-                    metadata={f"x{j}": j, f"y{j}": list(range(j))},
-                    forward_path=[(0, ts.sequence_length, 1)],
-                    forward_mutations=[],
-                )
-            )
-
-        sc2ts.update_path_info(
-            samples, ts, [s.path for s in samples], [s.mutations for s in samples]
-        )
-        self.match_path_ts(samples)
 
 
 class TestMirrorTsCoords:
@@ -635,7 +319,10 @@ class TestRealData:
         tree = ts.first()
         rp_node = ts.node(tree.parent(node.id))
         assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
-        assert rp_node.metadata["sc2ts"] == {"date_added": "2020-02-08", "sites": [4923]}
+        assert rp_node.metadata["sc2ts"] == {
+            "date_added": "2020-02-08",
+            "sites": [4923],
+        }
         ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
 
         sib_sample = ts.node(tree.siblings(node.id)[0])
@@ -821,7 +508,7 @@ class TestMatchingDetails:
             [fx_metadata_db[strain]], ts, "2020-02-20", fx_alignment_store
         )
         mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        sc2ts.match_tsinfer(
+        matches = sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             mu=mu,
@@ -829,7 +516,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu**num_mismatches - 1e-12,
             num_threads=0,
         )
-        s = samples[0]
+        s = matches[0]
         assert len(s.mutations) == 0
         assert len(s.path) == 1
         assert s.path[0].parent == parent
@@ -856,7 +543,7 @@ class TestMatchingDetails:
             [fx_metadata_db[strain]], ts, "2020-02-20", fx_alignment_store
         )
         mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        sc2ts.match_tsinfer(
+        matches = sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             mu=mu,
@@ -864,7 +551,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu - 1e-5,
             num_threads=0,
         )
-        s = samples[0]
+        s = matches[0]
         assert len(s.mutations) == 1
         assert s.mutations[0].site_position == position
         assert s.mutations[0].derived_state == derived_state
@@ -885,7 +572,7 @@ class TestMatchingDetails:
             [fx_metadata_db[strain]], ts, "2020-02-20", fx_alignment_store
         )
         mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        sc2ts.match_tsinfer(
+        matches = sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             mu=mu,
@@ -893,7 +580,76 @@ class TestMatchingDetails:
             likelihood_threshold=mu**2 - 1e-12,
             num_threads=0,
         )
-        s = samples[0]
+        s = matches[0]
         assert len(s.path) == 1
         assert s.path[0].parent == 5
         assert len(s.mutations) == 2
+
+    def test_match_recombinant(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        strains = ["SRR11597188", "SRR11597163"]
+        nodes = [
+            ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+            for strain in strains
+        ]
+        assert nodes == [36, 51]
+        # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
+        # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
+        H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
+
+        bp = 10_000
+        h = H[0].copy()
+        h[bp:] = H[1][bp:]
+
+        s = sc2ts.Sample("frankentype", "2020-02-14")
+        s.alignment = h
+
+        mu, rho = sc2ts.solve_num_mismatches(2)
+        matches = sc2ts.match_tsinfer(
+            samples=[s],
+            ts=ts,
+            mu=mu,
+            rho=rho,
+            num_threads=0,
+        )
+        interval_right = ts.sites_position[15107]
+        s = matches[0]
+        assert len(s.mutations) == 0
+        assert len(s.path) == 2
+        assert s.path[0].parent == nodes[0]
+        assert s.path[0].left == 0
+        assert s.path[0].right == interval_right
+        # 52 is the parent of 51, and sequence identical.
+        assert s.path[1].parent == 52
+        assert s.path[1].left == interval_right
+        assert s.path[1].right == ts.sequence_length
+
+
+class TestMatchRecombinants:
+
+    def test_match_recombinant(self, fx_ts_map):
+
+        ts = fx_ts_map["2020-02-13"]
+        strains = ["SRR11597188", "SRR11597163"]
+        nodes = [
+            ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+            for strain in strains
+        ]
+        assert nodes == [36, 51]
+        # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
+        # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
+        H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
+        bp = 10_000
+        h = H[0].copy()
+        h[bp:] = H[1][bp:]
+
+        s = sc2ts.Sample("frankentype", "2020-02-14")
+        s.alignment = h
+
+        sc2ts.match_recombinants(
+            samples=[s],
+            base_ts=ts,
+            num_mismatches=2,
+            num_threads=0,
+        )
+        print(s.summary())
