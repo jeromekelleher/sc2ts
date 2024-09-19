@@ -25,8 +25,8 @@ class MetadataDb(collections.abc.Mapping):
         logger.debug(f"Opened MetadataDb at {path} mode=ro")
 
     @staticmethod
-    def import_csv(csv_path, db_path):
-        df = pd.read_csv(csv_path, sep="\t")
+    def import_csv(csv_path, db_path, sep="\t"):
+        df = pd.read_csv(csv_path, sep=sep)
         db_path = pathlib.Path(db_path)
         if db_path.exists():
             db_path.unlink()
