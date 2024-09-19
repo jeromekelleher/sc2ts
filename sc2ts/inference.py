@@ -511,7 +511,7 @@ def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
             num_Ns = ma.original_base_composition.get("N", 0)
             non_nuc_counts = dict(ma.original_base_composition)
             for nuc in "ACGT":
-                del non_nuc_counts[nuc]
+                non_nuc_counts.pop(nuc, None)
                 counts = ",".join(
                     f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
                 )

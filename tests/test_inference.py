@@ -673,6 +673,27 @@ class TestSyntheticAlignments:
         assert edges[0].right == 29904
         assert edges[0].child == ts.samples()[-1]
 
+    def test_all_As(self, tmp_path, fx_ts_map, fx_alignment_store):
+        # Same as the recombinant_example_1() function above
+        # Just to get something that looks like an alignment easily
+        a = fx_alignment_store["SRR11597188"]
+        a[1:] = "A"
+        alignments = {"crazytype": a}
+        local_as = self.alignment_store(tmp_path, alignments)
+        date = "2020-03-01"
+        metadata_db = self.metadata_db(tmp_path, list(alignments.keys()), date)
+
+        base_ts = fx_ts_map["2020-02-13"]
+        ts = sc2ts.extend(
+            alignment_store=local_as,
+            metadata_db=metadata_db,
+            base_ts=base_ts,
+            date=date,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        # Super high HMM cost means we don't add it in.
+        assert ts.num_nodes == base_ts.num_nodes
+
 
 class TestMatchingDetails:
     @pytest.mark.parametrize(
@@ -843,3 +864,21 @@ class TestMatchRecombinants:
         assert m.path[0].right == ts.sequence_length
 
         assert "no_recombination" in s.summary()
+
+    def test_all_As(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        h = np.zeros(ts.num_sites, dtype=np.int8)
+        s = sc2ts.Sample("zerotype", "2020-02-14")
+        s.alignment = h
+
+        sc2ts.match_recombinants(
+            samples=[s],
+            base_ts=ts,
+            num_mismatches=3,
+            num_threads=0,
+        )
+        assert len(s.hmm_reruns) == 3
+        num_mutations = []
+        for hmm_match in s.hmm_reruns.values():
+            assert len(hmm_match.path) == 1
+            assert len(hmm_match.mutations) == 20599
