@@ -715,7 +715,7 @@ class TreeInfo:
                 parents.append(row.left_parent)
             parents.append(row.right_parent)
             breakpoints.append(int(self.ts.sequence_length))
-            arg_rec = ArgRecombinant(
+            arg_rec = utils.ArgRecombinant(
                 breakpoints=breakpoints,
                 breakpoint_intervals=md["breakpoint_intervals"],
                 parents=parents,
