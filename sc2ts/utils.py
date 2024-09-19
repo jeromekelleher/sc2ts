@@ -365,7 +365,7 @@ def plot_subgraph(
                 return np.inf  # put at the end
 
     if ti is None:
-        ti = TreeInfo(ts)
+        ti = sc2ts.info.TreeInfo(ts)
     if node_size is None:
         node_size = 2800
     if edge_font_size is None:
