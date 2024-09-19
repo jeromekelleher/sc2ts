@@ -679,7 +679,7 @@ class TreeInfo:
             lineage = self.nodes_metadata[u]["Imputed_" + pango_source]
             return lineage
 
-        df_arg = utils.get_recombinant_mrca_table(self.ts)
+        df_arg = get_recombinant_mrca_table(self.ts)
         arg_info = collections.defaultdict(list)
         for _, row in df_arg.iterrows():
             arg_info[row.recombinant_node].append(row)
