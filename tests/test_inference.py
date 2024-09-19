@@ -673,6 +673,57 @@ class TestSyntheticAlignments:
         assert edges[0].right == 29904
         assert edges[0].child == ts.samples()[-1]
 
+#     def test_recombinant_example_2(self, tmp_path, fx_ts_map, fx_alignment_store):
+#         # Pick a distinct strain to be the root of our two new haplotypes added
+#         # on the first day.
+#         root_strain = "SRR11597116"
+#         a = fx_alignment_store[root_strain]
+#         base_ts = fx_ts_map["2020-02-13"]
+#         start = int(base_ts.sites_position[0])
+#         end = int(base_ts.sites_position[-1])
+#         left_a = a.copy()
+#         left_a[start:start + 3] = "G"
+#         right_a = a.copy()
+#         right_a[end -3: end] = "A"
+#         # a[start:start + 3] = "A"
+#         # a[end: end + 3] = "A"
+#         alignments = {"left": left_a, "right": right_a} #, "recombinant": a}
+#         local_as = self.alignment_store(tmp_path, alignments)
+#         date = "2020-03-01"
+#         metadata_db = self.metadata_db(tmp_path, ["left", "right"], date)
+
+#         ts = sc2ts.extend(
+#             alignment_store=local_as,
+#             metadata_db=metadata_db,
+#             base_ts=base_ts,
+#             date=date,
+#             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+#         )
+#         samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+#         assert samples_strain[-2:] == ["left", "right"]
+#         # assert ts.num_mutations == base_ts.num_mutations + 6
+
+#         # Same as the recombinant_example_1() function above
+#         strains = ["SRR11597188", "SRR11597163"]
+#         left_a =
+#         right_a = fx_alignment_store[strains[1]]
+#         # Recombine in the middle
+#         bp = 10_000
+#         h = left_a.copy()
+#         h[bp:] = right_a[bp:]
+#         alignments = {"frankentype": h}
+#         date = "2020-03-01"
+#         metadata_db = self.metadata_db(tmp_path, list(alignments.keys()), date)
+
+#         base_ts = fx_ts_map["2020-02-13"]
+#         ts = sc2ts.extend(
+#             alignment_store=local_as,
+#             metadata_db=metadata_db,
+#             base_ts=base_ts,
+#             date=date,
+#             num_mismatches=2,
+#             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+#         )
     def test_all_As(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Same as the recombinant_example_1() function above
         # Just to get something that looks like an alignment easily
