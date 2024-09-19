@@ -263,7 +263,9 @@ class TreeInfo:
 
     def _preprocess_nodes(self, show_progress):
         ts = self.ts
-        self.nodes_max_descendant_samples = max_descendant_samples(ts)
+        self.nodes_max_descendant_samples = max_descendant_samples(
+            ts, show_progress=show_progress
+        )
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
         self.nodes_num_masked_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
@@ -367,7 +369,9 @@ class TreeInfo:
                     transversions.add((b1, b2))
 
         tree = ts.first()
-        iterator = tqdm.tqdm(np.arange(N), desc="Classifying mutations")
+        iterator = tqdm.tqdm(
+            np.arange(N), desc="Classifying mutations", disable=not show_progress
+        )
         for mut_id in iterator:
             tree.seek(self.mutations_position[mut_id])
             mutation_node = ts.mutations_node[mut_id]
@@ -656,7 +660,6 @@ class TreeInfo:
         df["breakpoint_interval_left"] = interval_left
         df["breakpoint_interval_right"] = interval_right
         df["max_descendant_samples"] = self.nodes_max_descendant_samples[df.node]
-
 
         df = df.set_index("node")
         # The MRCA table will contain duplicate rows here for two-or-more matches.
