@@ -72,7 +72,9 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store):
     ]
     cache_path = fx_data_cache / f"{dates[-1]}.ts"
     if not cache_path.exists():
-        last_ts = sc2ts.initial_ts()
+        # These sites are masked out in all alignments in the initial data
+        # anyway; https://github.com/jeromekelleher/sc2ts/issues/282
+        last_ts = sc2ts.initial_ts([56, 57, 58, 59, 60])
         match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
         for date in dates:
             last_ts = sc2ts.extend(

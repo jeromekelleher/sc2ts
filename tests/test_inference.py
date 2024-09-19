@@ -26,9 +26,9 @@ def recombinant_example_1(ts_map):
         for strain in strains
     ]
     assert nodes == [36, 51]
-    # These are *site IDs*
-    # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
-    # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
+    # Site positions
+    # SRR11597188 36  [(871, 'G'), (3027, 'G'), (3787, 'T')]
+    # SRR11597163 51  [(15324, 'T'), (29303, 'T')]
     H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
     bp = 10_000
     h = H[0].copy()
@@ -257,7 +257,7 @@ class TestRealData:
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
             metadata_db=fx_metadata_db,
-            base_ts=sc2ts.initial_ts(),
+            base_ts=sc2ts.initial_ts(additional_problematic_sites=list(range(56, 61))),
             date="2020-01-19",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
@@ -282,7 +282,7 @@ class TestRealData:
         assert ts.node(2).metadata["strain"] == "SRR11772659"
         assert list(ts.mutations_node) == [2, 2, 2]
         assert list(ts.mutations_time) == [0, 0, 0]
-        assert list(ts.mutations_site) == [8632, 17816, 27786]
+        assert list(ts.mutations_site) == [8627, 17811, 27781]
         sc2ts_md = ts.node(2).metadata["sc2ts"]
         hmm_md = sc2ts_md["hmm_match"]
         assert len(hmm_md["mutations"]) == 3
@@ -347,7 +347,7 @@ class TestRealData:
         assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
         assert rp_node.metadata["sc2ts"] == {
             "date_added": "2020-02-08",
-            "sites": [4923],
+            "sites": [4918],
         }
         ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
 
@@ -853,7 +853,7 @@ class TestMatchingDetails:
             rho=rho,
             num_threads=0,
         )
-        interval_right = ts.sites_position[15107]
+        interval_right = 15324
         left_parent = 36
         # 52 is the parent of 51, and sequence identical.
         right_parent = 52
@@ -882,7 +882,7 @@ class TestMatchRecombinants:
         left_parent = 36
         # 52 is the parent of 51, and sequence identical.
         right_parent = 52
-        interval_right = ts.sites_position[15107]
+        interval_right = 15324
 
         m = s.hmm_reruns["forward"]
         assert len(m.mutations) == 0
@@ -894,7 +894,7 @@ class TestMatchRecombinants:
         assert m.path[1].left == interval_right
         assert m.path[1].right == ts.sequence_length
 
-        interval_left = ts.sites_position[3694] + 1
+        interval_left = 3788
         m = s.hmm_reruns["reverse"]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
@@ -932,4 +932,4 @@ class TestMatchRecombinants:
         num_mutations = []
         for hmm_match in s.hmm_reruns.values():
             assert len(hmm_match.path) == 1
-            assert len(hmm_match.mutations) == 20599
+            assert len(hmm_match.mutations) == 20595
