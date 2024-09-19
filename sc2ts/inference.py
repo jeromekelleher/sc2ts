@@ -327,14 +327,6 @@ def increment_time(date, ts):
     return tables.tree_sequence()
 
 
-def path_summary(path):
-    return ",".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
-
-
-def mutation_summary(mutations):
-    return "[" + ",".join(str(mutation) for mutation in mutations) + "]"
-
-
 @dataclasses.dataclass
 class Sample:
     strain: str
@@ -357,18 +349,8 @@ class Sample:
         pango = self.metadata.get("Viridian_pangolin", "Unknown")
         hmm_match = "No match" if self.hmm_match is None else self.hmm_match.summary()
         s = f"{self.strain} {self.date} {pango} {hmm_match}"
-        # if self.is_recombinant:
-        #     s += (
-        #         f"forward_path={path_summary(self.forward_path)} "
-        #         f"forward_mutations({len(self.forward_mutations)})"
-        #         f"={mutation_summary(self.forward_mutations)} "
-        #     )
-        #     s += (
-        #         f"reverse_path={path_summary(self.reverse_path)} "
-        #         f"reverse_mutations({len(self.reverse_mutations)})"
-        #         f"={mutation_summary(self.reverse_mutations)}"
-        #     )
-        # else:
+        for name, hmm_match in self.hmm_reruns.items():
+            s += f"; {name}: {hmm_match.summary()}"
         return s
 
 
@@ -390,24 +372,21 @@ def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
     mu, rho = solve_num_mismatches(num_mismatches)
-    # for mirror in [False, True]:
-    for direction in ["forward", "reverse"]:
-        logger.info(
-            f"Running {len(samples)} recombinants at maximum precision in "
-            f"{direction} direction"
-        )
+    for hmm_pass in ["forward", "reverse", "no_recombination"]:
+        logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
         matches = match_tsinfer(
             samples=samples,
             ts=base_ts,
             mu=mu,
-            rho=rho,
+            rho=1e-30 if hmm_pass == "no_recombination" else rho,
             num_threads=num_threads,
             show_progress=show_progress,
             # Maximum possible precision
             likelihood_threshold=1e-200,
-            mirror_coordinates=direction != "forward",
+            mirror_coordinates=hmm_pass == "reverse",
         )
-        print(matches)
+        for hmm_match, sample in zip(matches, samples):
+            sample.hmm_reruns[hmm_pass] = hmm_match
 
     for sample in samples:
         # We may want to try to improve the location of the breakpoints
@@ -485,14 +464,14 @@ def match_samples(
         if sample.is_recombinant:
             recombinants.append(sample)
 
-    # if len(recombinants) > 0:
-    #     match_recombinants(
-    #         recombinants,
-    #         base_ts,
-    #         num_mismatches=num_mismatches,
-    #         show_progress=show_progress,
-    #         num_threads=num_threads,
-    #     )
+    if len(recombinants) > 0:
+        match_recombinants(
+            recombinants,
+            base_ts,
+            num_mismatches=num_mismatches,
+            show_progress=show_progress,
+            num_threads=num_threads,
+        )
 
     return samples
 
@@ -1473,6 +1452,10 @@ class MatchMutation:
         }
 
 
+def path_summary(path):
+    return ", ".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
+
+
 @dataclasses.dataclass(frozen=True)
 class HmmMatch:
     path: List[PathSegment]
@@ -1480,9 +1463,9 @@ class HmmMatch:
 
     def summary(self):
         return (
-            f"path={path_summary(self.path)} "
+            f"path={self.path_summary()} "
             f"mutations({len(self.mutations)})"
-            f"={mutation_summary(self.mutations)}"
+            f"={self.mutation_summary()}"
         )
 
     @property
@@ -1496,6 +1479,12 @@ class HmmMatch:
 
     def get_hmm_cost(self, num_mismatches):
         return num_mismatches * (len(self.path) - 1) + len(self.mutations)
+
+    def path_summary(self):
+        return path_summary(self.path)
+
+    def mutation_summary(self):
+        return "[" + ", ".join(str(mutation) for mutation in self.mutations) + "]"
 
 
 def get_match_info(ts, sample_paths, sample_mutations):

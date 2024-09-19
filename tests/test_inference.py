@@ -42,7 +42,6 @@ class TestInitialTs:
         assert alignment == sc2ts.core.get_reference_sequence()
 
 
-
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
         return sc2ts.inference.match_tsinfer(
@@ -119,7 +118,6 @@ class TestMatchTsinfer:
         for site_id, mut in zip(np.where(ref != allele)[0], muts):
             assert mut.site_id == site_id
             assert mut.derived_state == sc2ts.core.ALLELES[allele]
-
 
 
 class TestMirrorTsCoords:
@@ -613,22 +611,20 @@ class TestMatchingDetails:
             num_threads=0,
         )
         interval_right = ts.sites_position[15107]
-        s = matches[0]
-        assert len(s.mutations) == 0
-        assert len(s.path) == 2
-        assert s.path[0].parent == nodes[0]
-        assert s.path[0].left == 0
-        assert s.path[0].right == interval_right
+        m = matches[0]
+        assert len(m.mutations) == 0
+        assert len(m.path) == 2
+        assert m.path[0].parent == nodes[0]
+        assert m.path[0].left == 0
+        assert m.path[0].right == interval_right
         # 52 is the parent of 51, and sequence identical.
-        assert s.path[1].parent == 52
-        assert s.path[1].left == interval_right
-        assert s.path[1].right == ts.sequence_length
+        assert m.path[1].parent == 52
+        assert m.path[1].left == interval_right
+        assert m.path[1].right == ts.sequence_length
 
 
 class TestMatchRecombinants:
-
     def test_match_recombinant(self, fx_ts_map):
-
         ts = fx_ts_map["2020-02-13"]
         strains = ["SRR11597188", "SRR11597163"]
         nodes = [
@@ -636,6 +632,7 @@ class TestMatchRecombinants:
             for strain in strains
         ]
         assert nodes == [36, 51]
+        # These are *site IDs*
         # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
         # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
         H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
@@ -652,4 +649,36 @@ class TestMatchRecombinants:
             num_mismatches=2,
             num_threads=0,
         )
-        print(s.summary())
+        interval_right = ts.sites_position[15107]
+        m = s.hmm_reruns["forward"]
+        assert len(m.mutations) == 0
+        assert len(m.path) == 2
+        assert m.path[0].parent == nodes[0]
+        assert m.path[0].left == 0
+        assert m.path[0].right == interval_right
+        # 52 is the parent of 51, and sequence identical.
+        assert m.path[1].parent == 52
+        assert m.path[1].left == interval_right
+        assert m.path[1].right == ts.sequence_length
+
+        interval_left = ts.sites_position[3694] + 1
+        m = s.hmm_reruns["reverse"]
+        assert len(m.mutations) == 0
+        assert len(m.path) == 2
+        assert m.path[0].parent == nodes[0]
+        assert m.path[0].left == 0
+        assert m.path[0].right == interval_left
+        # 52 is the parent of 51, and sequence identical.
+        assert m.path[1].parent == 52
+        assert m.path[1].left == interval_left
+        assert m.path[1].right == ts.sequence_length
+
+        m = s.hmm_reruns["no_recombination"]
+        assert len(m.mutations) == 2
+        assert m.mutation_summary() == "[15324C>T, 29303C>T]"
+        assert len(m.path) == 1
+        assert m.path[0].parent == nodes[0]
+        assert m.path[0].left == 0
+        assert m.path[0].right == ts.sequence_length
+
+        assert "no_recombination" in s.summary()
