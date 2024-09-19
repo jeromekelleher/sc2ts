@@ -1,4 +1,5 @@
 import collections
+import hashlib
 
 import numpy as np
 import numpy.testing as nt
@@ -606,8 +607,12 @@ class TestSyntheticAlignments:
         samples_strain = ts.metadata["sc2ts"]["samples_strain"]
         assert samples_strain[-1] == "frankentype"
 
+        group_id = "67dca25667380a405f383e96e0399fcf"
+        assert group_id == hashlib.md5(b"frankentype").hexdigest()
+
         sample = ts.node(ts.samples()[-1])
         smd = sample.metadata["sc2ts"]
+        assert smd["group_id"] == group_id
         assert smd["hmm_match"] == {
             "mutations": [],
             "path": [
@@ -646,6 +651,27 @@ class TestSyntheticAlignments:
                 ],
             },
         }
+
+        recomb_node = ts.node(ts.num_nodes - 1)
+        assert recomb_node.flags == sc2ts.NODE_IS_RECOMBINANT
+        smd = recomb_node.metadata["sc2ts"]
+        assert smd["date_added"] == date
+        assert smd["group_id"] == group_id
+
+        edges = ts.tables.edges[ts.edges_child == recomb_node.id]
+        assert len(edges) == 2
+        assert edges[0].left == 0
+        assert edges[0].right == 15324
+        assert edges[0].parent == 36
+        assert edges[1].left == 15324
+        assert edges[1].right == 29904
+        assert edges[1].parent == 52
+
+        edges = ts.tables.edges[ts.edges_parent == recomb_node.id]
+        assert len(edges) == 1
+        assert edges[0].left == 0
+        assert edges[0].right == 29904
+        assert edges[0].child == ts.samples()[-1]
 
 
 class TestMatchingDetails:
