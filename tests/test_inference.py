@@ -6,9 +6,36 @@ import pytest
 import tsinfer
 import tskit
 import msprime
+import pandas as pd
 
 import sc2ts
 import util
+
+
+def recombinant_example_1(ts_map):
+    """
+    Example recombinant created by cherry picking two samples that differ
+    by mutations on either end of the genome, and smushing them together.
+    Note there's only two mutations needed, so we need to set num_mismatches=2
+    """
+    ts = ts_map["2020-02-13"]
+    strains = ["SRR11597188", "SRR11597163"]
+    nodes = [
+        ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+        for strain in strains
+    ]
+    assert nodes == [36, 51]
+    # These are *site IDs*
+    # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
+    # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
+    H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
+    bp = 10_000
+    h = H[0].copy()
+    h[bp:] = H[1][bp:]
+
+    s = sc2ts.Sample("frankentype", "2020-02-14")
+    s.alignment = h
+    return ts, s
 
 
 class TestSolveNumMismatches:
@@ -256,7 +283,7 @@ class TestRealData:
         assert list(ts.mutations_time) == [0, 0, 0]
         assert list(ts.mutations_site) == [8632, 17816, 27786]
         sc2ts_md = ts.node(2).metadata["sc2ts"]
-        hmm_md = sc2ts_md["hmm"][0]
+        hmm_md = sc2ts_md["hmm_match"]
         assert len(hmm_md["mutations"]) == 3
         for mut_md, mut in zip(hmm_md["mutations"], ts.mutations()):
             assert mut_md["derived_state"] == mut.derived_state
@@ -308,7 +335,7 @@ class TestRealData:
         assert node.metadata["strain"] == "SRR11597163"
         scmd = node.metadata["sc2ts"]
         # We have a mutation from a mismatch
-        assert scmd["hmm"][0]["mutations"] == [
+        assert scmd["hmm_match"]["mutations"] == [
             {"derived_state": "C", "inherited_state": "T", "site_position": 5025}
         ]
         # But no mutations above the node itself.
@@ -358,7 +385,7 @@ class TestRealData:
             md = node.metadata["sc2ts"]
             if node.is_sample():
                 # All samples are either exact matches, or added as part of a group
-                assert "hmm" in md
+                assert "hmm_match" in md
                 if node.flags & sc2ts.NODE_IS_EXACT_MATCH:
                     exact_matches += 1
                 else:
@@ -471,7 +498,7 @@ class TestRealData:
         md = x.metadata
         assert md["strain"] == strain
         sc2ts_md = md["sc2ts"]
-        hmm_md = sc2ts_md["hmm"][0]
+        hmm_md = sc2ts_md["hmm_match"]
         assert len(hmm_md["path"]) == 1
         assert hmm_md["path"][0] == {
             "parent": parent,
@@ -485,6 +512,140 @@ class TestRealData:
         assert ts.edges_left[e] == 0
         assert ts.edges_right[e] == ts.sequence_length
         assert np.sum(ts.mutations_node == node) == 0
+
+
+class TestSyntheticAlignments:
+    def alignment_store(self, tmp_path, alignments):
+        path = tmp_path / "synthetic_alignments.db"
+        alignment_db = sc2ts.AlignmentStore(path, mode="rw")
+        alignment_db.append(alignments)
+        return alignment_db
+
+    def metadata_db(self, tmp_path, strains, date):
+        data = []
+        for strain in strains:
+            data.append({"strain": strain, "date": date})
+        df = pd.DataFrame(data)
+        csv_path = tmp_path / "metadata.csv"
+        df.to_csv(csv_path)
+        db_path = tmp_path / "metadata.db"
+        sc2ts.MetadataDb.import_csv(csv_path, db_path, sep=",")
+        return sc2ts.MetadataDb(db_path)
+
+    def test_exact_match(self, tmp_path, fx_ts_map, fx_alignment_store):
+        # Pick two unique strains and we should match exactly with them
+        strains = ["SRR11597218", "ERR4204459"]
+        fake_strains = ["fake" + s for s in strains]
+        alignments = {
+            name: fx_alignment_store[s] for name, s in zip(fake_strains, strains)
+        }
+        local_as = self.alignment_store(tmp_path, alignments)
+        date = "2020-03-01"
+        metadata_db = self.metadata_db(tmp_path, fake_strains, date)
+
+        base_ts = fx_ts_map["2020-02-13"]
+        ts = sc2ts.extend(
+            alignment_store=local_as,
+            metadata_db=metadata_db,
+            base_ts=base_ts,
+            date=date,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        assert ts.num_nodes == base_ts.num_nodes + 2
+        assert ts.num_edges == base_ts.num_edges + 2
+        assert ts.num_mutations == base_ts.num_mutations
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        assert samples_strain[-2:] == fake_strains
+        samples = ts.samples()
+        tree = ts.first()
+        for strain, fake_strain in zip(strains, fake_strains):
+            original_node = samples[samples_strain.index(strain)]
+            new_node = samples[samples_strain.index(fake_strain)]
+            assert tree.parent(new_node) == original_node
+            assert (
+                ts.nodes_flags[new_node]
+                == sc2ts.NODE_IS_EXACT_MATCH | tskit.NODE_IS_SAMPLE
+            )
+            smd = ts.node(new_node).metadata["sc2ts"]
+            assert smd["hmm_match"] == {
+                "mutations": [],
+                "path": [
+                    {"left": 0, "parent": original_node, "right": 29904},
+                ],
+            }
+            assert len(smd["hmm_reruns"]) == 0
+
+    def test_recombinant_example_1(self, tmp_path, fx_ts_map, fx_alignment_store):
+        # Same as the recombinant_example_1() function above
+        strains = ["SRR11597188", "SRR11597163"]
+        left_a = fx_alignment_store[strains[0]]
+        right_a = fx_alignment_store[strains[1]]
+        # Recombine in the middle
+        bp = 10_000
+        h = left_a.copy()
+        h[bp:] = right_a[bp:]
+        alignments = {"frankentype": h}
+        local_as = self.alignment_store(tmp_path, alignments)
+        date = "2020-03-01"
+        metadata_db = self.metadata_db(tmp_path, list(alignments.keys()), date)
+
+        base_ts = fx_ts_map["2020-02-13"]
+        ts = sc2ts.extend(
+            alignment_store=local_as,
+            metadata_db=metadata_db,
+            base_ts=base_ts,
+            date=date,
+            num_mismatches=2,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        assert ts.num_nodes == base_ts.num_nodes + 2
+        assert ts.num_edges == base_ts.num_edges + 3
+        assert ts.num_samples == base_ts.num_samples + 1
+        assert ts.num_mutations == base_ts.num_mutations
+        assert ts.num_trees == 2
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        assert samples_strain[-1] == "frankentype"
+
+        sample = ts.node(ts.samples()[-1])
+        smd = sample.metadata["sc2ts"]
+        assert smd["hmm_match"] == {
+            "mutations": [],
+            "path": [
+                {"left": 0, "parent": 36, "right": 15324},
+                {"left": 15324, "parent": 52, "right": 29904},
+            ],
+        }
+        assert smd["hmm_reruns"] == {
+            "forward": {
+                "mutations": [],
+                "path": [
+                    {"left": 0, "parent": 36, "right": 15324},
+                    {"left": 15324, "parent": 52, "right": 29904},
+                ],
+            },
+            "no_recombination": {
+                "mutations": [
+                    {
+                        "derived_state": "T",
+                        "inherited_state": "C",
+                        "site_position": 15324,
+                    },
+                    {
+                        "derived_state": "T",
+                        "inherited_state": "C",
+                        "site_position": 29303,
+                    },
+                ],
+                "path": [{"left": 0, "parent": 36, "right": 29904}],
+            },
+            "reverse": {
+                "mutations": [],
+                "path": [
+                    {"left": 0, "parent": 36, "right": 3788},
+                    {"left": 3788, "parent": 52, "right": 29904},
+                ],
+            },
+        }
 
 
 class TestMatchingDetails:
@@ -584,23 +745,7 @@ class TestMatchingDetails:
         assert len(s.mutations) == 2
 
     def test_match_recombinant(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        strains = ["SRR11597188", "SRR11597163"]
-        nodes = [
-            ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
-            for strain in strains
-        ]
-        assert nodes == [36, 51]
-        # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
-        # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
-        H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
-
-        bp = 10_000
-        h = H[0].copy()
-        h[bp:] = H[1][bp:]
-
-        s = sc2ts.Sample("frankentype", "2020-02-14")
-        s.alignment = h
+        ts, s = recombinant_example_1(fx_ts_map)
 
         mu, rho = sc2ts.solve_num_mismatches(2)
         matches = sc2ts.match_tsinfer(
@@ -611,37 +756,24 @@ class TestMatchingDetails:
             num_threads=0,
         )
         interval_right = ts.sites_position[15107]
+        left_parent = 36
+        # 52 is the parent of 51, and sequence identical.
+        right_parent = 52
+
         m = matches[0]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
-        assert m.path[0].parent == nodes[0]
+        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_right
-        # 52 is the parent of 51, and sequence identical.
-        assert m.path[1].parent == 52
+        assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_right
         assert m.path[1].right == ts.sequence_length
 
 
 class TestMatchRecombinants:
-    def test_match_recombinant(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        strains = ["SRR11597188", "SRR11597163"]
-        nodes = [
-            ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
-            for strain in strains
-        ]
-        assert nodes == [36, 51]
-        # These are *site IDs*
-        # SRR11597188 36  [(801, 'G'), (2943, 'G'), (3694, 'T')]
-        # SRR11597163 51  [(15107, 'T'), (28930, 'T')]
-        H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
-        bp = 10_000
-        h = H[0].copy()
-        h[bp:] = H[1][bp:]
-
-        s = sc2ts.Sample("frankentype", "2020-02-14")
-        s.alignment = h
+    def test_example_1(self, fx_ts_map):
+        ts, s = recombinant_example_1(fx_ts_map)
 
         sc2ts.match_recombinants(
             samples=[s],
@@ -649,15 +781,18 @@ class TestMatchRecombinants:
             num_mismatches=2,
             num_threads=0,
         )
+        left_parent = 36
+        # 52 is the parent of 51, and sequence identical.
+        right_parent = 52
         interval_right = ts.sites_position[15107]
+
         m = s.hmm_reruns["forward"]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
-        assert m.path[0].parent == nodes[0]
+        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_right
-        # 52 is the parent of 51, and sequence identical.
-        assert m.path[1].parent == 52
+        assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_right
         assert m.path[1].right == ts.sequence_length
 
@@ -665,7 +800,7 @@ class TestMatchRecombinants:
         m = s.hmm_reruns["reverse"]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
-        assert m.path[0].parent == nodes[0]
+        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_left
         # 52 is the parent of 51, and sequence identical.
@@ -677,7 +812,7 @@ class TestMatchRecombinants:
         assert len(m.mutations) == 2
         assert m.mutation_summary() == "[15324C>T, 29303C>T]"
         assert len(m.path) == 1
-        assert m.path[0].parent == nodes[0]
+        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == ts.sequence_length
 

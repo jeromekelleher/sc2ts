@@ -565,7 +565,6 @@ def extend(
     # metadata_matches = list(
     #     metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
     # )
-    # TODO implement this.
     if max_daily_samples is not None:
         if max_daily_samples < len(samples_with_aligments):
             seed_prefix = bytes(np.array([random_seed], dtype=int).data)
@@ -651,24 +650,10 @@ def update_top_level_metadata(ts, date):
 def add_sample_to_tables(
     sample, tables, flags=tskit.NODE_IS_SAMPLE, time=0, group_id=None
 ):
-    hmm_md = [
-        {
-            "direction": "forward",
-            "path": [x.asdict() for x in sample.hmm_match.path],
-            "mutations": [x.asdict() for x in sample.hmm_match.mutations],
-        }
-    ]
-    if sample.is_recombinant:
-        hmm_md.append(
-            {
-                # "direction": "reverse",
-                # "path": [x.asdict() for x in sample.reverse_path],
-                # "mutations": [x.asdict() for x in sample.reverse_mutations],
-            }
-        )
     sc2ts_md = {
+        "hmm_match": sample.hmm_match.asdict(),
+        "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
         "qc": sample.alignment_qc,
-        "hmm": hmm_md,
     }
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
@@ -1460,6 +1445,12 @@ def path_summary(path):
 class HmmMatch:
     path: List[PathSegment]
     mutations: List[MatchMutation]
+
+    def asdict(self):
+        return  {
+            "path": [x.asdict() for x in self.path],
+            "mutations": [x.asdict() for x in self.mutations],
+        }
 
     def summary(self):
         return (
