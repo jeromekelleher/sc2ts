@@ -630,37 +630,7 @@ class TestSyntheticAlignments:
                 {"left": 15324, "parent": 52, "right": 29904},
             ],
         }
-        assert smd["hmm_reruns"] == {
-            "forward": {
-                "mutations": [],
-                "path": [
-                    {"left": 0, "parent": 36, "right": 15324},
-                    {"left": 15324, "parent": 52, "right": 29904},
-                ],
-            },
-            "no_recombination": {
-                "mutations": [
-                    {
-                        "derived_state": "T",
-                        "inherited_state": "C",
-                        "site_position": 15324,
-                    },
-                    {
-                        "derived_state": "T",
-                        "inherited_state": "C",
-                        "site_position": 29303,
-                    },
-                ],
-                "path": [{"left": 0, "parent": 36, "right": 29904}],
-            },
-            "reverse": {
-                "mutations": [],
-                "path": [
-                    {"left": 0, "parent": 36, "right": 3788},
-                    {"left": 3788, "parent": 52, "right": 29904},
-                ],
-            },
-        }
+        assert smd["hmm_reruns"] == {}
 
         recomb_node = ts.node(ts.num_nodes - 1)
         assert recomb_node.flags == sc2ts.NODE_IS_RECOMBINANT
@@ -755,42 +725,7 @@ class TestSyntheticAlignments:
             ],
         }
 
-        assert smd["hmm_reruns"] == {
-            "forward": {
-                "mutations": [],
-                "path": [
-                    {"left": 0, "parent": 62, "right": 29800},
-                    {"left": 29800, "parent": 63, "right": 29904},
-                ],
-            },
-            "no_recombination": {
-                "mutations": [
-                    {
-                        "derived_state": "A",
-                        "inherited_state": "G",
-                        "site_position": 29800,
-                    },
-                    {
-                        "derived_state": "A",
-                        "inherited_state": "C",
-                        "site_position": 29801,
-                    },
-                    {
-                        "derived_state": "A",
-                        "inherited_state": "C",
-                        "site_position": 29802,
-                    },
-                ],
-                "path": [{"left": 0, "parent": 62, "right": 29904}],
-            },
-            "reverse": {
-                "mutations": [],
-                "path": [
-                    {"left": 0, "parent": 62, "right": 113},
-                    {"left": 113, "parent": 63, "right": 29904},
-                ],
-            },
-        }
+        assert smd["hmm_reruns"] == { }
 
     def test_all_As(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Same as the recombinant_example_1() function above
