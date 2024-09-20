@@ -461,19 +461,8 @@ def match_samples(
         cost = hmm_match.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
         logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
-        if sample.is_recombinant:
-            recombinants.append(sample)
-
-    if len(recombinants) > 0:
-        match_recombinants(
-            recombinants,
-            base_ts,
-            num_mismatches=num_mismatches,
-            show_progress=show_progress,
-            num_threads=num_threads,
-        )
-
     return samples
+
 
 
 def check_base_ts(ts):
