@@ -1044,6 +1044,19 @@ class TreeInfo:
         # plt.xlabel("Number of mutations")
         # plt.ylabel("Number of nodes")
 
+    def plot_branch_length_distributions(
+        self, log_scale=True, min_value=1, exact_match=False, max_value=400
+    ):
+        ts = self.ts
+        branch_length = ts.nodes_time[ts.edges_parent] - ts.nodes_time[ts.edges_child]
+        select = branch_length >= min_value
+        if exact_match:
+            select &= ts.nodes_flags[ts.edges_child] & core.NODE_IS_EXACT_MATCH > 0
+        plt.hist(branch_length[select], range(min_value, max_value))
+        plt.xlabel("Length of branches")
+        if log_scale:
+            plt.yscale("log")
+
     def plot_mutations_per_site_distribution(self):
         sites_with_many_muts = np.sum(self.sites_num_mutations >= 10)
         plt.title(f"Sites with >= 10 muts: {sites_with_many_muts}")
