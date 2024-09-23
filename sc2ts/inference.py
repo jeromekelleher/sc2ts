@@ -464,7 +464,6 @@ def match_samples(
     return samples
 
 
-
 def check_base_ts(ts):
     md = ts.metadata
     assert "sc2ts" in md
@@ -616,6 +615,7 @@ def extend(
         date=date,
         min_group_size=min_group_size,
         min_different_dates=3,  # TODO parametrize
+        additional_group_metadata_keys=["Country"],
         show_progress=show_progress,
         phase="add(retro)",
     )
@@ -720,6 +720,7 @@ class SampleGroup:
     samples: List = None
     path: List = None
     immediate_reversions: List = None
+    additional_keys: Dict = None
     sample_hash: str = None
     date_count: dict = dataclasses.field(default_factory=collections.Counter)
 
@@ -747,8 +748,9 @@ class SampleGroup:
         return (
             f"Group {self.sample_hash} {len(self.samples)} samples "
             f"({dict(self.date_count)}) "
-            f"attaching at {path_summary(self.path)} and "
-            f"immediate_reversions={self.immediate_reversions}; "
+            f"attaching at {path_summary(self.path)}, "
+            f"immediate_reversions={self.immediate_reversions}, "
+            f"additional_keys={self.additional_keys};"
             f"strains={self.strains}"
         )
 
@@ -761,6 +763,7 @@ def add_matching_results(
     min_group_size=1,
     min_different_dates=1,
     show_progress=False,
+    additional_group_metadata_keys=list(),
     phase=None,
 ):
     logger.info(f"Querying match DB WHERE: {where_clause}")
@@ -776,7 +779,11 @@ def add_matching_results(
             for mut in sample.hmm_match.mutations
             if mut.is_immediate_reversion
         )
-        grouped_matches[(path, immediate_reversions)].append(sample)
+        additional_metadata = [
+            sample.metadata.get(k, None) for k in additional_group_metadata_keys
+        ]
+        key = (path, immediate_reversions, *additional_metadata)
+        grouped_matches[key].append(sample)
         num_samples += 1
 
     if num_samples == 0:
@@ -784,8 +791,13 @@ def add_matching_results(
         return ts
 
     groups = [
-        SampleGroup(samples, path, immediate_reversions)
-        for (path, immediate_reversions), samples in grouped_matches.items()
+        SampleGroup(
+            samples,
+            key[0],
+            key[1],
+            {k: v for k, v in zip(additional_group_metadata_keys, key[2:])},
+        )
+        for key, samples in grouped_matches.items()
     ]
     logger.info(f"Got {len(groups)} groups for {num_samples} samples")
 
@@ -1436,7 +1448,7 @@ class HmmMatch:
     mutations: List[MatchMutation]
 
     def asdict(self):
-        return  {
+        return {
             "path": [x.asdict() for x in self.path],
             "mutations": [x.asdict() for x in self.mutations],
         }
