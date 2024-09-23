@@ -1,5 +1,6 @@
 import collections
 import warnings
+import dataclasses
 
 import numba
 import tskit
@@ -12,6 +13,32 @@ from IPython.display import Markdown, HTML
 
 from . import core
 from . import utils
+
+
+@dataclasses.dataclass
+class LineageDetails:
+    """
+    Details about major known lineages that we can use for QC purposes.
+
+    https://github.com/jeromekelleher/sc2ts/issues/290
+    """
+
+    nextstrain_clade: str
+    pango_lineage: str
+    who_label: str
+    date: str
+
+
+# TODO reduce precision on these dates to month
+major_lineages = [
+    LineageDetails("20I", "B.1.1.7", "Alpha", "2020-05-14"),
+    LineageDetails("21A", "B.1.617.2", "Delta", "2020-10-15"),
+    LineageDetails("21K", "BA.1", "Omicron", "2021-01-27"),
+    LineageDetails("21L", "BA.2", "Omicron", "2021-03-25"),
+    LineageDetails("22A", "BA.4", "Omicron", "2022-01-06"),
+    LineageDetails("22B", "BA.5", "Omicron", "2022-04-15"),
+]
+# 20J , P.1 , Gamma , voc , 2020-09-11
 
 
 def get_recombinant_samples(ts):
@@ -269,6 +296,7 @@ class TreeInfo:
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
         self.nodes_num_masked_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
+        self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
         last_sample = ts.node(samples[-1])
 
@@ -286,6 +314,16 @@ class TreeInfo:
         for node in iterator:
             md = node.metadata
             self.nodes_metadata[node.id] = md
+            group_id = None
+            try:
+                sc2ts_md = md["sc2ts"]
+                group_id = sc2ts_md.get("group_id", None)
+            except KeyError:
+                warnings.warn("Node sc2ts metadata not available")
+
+            if group_id is not None:
+                self.nodes_sample_group[group_id].append(node.id)
+
             if node.is_sample():
                 self.nodes_date[node.id] = md["date"]
                 pango = md.get(self.pango_source, "unknown")
