@@ -1262,27 +1262,101 @@ class TreeInfo:
 
     def get_sample_group_info(self, group_id):
         samples = []
-        strains = []
-        lineage_counts = collections.Counter()
+
         for u in self.nodes_sample_group[group_id]:
             if self.ts.nodes_flags[u] & tskit.NODE_IS_SAMPLE > 0:
                 samples.append(u)
-                lineage_counts[self.nodes_metadata[u]["Viridian_pangolin"]] += 1
-                strains.append(self.nodes_metadata[u]["strain"])
 
         tree = self.ts.first()
         while self.nodes_metadata[u]["sc2ts"].get("group_id", None) == group_id:
             u = tree.parent(u)
+        attach_date = self.nodes_date[u]
         ts = self.ts.simplify(samples + [u])
+        tables = ts.dump_tables()
+        # Wipe out the sample strain index as its out of date.
+        tables.metadata = {}
+
+        # Remove the mutations above the root (these are the mutations going all
+        # the way back up the tree) UNLESS there's a recurrent mutation within
+        # the subtree
+        tree = ts.first()
+        u = ts.samples()[-1]
+        keep_mutations = np.ones(ts.num_mutations, dtype=bool)
+        keep_mutations[ts.mutations_node == u] = False
+        for recurrent_mut in np.where(ts.mutations_parent != -1)[0]:
+            if ts.mutations_node[recurrent_mut] != u:
+                keep_mutations[ts.mutations_parent[recurrent_mut]] = True
+        tables.mutations.keep_rows(keep_mutations)
+        tables.nodes[u] = tables.nodes[u].replace(flags=0)
+        # Space the mutations evenly along branches for viz
+        time = tables.mutations.time
+        time[:] = tskit.UNKNOWN_TIME
+        tables.mutations.time = time
+
         return SampleGroupInfo(
-            group_id, lineage_counts, self.nodes_sample_group[group_id], strains, ts
+            group_id,
+            self.nodes_sample_group[group_id],
+            ts=tables.tree_sequence(),
+            attach_date=attach_date,
         )
 
 
 @dataclasses.dataclass
 class SampleGroupInfo:
     group_id: str
-    lineage_counts: collections.Counter
     nodes: List[int]
-    strains: List[str]
     ts: tskit.TreeSequence
+    attach_date: None
+
+    def draw_svg(self, size=(800, 600), time_scale=None):
+        ts = self.ts
+        y_ticks = {
+            ts.nodes_time[u]: ts.node(u).metadata["date"] for u in list(ts.samples())
+        }
+        y_ticks[ts.nodes_time[ts.first().root]] = self.attach_date
+        if time_scale == "rank":
+            times = list(np.unique(ts.nodes_time))
+            y_ticks = {times.index(k): v for k, v in y_ticks.items()}
+
+        mut_labels = {}
+        for site in ts.sites():
+            # TODO Viz the recurrent mutations
+            for mut in site.mutations:
+                mut_labels[
+                    mut.id
+                ] = f"{site.ancestral_state}{int(site.position)}{mut.derived_state}"
+
+        return self.ts.draw_svg(
+            size=size,
+            time_scale=time_scale,
+            y_axis=True,
+            mutation_labels=mut_labels,
+            y_ticks=y_ticks,
+        )
+
+    def get_sample_metadata(self, key):
+        ret = []
+        for u in self.ts.samples():
+            node = self.ts.node(u)
+            ret.append(node.metadata[key])
+        return ret
+
+    @property
+    def lineages(self):
+        return self.get_sample_metadata("Viridian_pangolin")
+
+    @property
+    def strains(self):
+        return self.get_sample_metadata("strain")
+
+    @property
+    def sample_dates(self):
+        return np.array(self.get_sample_metadata("date"), dtype="datetime64[D]")
+
+    @property
+    def num_mutations(self):
+        return self.ts.num_mutations
+
+    @property
+    def num_recurrent_mutations(self):
+        return np.sum(self.ts.mutations_parent != -1)
