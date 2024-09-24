@@ -601,6 +601,7 @@ def extend(
         match_db=match_db,
         date=date,
         min_group_size=1,
+        additional_node_flags=core.NODE_IN_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="add(close)",
     )
@@ -614,8 +615,9 @@ def extend(
         match_db=match_db,
         date=date,
         min_group_size=min_group_size,
-        min_different_dates=3,  # TODO parametrize
-        additional_group_metadata_keys=["Country"],
+        min_different_dates=3,  # TODO parametrise
+        additional_group_metadata_keys=["Country"], # TODO parametrise
+        additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="add(retro)",
     )
@@ -762,6 +764,8 @@ def add_matching_results(
     date,
     min_group_size=1,
     min_different_dates=1,
+    min_root_mutations=0,
+    additional_node_flags=None,
     show_progress=False,
     additional_group_metadata_keys=list(),
     phase=None,
@@ -830,9 +834,9 @@ def add_matching_results(
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
-            nodes = attach_tree(ts, tables, group, poly_ts, date)
+            nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
             logger.debug(
-                f"{group.summary()}; "
+                f"Attach {group.summary()}; "
                 f"depth={attach_depth} mutations={poly_ts.num_mutations} "
                 f"attach_nodes={nodes}"
             )
@@ -1683,6 +1687,7 @@ def attach_tree(
     group,
     child_ts,
     date,
+    additional_node_flags,
     epsilon=None,
 ):
     attach_path = group.path
@@ -1741,7 +1746,11 @@ def attach_tree(
                     "date_added": date,
                 }
             }
-        new_id = parent_tables.nodes.append(node.replace(time=time, metadata=metadata))
+        new_id = parent_tables.nodes.append(
+            node.replace(
+                flags=node.flags | additional_node_flags, time=time, metadata=metadata
+            )
+        )
         node_id_map[node.id] = new_id
         for v in tree.children(u):
             parent_tables.edges.add_row(

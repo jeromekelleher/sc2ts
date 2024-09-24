@@ -447,6 +447,7 @@ class TestRealData:
             md = node.metadata
             group = md["sc2ts"].get("group_id", None)
             if group == gid:
+                assert node.flags & sc2ts.NODE_IN_SAMPLE_GROUP > 0
                 if node.is_sample():
                     got_strains.append(md["strain"])
                     assert md["date"] == date
