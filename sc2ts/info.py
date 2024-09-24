@@ -1,6 +1,7 @@
 import collections
 import warnings
 import dataclasses
+from typing import List
 
 import numba
 import tskit
@@ -1258,3 +1259,30 @@ class TreeInfo:
         ax1.set_ylabel("Number of recombinant samples")
         ax2.set_ylabel("Fraction of samples recombinant")
         ax2.set_ylim(0, 0.01)
+
+    def get_sample_group_info(self, group_id):
+        samples = []
+        strains = []
+        lineage_counts = collections.Counter()
+        for u in self.nodes_sample_group[group_id]:
+            if self.ts.nodes_flags[u] & tskit.NODE_IS_SAMPLE > 0:
+                samples.append(u)
+                lineage_counts[self.nodes_metadata[u]["Viridian_pangolin"]] += 1
+                strains.append(self.nodes_metadata[u]["strain"])
+
+        tree = self.ts.first()
+        while self.nodes_metadata[u]["sc2ts"].get("group_id", None) == group_id:
+            u = tree.parent(u)
+        ts = self.ts.simplify(samples + [u])
+        return SampleGroupInfo(
+            group_id, lineage_counts, self.nodes_sample_group[group_id], strains, ts
+        )
+
+
+@dataclasses.dataclass
+class SampleGroupInfo:
+    group_id: str
+    lineage_counts: collections.Counter
+    nodes: List[int]
+    strains: List[str]
+    ts: tskit.TreeSequence
