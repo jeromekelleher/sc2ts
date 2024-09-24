@@ -28,6 +28,7 @@ except ImportError:
 import sc2ts
 from . import core
 from . import utils
+from . import info
 
 logger = logging.getLogger(__name__)
 
@@ -478,6 +479,19 @@ def export_metadata(ts_file, verbose):
     df.to_csv(sys.stdout, sep="\t", index=False)
 
 
+@click.command()
+@click.argument("ts", type=click.Path(exists=True, dir_okay=False))
+@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.option("-v", "--verbose", count=True)
+def tally_lineages(ts, metadata, verbose):
+    setup_logging(verbose)
+    ts = tszip.load(ts)
+    with sc2ts.MetadataDb(metadata) as metadata_db:
+        df = info.tally_lineages(ts, metadata_db, show_progress=True)
+    print(df)
+
+
+
 def examine_recombinant(work):
     base_ts = tszip.load(work.ts_path)
     # NOTE: this is needed because we have to have all the sites in the trees
@@ -636,3 +650,4 @@ cli.add_command(list_dates)
 cli.add_command(extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)
+cli.add_command(tally_lineages)

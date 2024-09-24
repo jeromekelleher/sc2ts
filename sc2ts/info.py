@@ -38,7 +38,7 @@ major_lineages = [
         "20I",
         "Alpha",
         "2020-09",
-        ["C5388A, C3267T"],
+        ["C5388A", "C3267T"],
     ),
     LineageDetails(
         "B.1.617.2",
@@ -46,8 +46,11 @@ major_lineages = [
         "Delta",
         "2020-12",
         [
-            "C23012G", "T26767C", "A28461G",
-            "C22995A", "C27752T",
+            "C23012G",
+            "T26767C",
+            "A28461G",
+            "C22995A",
+            "C27752T",
         ],
     ),
     LineageDetails(
@@ -56,11 +59,20 @@ major_lineages = [
         "Omicron",
         "2021-11",
         [
-            "C21762T", "C2790T", "A11537G",
-            "A26530G", "T22673C", "G23048A",
-            "C24130A", "C23202A", "C24503T",
-            "T13195C", "C25584T", "C15240T",
-            "G8393A", "C25000T",
+            "C21762T",
+            "C2790T",
+            "A11537G",
+            "A26530G",
+            "T22673C",
+            "G23048A",
+            "C24130A",
+            "C23202A",
+            "C24503T",
+            "T13195C",
+            "C25584T",
+            "C15240T",
+            "G8393A",
+            "C25000T",
         ],
     ),
     LineageDetails(
@@ -69,9 +81,15 @@ major_lineages = [
         "Omicron",
         "2021-11",
         [
-            "C10198T", "T22200G", "C17410T",
-            "A22786C", "C21618T", "C19955T",
-            "A20055G", "C25584T", "A22898G",
+            "C10198T",
+            "T22200G",
+            "C17410T",
+            "A22786C",
+            "C21618T",
+            "C19955T",
+            "A20055G",
+            "C25584T",
+            "A22898G",
             "C25000T",
         ],
     ),
@@ -91,6 +109,34 @@ major_lineages = [
     ),
 ]
 # 20J , P.1 , Gamma , voc , 2020-09-11
+
+
+def tally_lineages(ts, metadata_db, show_progress=False):
+    date = ts.metadata["sc2ts"]["date"]
+    counter = collections.Counter()
+    key = "Viridian_pangolin"
+    iterator = tqdm.tqdm(
+        ts.samples()[1:],
+        desc="ARG",
+        disable=not show_progress,
+    )
+    for u in iterator:
+        node = ts.node(u)
+        counter[node.metadata[key]] += 1
+
+    # print(counter)
+    result = metadata_db.query(
+        f"SELECT {key}, COUNT(*) FROM samples "
+        f"WHERE date <= '{date}'"
+        f" GROUP BY {key}"
+    )
+    data = []
+    for row in result:
+        pango = row[key]
+        data.append(
+            {"pango": pango, "db_count": row["COUNT(*)"], "arg_count": counter[pango]}
+        )
+    return pd.DataFrame(data).sort_values("arg_count", ascending=False)
 
 
 def get_recombinant_samples(ts):
@@ -1379,9 +1425,9 @@ class SampleGroupInfo:
         for site in ts.sites():
             # TODO Viz the recurrent mutations
             for mut in site.mutations:
-                mut_labels[
-                    mut.id
-                ] = f"{site.ancestral_state}{int(site.position)}{mut.derived_state}"
+                mut_labels[mut.id] = (
+                    f"{site.ancestral_state}{int(site.position)}{mut.derived_state}"
+                )
 
         return self.ts.draw_svg(
             size=size,
