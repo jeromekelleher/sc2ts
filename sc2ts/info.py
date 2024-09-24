@@ -134,7 +134,7 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     for row in result:
         pango = row[key]
         data.append(
-            {"pango": pango, "db_count": row["COUNT(*)"], "arg_count": counter[pango]}
+            {"db_count": row["COUNT(*)"], "arg_count": counter[pango], "pango": pango}
         )
     return pd.DataFrame(data).sort_values("arg_count", ascending=False)
 
