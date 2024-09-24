@@ -341,7 +341,7 @@ class TreeInfo:
             "pr": pr_nodes,
             "re": re_nodes,
             "sg": sg_nodes,
-            "rsg": sg_nodes,
+            "rsg": rsg_nodes,
             "imr": immediate_reversion_marker,
             "zero_muts": nodes_with_zero_muts,
         }
