@@ -24,20 +24,71 @@ class LineageDetails:
     https://github.com/jeromekelleher/sc2ts/issues/290
     """
 
-    nextstrain_clade: str
     pango_lineage: str
+    nextstrain_clade: str
     who_label: str
     date: str
+    mutations: list
 
 
 # TODO reduce precision on these dates to month
 major_lineages = [
-    LineageDetails("20I", "B.1.1.7", "Alpha", "2020-05-14"),
-    LineageDetails("21A", "B.1.617.2", "Delta", "2020-10-15"),
-    LineageDetails("21K", "BA.1", "Omicron", "2021-01-27"),
-    LineageDetails("21L", "BA.2", "Omicron", "2021-03-25"),
-    LineageDetails("22A", "BA.4", "Omicron", "2022-01-06"),
-    LineageDetails("22B", "BA.5", "Omicron", "2022-04-15"),
+    LineageDetails(
+        "B.1.1.7",
+        "20I",
+        "Alpha",
+        "2020-09",
+        ["C5388A, C3267T"],
+    ),
+    LineageDetails(
+        "B.1.617.2",
+        "21A",
+        "Delta",
+        "2020-12",
+        [
+            "C23012G", "T26767C", "A28461G",
+            "C22995A", "C27752T",
+        ],
+    ),
+    LineageDetails(
+        "BA.1",
+        "21K",
+        "Omicron",
+        "2021-11",
+        [
+            "C21762T", "C2790T", "A11537G",
+            "A26530G", "T22673C", "G23048A",
+            "C24130A", "C23202A", "C24503T",
+            "T13195C", "C25584T", "C15240T",
+            "G8393A", "C25000T",
+        ],
+    ),
+    LineageDetails(
+        "BA.2",
+        "21L",
+        "Omicron",
+        "2021-11",
+        [
+            "C10198T", "T22200G", "C17410T",
+            "A22786C", "C21618T", "C19955T",
+            "A20055G", "C25584T", "A22898G",
+            "C25000T",
+        ],
+    ),
+    LineageDetails(
+        "BA.4",
+        "22A",
+        "Omicron",
+        "2022-01",
+        ["C28724T"],
+    ),
+    LineageDetails(
+        "BA.5",
+        "22B",
+        "Omicron",
+        "2022-02",
+        ["T27383A", "C27382G"],
+    ),
 ]
 # 20J , P.1 , Gamma , voc , 2020-09-11
 
