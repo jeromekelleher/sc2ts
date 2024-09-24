@@ -20,7 +20,7 @@ alignments=$datadir/alignments.db
 metadata=$datadir/metadata.db
 matches=$resultsdir/matches.db
 
-options="--num-threads $num_threads -vv " #-l $logfile "
+options="--num-threads $num_threads -vv -l $logfile "
 # options+="--max-submission-delay $max_submission_delay "
 # options+="--max-daily-samples $max_daily_samples "
 options+="--num-mismatches $mismatches"
