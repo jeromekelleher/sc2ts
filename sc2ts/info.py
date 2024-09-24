@@ -325,6 +325,10 @@ class TreeInfo:
         pr_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
+        sg_nodes = np.sum((self.ts.nodes_flags & core.NODE_IN_SAMPLE_GROUP) > 0)
+        rsg_nodes = np.sum(
+            (self.ts.nodes_flags & core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP) > 0
+        )
         immediate_reversion_marker = np.sum(
             (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
         )
@@ -336,6 +340,8 @@ class TreeInfo:
             "mc": mc_nodes,
             "pr": pr_nodes,
             "re": re_nodes,
+            "sg": sg_nodes,
+            "rsg": sg_nodes,
             "imr": immediate_reversion_marker,
             "zero_muts": nodes_with_zero_muts,
         }
