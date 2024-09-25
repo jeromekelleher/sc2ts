@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import pathlib
 import collections.abc
 import csv
@@ -54,6 +56,30 @@ data_path = pathlib.Path(__file__).parent / "data"
 
 def get_problematic_sites():
     return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
+
+
+@dataclasses.dataclass(frozen=True)
+class CovLineage:
+    name: str
+    earliest_date: str
+    latest_date: str
+    description: str
+
+
+def get_cov_lineages_data():
+    with open(data_path / "lineages.json") as f:
+        data = json.load(f)
+    ret = {}
+    for record in data:
+        lineage = CovLineage(
+            record["Lineage"],
+            record["Earliest date"],
+            record["Latest date"],
+            record["Description"],
+        )
+        assert lineage.name not in ret
+        ret[lineage.name] = lineage
+    return ret
 
 
 __cached_reference = None

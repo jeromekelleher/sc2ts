@@ -1,6 +1,7 @@
 import collections
 import warnings
 import dataclasses
+import datetime
 from typing import List
 
 import numba
@@ -112,6 +113,8 @@ major_lineages = [
 
 
 def tally_lineages(ts, metadata_db, show_progress=False):
+    cov_lineages = core.get_cov_lineages_data()
+
     date = ts.metadata["sc2ts"]["date"]
     counter = collections.Counter()
     key = "Viridian_pangolin"
@@ -131,10 +134,20 @@ def tally_lineages(ts, metadata_db, show_progress=False):
         f" GROUP BY {key}"
     )
     data = []
+    date = datetime.datetime.fromisoformat(date)
     for row in result:
         pango = row[key]
+        lin_data = cov_lineages[pango]
+        earliest_date = datetime.datetime.fromisoformat(lin_data.earliest_date)
         data.append(
-            {"db_count": row["COUNT(*)"], "arg_count": counter[pango], "pango": pango}
+            {
+                "arg_count": counter[pango],
+                "db_count": row["COUNT(*)"],
+                "earliest_date": lin_data.earliest_date,
+                "latest_date": lin_data.latest_date,
+                "earliest_date_offset": (date - earliest_date).days,
+                "pango": pango,
+            }
         )
     return pd.DataFrame(data).sort_values("arg_count", ascending=False)
 
