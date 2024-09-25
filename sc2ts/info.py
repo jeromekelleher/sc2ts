@@ -1,4 +1,5 @@
 import collections
+import logging
 import warnings
 import dataclasses
 import datetime
@@ -15,6 +16,9 @@ from IPython.display import Markdown, HTML
 
 from . import core
 from . import utils
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -120,7 +124,7 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     key = "Viridian_pangolin"
     iterator = tqdm.tqdm(
         ts.samples()[1:],
-        desc="ARG",
+        desc="ARG metadata",
         disable=not show_progress,
     )
     for u in iterator:
@@ -134,10 +138,21 @@ def tally_lineages(ts, metadata_db, show_progress=False):
         f" GROUP BY {key}"
     )
     data = []
-    date = datetime.datetime.fromisoformat(date)
+    today = datetime.datetime.fromisoformat(date)
     for row in result:
         pango = row[key]
-        lin_data = cov_lineages[pango]
+        if pango in cov_lineages:
+            lin_data = cov_lineages[pango]
+        else:
+            logger.warning(f"Lineage {pango} not in cov-lineages dataset")
+            lin_data = core.CovLineage(".", date, date, "")
+        # Some lineages don't have an earliest date
+        if lin_data.earliest_date == "":
+            logger.warning(f"Lineage {pango} has no earliest date")
+            lin_data.earliest_date = "2019-12-01"
+        if lin_data.latest_date == "":
+            logger.warning(f"Lineage {pango} has no latest date")
+            lin_data.earliest_date = "2029-12-01"
         earliest_date = datetime.datetime.fromisoformat(lin_data.earliest_date)
         data.append(
             {
@@ -145,7 +160,7 @@ def tally_lineages(ts, metadata_db, show_progress=False):
                 "db_count": row["COUNT(*)"],
                 "earliest_date": lin_data.earliest_date,
                 "latest_date": lin_data.latest_date,
-                "earliest_date_offset": (date - earliest_date).days,
+                "earliest_date_offset": (today - earliest_date).days,
                 "pango": pango,
             }
         )

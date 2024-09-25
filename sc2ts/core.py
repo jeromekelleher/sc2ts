@@ -58,7 +58,7 @@ def get_problematic_sites():
     return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class CovLineage:
     name: str
     earliest_date: str
