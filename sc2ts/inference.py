@@ -519,6 +519,7 @@ def extend(
     num_mismatches=None,
     hmm_cost_threshold=None,
     min_group_size=None,
+    min_root_mutations=None,
     max_daily_samples=None,
     show_progress=False,
     retrospective_window=None,
@@ -531,6 +532,8 @@ def extend(
         hmm_cost_threshold = 5
     if min_group_size is None:
         min_group_size = 10
+    if min_root_mutations is None:
+        min_root_mutations = 2
     if retrospective_window is None:
         retrospective_window = 30
 
@@ -617,7 +620,7 @@ def extend(
         min_group_size=min_group_size,
         min_different_dates=3,  # TODO parametrise
         additional_group_metadata_keys=["Country"],  # TODO parametrise
-        min_root_mutations=3,  # TODO parametrise
+        min_root_mutations=min_root_mutations,
         additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="retro",
