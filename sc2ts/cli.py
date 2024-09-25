@@ -321,6 +321,13 @@ def summarise_base(ts, date, progress):
     help="Minimum size of groups of reconsidered samples for inclusion",
 )
 @click.option(
+    "--min-root-mutations",
+    default=2,
+    show_default=True,
+    type=int,
+    help="Minimum number of shared mutations for reconsidered sample groups"
+)
+@click.option(
     "--retrospective-window",
     default=30,
     show_default=True,
@@ -369,6 +376,7 @@ def extend(
     num_mismatches,
     hmm_cost_threshold,
     min_group_size,
+    min_root_mutations,
     retrospective_window,
     max_daily_samples,
     num_threads,
@@ -409,6 +417,7 @@ def extend(
             num_mismatches=num_mismatches,
             hmm_cost_threshold=hmm_cost_threshold,
             min_group_size=min_group_size,
+            min_root_mutations=min_root_mutations,
             retrospective_window=retrospective_window,
             max_daily_samples=max_daily_samples,
             random_seed=random_seed,
