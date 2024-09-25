@@ -1440,6 +1440,60 @@ class TreeInfo:
             attach_date=attach_date,
         )
 
+    def pango_lineage_details(self, pango):
+        samples = self.pango_lineage_samples[pango]
+        first_node = samples[0]
+        first_node_group = self.nodes_metadata[first_node]["sc2ts"].get(
+            "group_id", None
+        )
+        if first_node_group is None:
+            # print(self.ts.nodes_flags[first_node])
+            assert self.ts.nodes_flags[first_node] & sc2ts.NODE_IS_EXACT_MATCH > 0
+            sgi = None
+            tree = ts.first()
+            root = tree.parent(first_node)
+        else:
+            sgi = self.get_sample_group_info(first_node_group)
+            root = sgi.attach_node
+
+        earliest_strain = self.nodes_metadata[first_node]["strain"]
+        earliest_strain_date = self.nodes_metadata[first_node]["date"]
+        descendant_counts = np.zeros(self.ts.num_trees, dtype=int)
+        for tree in self.ts.trees(tracked_samples=samples):
+            descendant_counts[tree.index] = tree.num_tracked_samples(root)
+        return PangoLineageDetails(
+            pango,
+            num_samples=len(samples),
+            descendant_counts=descendant_counts,
+            earliest_strain=earliest_strain,
+            earliest_strain_date=earliest_strain_date,
+            root_node=root,
+            group_id=first_node_group,
+        )
+
+
+@dataclasses.dataclass
+class PangoLineageDetails:
+    name: str
+    num_samples: int
+    root_node: int
+    descendant_counts: None
+    earliest_strain: str
+    earliest_strain_date: str
+    group_id: str
+
+    def summary_dict(self):
+        return {
+            "name": self.name,
+            "num_samples": self.num_samples,
+            "earliest_strain": self.earliest_strain,
+            "earliest_strain_date": self.earliest_strain_date,
+            "max_descendant_count": np.max(self.descendant_counts),
+            "min_descendant_count": np.min(self.descendant_counts),
+            "root_node": self.root_node,
+            "group_id": self.group_id,
+        }
+
 
 @dataclasses.dataclass
 class SampleGroupInfo:
