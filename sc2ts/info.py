@@ -1432,6 +1432,20 @@ class TreeInfo:
             attach_date=attach_date,
         )
 
+def country_abbr(country):
+    return {
+        "United Kingdom": "UK",
+        "United States": "USA",
+        "South Africa": "SA",
+        "Australia": "AUS",
+        "Brazil": "BRA",
+        "Denmark": "DEN",
+        "France": "FRA",
+        "Germany": "GER",
+        "India": "IND",
+        "Italy": "ITA",
+    }.get(country, country)
+
 
 @dataclasses.dataclass
 class SampleGroupInfo:
@@ -1440,7 +1454,17 @@ class SampleGroupInfo:
     ts: tskit.TreeSequence
     attach_date: None
 
-    def draw_svg(self, size=(800, 600), time_scale=None, y_axis=True, mutation_labels=None, style=None, highlight_universal_mutations=None, x_regions=None, **kwargs):
+    def draw_svg(
+            self,
+            size=(800, 600),
+            time_scale=None,
+            y_axis=True,
+            mutation_labels=None,
+            style=None,
+            highlight_universal_mutations=None,
+            x_regions=None,
+            node_labels=None,
+            **kwargs):
         """
         Draw an SVG representation of the tree of samples that trace to a single origin.
 
@@ -1455,21 +1479,44 @@ class SampleGroupInfo:
         the samples (i.e. between the root and the MRCA of all the samples) are highlighted
         in bold and with thicker symbol lines
 
-        If genetic_regions is set, it should be a dictionary mapping gene names to
-        (start, end) tuples. These will be drawn as coloured rectangles on the x-axis. If None,
+        If genetic_regions is set, it should be a dictionary mapping (start, end) tuples
+        to region names. These will be drawn as coloured rectangles on the x-axis. If None,
         a default selection of SARS-CoV-2 genes will be used.
         """
         if x_regions is None:
             x_regions = {
-                "ORF1a": (266, 13468),
-                "ORF1b": (13468, 21555),
-                "Spike": (21563, 25384),
+                (266, 13468): "ORF1a",
+                (13468, 21555): "ORF1b",
+                (21563, 25384): "Spike",
             }
-
-
+        pango_md = "Viridian_pangolin"
+        ts = self.ts
         if style is None:
             style = ""
-        ts = self.ts
+
+        if node_labels == "strain":
+            node_labels = {
+                n.id: n.metadata["strain"] for n in ts.nodes() if "strain" in n.metadata
+            }
+        elif node_labels in ("pango", pango_md):
+            node_labels = {
+                n.id: n.metadata[pango_md] for n in ts.nodes() if pango_md in n.metadata
+            }
+        elif node_labels == "Country":
+            node_labels = {
+                n.id: n.metadata["Country"] for n in ts.nodes() if "Country" in n.metadata
+            }
+        elif node_labels == "Country_abbr":
+            node_labels = {
+                n.id: country_abbr(n.metadata["Country"])
+                for n in ts.nodes() if "Country" in n.metadata
+            }
+        elif node_labels == "pango+country":
+            node_labels = {
+                n.id: f"{n.metadata.get(pango_md, '')}:{country_abbr(n.metadata.get('Country', ''))}"
+                for n in ts.nodes() if pango_md in n.metadata or "Country" in n.metadata
+            }
+
         assert ts.num_trees == 1
         y_ticks = {
             ts.nodes_time[u]: ts.node(u).metadata["date"] for u in list(ts.samples())
@@ -1533,14 +1580,16 @@ class SampleGroupInfo:
         svg = self.ts.draw_svg(
             size=size,
             time_scale=time_scale,
-            y_axis=True,
+            y_axis=y_axis,
             mutation_labels=mutation_labels,
             y_ticks=y_ticks,
+            node_labels=node_labels,
             style="".join(styles) + style,
             **kwargs,
         )
 
-        # Hack to add genes to the X axis
+        # Hack to add genes to the X axis: we can replace this with the proper
+        # calls once https://github.com/tskit-dev/tskit/pull/3002 is in tskit
         if len(x_regions) > 0:
             assert svg.startswith("<svg")
             header = svg[:svg.find(">") + 1]
@@ -1560,11 +1609,11 @@ class SampleGroupInfo:
                     w=(p2-p1) * x_scale,
                     y=y1,
                     h=20)  # height of the box: hardcoded for now to match font height
-                for p1, p2 in x_regions.values()
+                for p1, p2 in x_regions.keys()
             ]
             x_names = [
                 x_name_svg.format(x=x1 + (p[0] + p[1])/2 * x_scale, y=y1+2, name=name)
-                for name, p in x_regions.items()
+                for p, name in x_regions.items()
             ]
             # add the new SVG to the old
             svg = (header + "".join(x_boxes) +  "".join(x_names) + footer) + svg
