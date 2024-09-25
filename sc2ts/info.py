@@ -1,6 +1,8 @@
 import collections
+import logging
 import warnings
 import dataclasses
+import datetime
 from typing import List
 
 import numba
@@ -14,6 +16,9 @@ from IPython.display import Markdown, HTML
 
 from . import core
 from . import utils
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -112,12 +117,14 @@ major_lineages = [
 
 
 def tally_lineages(ts, metadata_db, show_progress=False):
+    cov_lineages = core.get_cov_lineages_data()
+
     date = ts.metadata["sc2ts"]["date"]
     counter = collections.Counter()
     key = "Viridian_pangolin"
     iterator = tqdm.tqdm(
         ts.samples()[1:],
-        desc="ARG",
+        desc="ARG metadata",
         disable=not show_progress,
     )
     for u in iterator:
@@ -131,10 +138,31 @@ def tally_lineages(ts, metadata_db, show_progress=False):
         f" GROUP BY {key}"
     )
     data = []
+    today = datetime.datetime.fromisoformat(date)
     for row in result:
         pango = row[key]
+        if pango in cov_lineages:
+            lin_data = cov_lineages[pango]
+        else:
+            logger.warning(f"Lineage {pango} not in cov-lineages dataset")
+            lin_data = core.CovLineage(".", date, date, "")
+        # Some lineages don't have an earliest date
+        if lin_data.earliest_date == "":
+            logger.warning(f"Lineage {pango} has no earliest date")
+            lin_data.earliest_date = "2019-12-01"
+        if lin_data.latest_date == "":
+            logger.warning(f"Lineage {pango} has no latest date")
+            lin_data.earliest_date = "2029-12-01"
+        earliest_date = datetime.datetime.fromisoformat(lin_data.earliest_date)
         data.append(
-            {"db_count": row["COUNT(*)"], "arg_count": counter[pango], "pango": pango}
+            {
+                "arg_count": counter[pango],
+                "db_count": row["COUNT(*)"],
+                "earliest_date": lin_data.earliest_date,
+                "latest_date": lin_data.latest_date,
+                "earliest_date_offset": (today - earliest_date).days,
+                "pango": pango,
+            }
         )
     return pd.DataFrame(data).sort_values("arg_count", ascending=False)
 
