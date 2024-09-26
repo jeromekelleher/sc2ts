@@ -27,12 +27,12 @@ options+="--num-mismatches $mismatches"
 
 mkdir -p $resultsdir
 
-# date=2000-01-01
-# last_ts=$resultsdir/initial.ts
-# python3 -m sc2ts initialise $last_ts $matches
+date=2000-01-01
+last_ts=$resultsdir/initial.ts
+python3 -m sc2ts initialise $last_ts $matches
 
-date=2020-03-01
-last_ts="$results_prefix$date".ts
+# date=2020-03-01
+# last_ts="$results_prefix$date".ts
 
 dates=`python3 -m sc2ts list-dates --after $date $metadata | grep -v 2021-12-31`
 for date in $dates; do

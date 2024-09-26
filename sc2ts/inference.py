@@ -331,6 +331,7 @@ def increment_time(date, ts):
 class Sample:
     strain: str
     date: str
+    pango: str = "Unknown"
     metadata: Dict = dataclasses.field(default_factory=dict)
     alignment_qc: Dict = dataclasses.field(default_factory=dict)
     masked_sites: List = dataclasses.field(default_factory=list)
@@ -346,9 +347,8 @@ class Sample:
         return len(self.hmm_match.path) > 1
 
     def summary(self):
-        pango = self.metadata.get("Viridian_pangolin", "Unknown")
         hmm_match = "No match" if self.hmm_match is None else self.hmm_match.summary()
-        s = f"{self.strain} {self.date} {pango} {hmm_match}"
+        s = f"{self.strain} {self.date} {self.pango} {hmm_match}"
         for name, hmm_match in self.hmm_reruns.items():
             s += f"; {name}: {hmm_match.summary()}"
         return s
@@ -472,7 +472,14 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
-def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
+def preprocess(
+    samples_md,
+    base_ts,
+    date,
+    alignment_store,
+    pango_lineage_key="pango",
+    show_progress=False,
+):
     keep_sites = base_ts.sites_position.astype(int)
     problematic_sites = core.get_problematic_sites()
 
@@ -485,7 +492,9 @@ def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
             except KeyError:
                 logger.debug(f"No alignment stored for {strain}")
                 continue
-            sample = Sample(strain, date, metadata=md)
+            sample = Sample(
+                strain, date, md.get(pango_lineage_key, "PangoUnknown"), metadata=md
+            )
             ma = alignments.encode_and_mask(alignment)
             # Always mask the problematic_sites as well. We need to do this
             # for follow-up matching to inspect recombinants, as tsinfer
@@ -571,6 +580,7 @@ def extend(
         base_ts,
         date,
         alignment_store,
+        pango_lineage_key="Viridian_pangolin",  # TODO parametrise
         show_progress=show_progress,
     )
 
@@ -598,7 +608,7 @@ def extend(
     ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
 
     logger.info(f"Update ARG with low-cost samples for {date}")
-    ts = add_matching_results(
+    ts, _ = add_matching_results(
         f"match_date=='{date}' and hmm_cost>0 and hmm_cost<={hmm_cost_threshold}",
         ts=ts,
         match_db=match_db,
@@ -612,7 +622,7 @@ def extend(
     logger.info("Looking for retrospective matches")
     assert min_group_size is not None
     earliest_date = parse_date(date) - datetime.timedelta(days=retrospective_window)
-    ts = add_matching_results(
+    ts, groups = add_matching_results(
         f"match_date<'{date}' AND match_date>'{earliest_date}'",
         ts=ts,
         match_db=match_db,
@@ -625,6 +635,8 @@ def extend(
         show_progress=show_progress,
         phase="retro",
     )
+    for group in groups:
+        logger.warning(f"Add retro group {dict(group.pango_count)}")
     return update_top_level_metadata(ts, date)
 
 
@@ -728,21 +740,24 @@ class SampleGroup:
     immediate_reversions: List = None
     additional_keys: Dict = None
     sample_hash: str = None
-    date_count: dict = dataclasses.field(default_factory=collections.Counter)
 
     def __post_init__(self):
-        strains = []
-        for s in self.samples:
-            self.date_count[s.date] += 1
-            strains.append(s.strain)
         m = hashlib.md5()
-        for strain in sorted(strains):
+        for strain in sorted(self.strains):
             m.update(strain.encode())
         self.sample_hash = m.hexdigest()
 
     @property
     def strains(self):
         return [s.strain for s in self.samples]
+
+    @property
+    def date_count(self):
+        return collections.Counter([s.date for s in self.samples])
+
+    @property
+    def pango_count(self):
+        return collections.Counter([s.pango for s in self.samples])
 
     def __len__(self):
         return len(self.samples)
@@ -752,11 +767,12 @@ class SampleGroup:
 
     def summary(self):
         return (
-            f"Group {self.sample_hash} {len(self.samples)} samples "
+            f"{self.sample_hash} n={len(self.samples)} "
             f"{dict(self.date_count)} "
-            f"attaching at {path_summary(self.path)}, "
-            f"immediate_reversions={self.immediate_reversions}, "
-            f"additional_keys={self.additional_keys};"
+            f"{dict(self.pango_count)} "
+            f"immediate_reversions={self.immediate_reversions} "
+            f"additional_keys={self.additional_keys} "
+            f"path={path_summary(self.path)} "
             f"strains={self.strains}"
         )
 
@@ -796,7 +812,7 @@ def add_matching_results(
 
     if num_samples == 0:
         logger.info("No candidate samples found in MatchDb")
-        return ts
+        return ts, []
 
     groups = [
         SampleGroup(
@@ -812,6 +828,7 @@ def add_matching_results(
     tables = ts.dump_tables()
 
     attach_nodes = []
+    added_groups = []
     with get_progress(groups, date, f"add({phase})", show_progress) as bar:
         for group in bar:
             if (
@@ -852,12 +869,14 @@ def add_matching_results(
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
             nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
             logger.debug(
-                f"Attach {phase} {group.summary()}; "
-                f"depth={attach_depth} total_muts{poly_ts.num_mutations} "
+                f"Attach {phase} "
+                f"depth={attach_depth} total_muts={poly_ts.num_mutations} "
                 f"root_muts={num_root_mutations} "
-                f"recurrent_muts={num_recurrent_mutations} attach_nodes={nodes}"
+                f"recurrent_muts={num_recurrent_mutations} attach_nodes={len(nodes)} "
+                f"group={group.summary()}"
             )
             attach_nodes.extend(nodes)
+            added_groups.append(group)
 
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
@@ -880,7 +899,7 @@ def add_matching_results(
     ts = push_up_reversions(ts, attach_nodes, date)
     ts = coalesce_mutations(ts, attach_nodes)
     ts = delete_immediate_reversion_nodes(ts, attach_nodes)
-    return ts
+    return ts, added_groups
 
 
 def solve_num_mismatches(k):

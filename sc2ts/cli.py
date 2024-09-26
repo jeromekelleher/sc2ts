@@ -16,7 +16,6 @@ import tskit
 import tszip
 import tsinfer
 import click
-import daiquiri
 import humanize
 import pandas as pd
 
@@ -100,20 +99,28 @@ def setup_logging(verbosity, log_file=None):
         log_level = "INFO"
     if verbosity > 1:
         log_level = "DEBUG"
-    outputs = ["stderr"]
+    handler = logging.StreamHandler()
     if log_file is not None:
-        outputs = [daiquiri.output.File(log_file)]
-    # Note using set_excepthook=False means that we don't write errors
-    # to the log, so if something happens we'll only see it if we look
-    # at the console output. For development this is better than having
-    # to go to the log to see the traceback, but for production it may
-    # be better to let daiquiri record the errors as well.
-    daiquiri.setup(outputs=outputs, set_excepthook=False)
-    # Only show stuff coming from sc2ts and the relevant bits of tsinfer.
-    logger = logging.getLogger("sc2ts")
-    logger.setLevel(log_level)
-    logger = logging.getLogger("tsinfer.inference")
-    logger.setLevel(log_level)
+        handler = logging.FileHandler(log_file)
+    # default time format has millisecond precision which we don't need
+    time_format = "%Y-%m-%d %H:%M:%S"
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s", datefmt=time_format
+    )
+    handler.setFormatter(fmt)
+
+    # This is mainly used to output messages about major events. Possibly
+    # should do this with a separate logger entirely, rather than use
+    # the "WARNING" channel.
+    warn_handler = logging.StreamHandler()
+    warn_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    warn_handler.setLevel(logging.WARN)
+
+    for name in ["sc2ts", "tsinfer.inference"]:
+        logger = logging.getLogger(name)
+        logger.setLevel(log_level)
+        logger.addHandler(handler)
+        logger.addHandler(warn_handler)
 
 
 # TODO add options to list keys, dump specific alignments etc
@@ -325,7 +332,7 @@ def summarise_base(ts, date, progress):
     default=2,
     show_default=True,
     type=int,
-    help="Minimum number of shared mutations for reconsidered sample groups"
+    help="Minimum number of shared mutations for reconsidered sample groups",
 )
 @click.option(
     "--retrospective-window",
@@ -503,7 +510,6 @@ def tally_lineages(ts, metadata, verbose):
     with sc2ts.MetadataDb(metadata) as metadata_db:
         df = info.tally_lineages(ts, metadata_db, show_progress=True)
     df.to_csv(sys.stdout, sep="\t", index=False)
-
 
 
 def examine_recombinant(work):
