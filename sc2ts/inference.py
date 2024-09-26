@@ -20,7 +20,7 @@ import scipy.cluster.hierarchy
 import zarr
 import numba
 import pandas as pd
-from biotite.sequence.phylo import neighbor_joining
+import biotite.sequence.phylo as bsp
 
 
 from . import core
@@ -656,9 +656,7 @@ def update_top_level_metadata(ts, date):
     return tables.tree_sequence()
 
 
-def add_sample_to_tables(
-    sample, tables, flags=tskit.NODE_IS_SAMPLE, time=0, group_id=None
-):
+def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=None):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
         "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
@@ -678,13 +676,13 @@ def match_path_ts(group):
     tables = tskit.TableCollection(core.REFERENCE_SEQUENCE_LENGTH)
     tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
     tables.mutations.metadata_schema = tskit.MetadataSchema.permissive_json()
-    tables.nodes.add_row(time=1)
     site_id_map = {}
     first_sample = len(tables.nodes)
+    root = len(group)
     for sample in group:
         assert sample.hmm_match.path == list(group.path)
         node_id = add_sample_to_tables(sample, tables, group_id=group.sample_hash)
-        tables.edges.add_row(0, tables.sequence_length, parent=0, child=node_id)
+        tables.edges.add_row(0, tables.sequence_length, parent=root, child=node_id)
         for mut in sample.hmm_match.mutations:
             if (mut.site_id, mut.derived_state) in group.immediate_reversions:
                 # We don't include any of the marked reversions so that they
@@ -701,6 +699,8 @@ def match_path_ts(group):
                 time=0,
                 derived_state=mut.derived_state,
             )
+    # add the root
+    tables.nodes.add_row(time=1)
     tables.sort()
     return tables.tree_sequence()
 
@@ -1628,21 +1628,54 @@ class Matcher(tsinfer.SampleMatcher):
 #         parent[rc] = u
 #     return parent[:-1], time[:-1]
 
+
 def _biotite_attached_nodes(biotite_node):
     children = biotite_node.children or tuple()
     if biotite_node.parent is None:
         return children
-    return children + (biotite_node.parent, )
+    return children + (biotite_node.parent,)
 
 
-def infer_binary(ts):
+def biotite_to_tskit(tree):
     """
-    Infer a strictly binary tree from the variation data in the
-    specified tree sequence.
+    Returns a tskit tree sequence with the topology of the specified biotite tree.
     """
-    if ts.num_samples == 2:
-        return ts  # No need to infer a new tree
+    tables = tskit.TableCollection(1)
+    node_map = {}
+    for node in tree.leaves:
+        u = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE)
+        node_map[node] = u
+        assert u == node.get_indices()[0]
 
+    stack = [tree.root]
+    while len(stack) > 0:
+        node = stack.pop()
+        if not node.is_leaf():
+            node_map[node] = tables.nodes.add_row()
+            for child in node.children:
+                stack.append(child)
+        if node.parent is not None:
+            tables.edges.add_row(
+                0, 1, parent=node_map[node.parent], child=node_map[node]
+            )
+
+    pi = np.full(len(tables.nodes), -1, dtype=int)
+    tau = np.full(len(tables.nodes), -1, dtype=float)
+    pi[tables.edges.child] = tables.edges.parent
+    for sample in np.where(tables.nodes.flags == tskit.NODE_IS_SAMPLE)[0]:
+        t = 0
+        u = sample
+        while u != -1:
+            tau[u] = max(tau[u], t)
+            t += 1
+            u = pi[u]
+    tables.nodes.time = tau
+
+    tables.sort()
+    return tables.tree_sequence().first()
+
+
+def infer_binary_topology(ts):
     epsilon = 1e-6  # used in rerooting: separate internal nodes from samples by this
     assert ts.num_trees == 1
     root = ts.first().root
@@ -1654,59 +1687,87 @@ def infer_binary(ts):
     tables.mutations.clear()
 
     # can only use simplify later to match the samples if the originals are at the start
-    assert set(ts.samples()) == set(np.arange(ts.num_samples))
+    # assert set(ts.samples()) == set(np.arange(ts.num_samples))
     assert not ts.node(root).is_sample()
 
     # Include the root as a sample node for tree-rerooting purposes
-    sample_indexes = np.concatenate((ts.samples(), [root]))
-    G = ts.genotype_matrix(samples=sample_indexes, isolated_as_missing=False)
+    # sample_indexes = np.concatenate((ts.samples(), [root]))
+    # G = ts.genotype_matrix(samples=sample_indexes, isolated_as_missing=False)
+    G = ts.genotype_matrix()
     # Hamming distance should be suitable here because it's giving the overall
     # number of differences between the observations. Euclidean is definitely
     # not because of the allele encoding (difference between 0 and 4 is not
     # greater than 0 and 1).
     Y = scipy.spatial.distance.pdist(G.T, "hamming")
-    nj_tree = neighbor_joining(scipy.spatial.distance.squareform(Y))
+    nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
+    print(nj_tree)
+    ts2 = biotite_to_tskit(nj_tree)
 
-    # Extract the NJ tree, but rooted at the last leaf
-    root = nj_tree.leaves[-1]  # root is the last entry of the distance matrix
-    time = ts.nodes_time[sample_indexes[root.index]]
-    parent = tables.nodes.add_row(time=time)
-    L = tables.sequence_length
-    stack = [(root, None, parent, time)]
-    node_map = {}
-    while len(stack) > 0:
-        node, prev_node, parent, time = stack.pop()
-        for new_node in _biotite_attached_nodes(node):
-            assert new_node is not None
-            if new_node is not prev_node:
-                if new_node.is_leaf():
-                    ts_node = ts.node(sample_indexes[new_node.index])
-                    new_time = ts_node.time
-                    if time <= new_time:
-                        raise ValueError(
-                            f"Child leaf {sample_indexes[new_node.index]} has time {new_time} but parent {parent} is at time {time}")
-                    u = tables.nodes.append(ts_node)
-                else:
-                    new_time = time - epsilon
-                    u = tables.nodes.add_row(time=new_time)
-                assert new_time < tables.nodes[parent].time
-                tables.edges.add_row(parent=parent, child=u, left=0, right=L)
-                if new_node.is_leaf():
-                    node_map[sample_indexes[new_node.index]] = u
-                    # print("added internal", u, f"at time {time} (parent is {parent})")
-                else:
-                    stack.append((new_node, node, u, new_time))
-                    # print("made leaf", u, f"(was {sample_indexes[new_node.index]}) at time {time} (parent is {parent})")
-    tables.sort()
-    # Line below makes nodes in the new TS map to those in the old
-    tables.simplify([node_map[u] for u in np.arange(ts.num_samples)])
-    new_ts = tables.tree_sequence()
+    # # Extract the NJ tree, but rooted at the last leaf
+    # root = nj_tree.leaves[-1]  # root is the last entry of the distance matrix
+    # time = 1
+    # parent = tables.nodes.add_row(time=time)
+    # L = tables.sequence_length
+    # stack = [(root, None, parent, time)]
+    # node_map = {}
+    # while len(stack) > 0:
+    #     node, prev_node, parent, time = stack.pop()
+    #     for new_node in _biotite_attached_nodes(node):
+    #         print(new_node)
+    #         assert new_node is not None
+    #         if new_node is not prev_node:
+    #             if new_node.is_leaf():
+    #                 ts_node = ts.node(sample_indexes[new_node.index])
+    #                 new_time = ts_node.time
+    #                 u = tables.nodes.append(ts_node)
+    #             else:
+    #                 new_time = time - epsilon
+    #                 u = tables.nodes.add_row(time=new_time)
+    #             assert new_time < tables.nodes[parent].time
+    #             tables.edges.add_row(parent=parent, child=u, left=0, right=L)
+    #             if new_node.is_leaf():
+    #                 node_map[sample_indexes[new_node.index]] = u
+    #                 # print("added internal", u, f"at time {time} (parent is {parent})")
+    #             else:
+    #                 stack.append((new_node, node, u, new_time))
+    #                 # print("made leaf", u, f"(was {sample_indexes[new_node.index]}) at
+    #                 # time {time} (parent is {parent})")
+    # tables.sort()
+    # # Line below makes nodes in the new TS map to those in the old
+    # tables.simplify([node_map[u] for u in np.arange(ts.num_samples)])
+    # new_ts = tables.tree_sequence()
+
+    assert list(new_ts.samples()) == list(ts.samples())
     assert new_ts.num_samples == ts.num_samples
     assert new_ts.num_trees == 1
+    return new_ts
 
-    # Now add on mutations
+
+def infer_binary(ts):
+    """
+    Infer a strictly binary tree from the variation data in the
+    specified tree sequence.
+    """
+    assert list(ts.samples()) == list(range(ts.num_samples))
+
+    if ts.num_samples <= 1 or ts.num_mutations == 0:
+        # No need to infer a new tree. Note even for two samples we can have an
+        # unparsimonious arrangement of mutations.
+        return ts
+    if ts.num_samples == 2:
+        binary_ts = ts
+    else:
+        binary_ts = infer_binary_topology(ts)
+
+    assert list(binary_ts.samples()) == list(ts.samples())
+
+    tables = binary_ts.dump_tables()
+    tables.mutations.clear()
+    tables.sites.clear()
+    # Now add on mutations under parsimony
+    tree = binary_ts.first()
     for v in ts.variants():
-        anc, muts = new_ts.first().map_mutations(
+        anc, muts = tree.map_mutations(
             v.genotypes, v.alleles, ancestral_state=v.site.ancestral_state
         )
         site = tables.sites.add_row(v.site.position, anc)
@@ -1717,9 +1778,7 @@ def infer_binary(ts):
                 derived_state=mut.derived_state,
             )
     new_ts = tables.tree_sequence()
-    # Can probably comment out the assert below, it it slows things down
-    for v1, v2 in zip(ts.variants(), new_ts.variants()):
-        assert np.all(np.array(v1.alleles)[v1.genotypes] == np.array(v2.alleles)[v2.genotypes])
+    # print(new_ts.draw_text())
     return new_ts
 
 
