@@ -608,7 +608,7 @@ def extend(
     ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
 
     logger.info(f"Update ARG with low-cost samples for {date}")
-    ts = add_matching_results(
+    ts, _ = add_matching_results(
         f"match_date=='{date}' and hmm_cost>0 and hmm_cost<={hmm_cost_threshold}",
         ts=ts,
         match_db=match_db,
@@ -622,7 +622,7 @@ def extend(
     logger.info("Looking for retrospective matches")
     assert min_group_size is not None
     earliest_date = parse_date(date) - datetime.timedelta(days=retrospective_window)
-    ts = add_matching_results(
+    ts, groups = add_matching_results(
         f"match_date<'{date}' AND match_date>'{earliest_date}'",
         ts=ts,
         match_db=match_db,
@@ -635,6 +635,8 @@ def extend(
         show_progress=show_progress,
         phase="retro",
     )
+    for group in groups:
+        logger.warning(f"Add retro group {dict(group.pango_count)}")
     return update_top_level_metadata(ts, date)
 
 
@@ -810,7 +812,7 @@ def add_matching_results(
 
     if num_samples == 0:
         logger.info("No candidate samples found in MatchDb")
-        return ts
+        return ts, []
 
     groups = [
         SampleGroup(
@@ -826,6 +828,7 @@ def add_matching_results(
     tables = ts.dump_tables()
 
     attach_nodes = []
+    added_groups = []
     with get_progress(groups, date, f"add({phase})", show_progress) as bar:
         for group in bar:
             if (
@@ -873,6 +876,7 @@ def add_matching_results(
                 f"group={group.summary()}"
             )
             attach_nodes.extend(nodes)
+            added_groups.append(group)
 
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
@@ -895,7 +899,7 @@ def add_matching_results(
     ts = push_up_reversions(ts, attach_nodes, date)
     ts = coalesce_mutations(ts, attach_nodes)
     ts = delete_immediate_reversion_nodes(ts, attach_nodes)
-    return ts
+    return ts, added_groups
 
 
 def solve_num_mismatches(k):
