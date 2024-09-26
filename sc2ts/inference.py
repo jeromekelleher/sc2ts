@@ -331,6 +331,7 @@ def increment_time(date, ts):
 class Sample:
     strain: str
     date: str
+    pango: str = "Unknown"
     metadata: Dict = dataclasses.field(default_factory=dict)
     alignment_qc: Dict = dataclasses.field(default_factory=dict)
     masked_sites: List = dataclasses.field(default_factory=list)
@@ -346,9 +347,8 @@ class Sample:
         return len(self.hmm_match.path) > 1
 
     def summary(self):
-        pango = self.metadata.get("Viridian_pangolin", "Unknown")
         hmm_match = "No match" if self.hmm_match is None else self.hmm_match.summary()
-        s = f"{self.strain} {self.date} {pango} {hmm_match}"
+        s = f"{self.strain} {self.date} {self.pango} {hmm_match}"
         for name, hmm_match in self.hmm_reruns.items():
             s += f"; {name}: {hmm_match.summary()}"
         return s
@@ -472,7 +472,14 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
-def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
+def preprocess(
+    samples_md,
+    base_ts,
+    date,
+    alignment_store,
+    pango_lineage_key="pango",
+    show_progress=False,
+):
     keep_sites = base_ts.sites_position.astype(int)
     problematic_sites = core.get_problematic_sites()
 
@@ -485,7 +492,9 @@ def preprocess(samples_md, base_ts, date, alignment_store, show_progress=False):
             except KeyError:
                 logger.debug(f"No alignment stored for {strain}")
                 continue
-            sample = Sample(strain, date, metadata=md)
+            sample = Sample(
+                strain, date, md.get(pango_lineage_key, "PangoUnknown"), metadata=md
+            )
             ma = alignments.encode_and_mask(alignment)
             # Always mask the problematic_sites as well. We need to do this
             # for follow-up matching to inspect recombinants, as tsinfer
@@ -571,6 +580,7 @@ def extend(
         base_ts,
         date,
         alignment_store,
+        pango_lineage_key="Viridian_pangolin",  # TODO parametrise
         show_progress=show_progress,
     )
 
