@@ -738,21 +738,24 @@ class SampleGroup:
     immediate_reversions: List = None
     additional_keys: Dict = None
     sample_hash: str = None
-    date_count: dict = dataclasses.field(default_factory=collections.Counter)
 
     def __post_init__(self):
-        strains = []
-        for s in self.samples:
-            self.date_count[s.date] += 1
-            strains.append(s.strain)
         m = hashlib.md5()
-        for strain in sorted(strains):
+        for strain in sorted(self.strains):
             m.update(strain.encode())
         self.sample_hash = m.hexdigest()
 
     @property
     def strains(self):
         return [s.strain for s in self.samples]
+
+    @property
+    def date_count(self):
+        return collections.Counter([s.date for s in self.samples])
+
+    @property
+    def pango_count(self):
+        return collections.Counter([s.pango for s in self.samples])
 
     def __len__(self):
         return len(self.samples)
@@ -762,11 +765,12 @@ class SampleGroup:
 
     def summary(self):
         return (
-            f"Group {self.sample_hash} {len(self.samples)} samples "
+            f"{self.sample_hash} n={len(self.samples)} "
             f"{dict(self.date_count)} "
-            f"attaching at {path_summary(self.path)}, "
-            f"immediate_reversions={self.immediate_reversions}, "
-            f"additional_keys={self.additional_keys};"
+            f"{dict(self.pango_count)} "
+            f"immediate_reversions={self.immediate_reversions} "
+            f"additional_keys={self.additional_keys} "
+            f"path={path_summary(self.path)} "
             f"strains={self.strains}"
         )
 
@@ -862,10 +866,11 @@ def add_matching_results(
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
             nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
             logger.debug(
-                f"Attach {phase} {group.summary()}; "
-                f"depth={attach_depth} total_muts{poly_ts.num_mutations} "
+                f"Attach {phase} "
+                f"depth={attach_depth} total_muts={poly_ts.num_mutations} "
                 f"root_muts={num_root_mutations} "
-                f"recurrent_muts={num_recurrent_mutations} attach_nodes={nodes}"
+                f"recurrent_muts={num_recurrent_mutations} attach_nodes={len(nodes)} "
+                f"group={group.summary()}"
             )
             attach_nodes.extend(nodes)
 
