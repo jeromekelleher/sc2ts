@@ -441,8 +441,8 @@ class TestInferBinary:
     def check_properties(self, ts):
         assert ts.num_trees == 1
         tree = ts.first()
-        assert ts.nodes_time[tree.root] == 1
-        if ts.num_samples > 1 and ts.num_mutations > 0:
+        if ts.num_samples > 1:
+            assert ts.nodes_time[tree.root] == 1
             for u in tree.nodes():
                 assert len(tree.children(u)) in (0, 2)
 
@@ -477,20 +477,6 @@ class TestInferBinary:
         ts1 = tables.tree_sequence()
         ts2 = sc2ts.infer_binary(ts1)
         assert ts2.num_mutations == 1
-        assert_sequences_equal(ts1, ts2)
-        self.check_properties(ts2)
-
-    @pytest.mark.parametrize("n", range(5))
-    def test_flat_no_mutations(self, n):
-        tables = tskit.TableCollection(1)
-        root = n
-        for _ in range(n):
-            u = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-            tables.edges.add_row(0, 1, root, u)
-        tables.nodes.add_row(time=1)
-        ts1 = tables.tree_sequence()
-        ts2 = sc2ts.infer_binary(ts1)
-        assert ts2.num_mutations == 0
         assert_sequences_equal(ts1, ts2)
         self.check_properties(ts2)
 

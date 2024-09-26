@@ -665,7 +665,7 @@ def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=No
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
-    return tables.nodes.add_row(flags=flags, time=time, metadata=metadata)
+    return tables.nodes.add_row(flags=flags, metadata=metadata)
 
 
 def match_path_ts(group):
@@ -1614,36 +1614,26 @@ class Matcher(tsinfer.SampleMatcher):
         return self.results
 
 
-# def _linkage_matrix_to_tskit(Z):
-#     n = Z.shape[0] + 1
-#     N = 2 * n
-#     parent = np.full(N, -1, dtype=np.int32)
-#     time = np.full(N, 0, dtype=np.float64)
-#     for j, row in enumerate(Z):
-#         u = n + j
-#         lc = int(row[0])
-#         time[u] = j + 1
-#         rc = int(row[1])
-#         parent[lc] = u
-#         parent[rc] = u
-#     return parent[:-1], time[:-1]
-
-
-def _biotite_attached_nodes(biotite_node):
-    children = biotite_node.children or tuple()
-    if biotite_node.parent is None:
-        return children
-    return children + (biotite_node.parent,)
-
-
 def biotite_to_tskit(tree):
     """
-    Returns a tskit tree sequence with the topology of the specified biotite tree.
+    Returns a tskit tree with the topology of the specified biotite tree.
+
+    This is just a wrapper to facilitate testing.
     """
     tables = tskit.TableCollection(1)
-    node_map = {}
     for node in tree.leaves:
-        u = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE)
+    biotite_to_tskit_tables(tree, tables)
+    return tables.tree_sequence().first()
+
+
+def biotite_to_tskit_tables(tree, tables):
+    """
+    Updates the specified set of tables with the biotite tree.
+    """
+    L = tables.sequence_length
+    node_map = {}
+    for u, node in enumerate(tree.leaves):
         node_map[node] = u
         assert u == node.get_indices()[0]
 
@@ -1656,9 +1646,10 @@ def biotite_to_tskit(tree):
                 stack.append(child)
         if node.parent is not None:
             tables.edges.add_row(
-                0, 1, parent=node_map[node.parent], child=node_map[node]
+                0, L, parent=node_map[node.parent], child=node_map[node]
             )
 
+    # Add times using max number of hops from leaves
     pi = np.full(len(tables.nodes), -1, dtype=int)
     tau = np.full(len(tables.nodes), -1, dtype=float)
     pi[tables.edges.child] = tables.edges.parent
@@ -1669,39 +1660,40 @@ def biotite_to_tskit(tree):
             tau[u] = max(tau[u], t)
             t += 1
             u = pi[u]
-    tables.nodes.time = tau
-
+    tables.nodes.time = tau / max(1, np.max(tau))
     tables.sort()
-    return tables.tree_sequence().first()
 
 
-def infer_binary_topology(ts):
-    epsilon = 1e-6  # used in rerooting: separate internal nodes from samples by this
+def infer_binary_topology(ts, tables):
     assert ts.num_trees == 1
-    root = ts.first().root
-    tables = ts.dump_tables()
-    # Don't clear popualtions for simplicity
-    tables.nodes.clear()
-    tables.edges.clear()
-    tables.sites.clear()
-    tables.mutations.clear()
+    assert ts.num_mutations > 0
 
-    # can only use simplify later to match the samples if the originals are at the start
-    # assert set(ts.samples()) == set(np.arange(ts.num_samples))
-    assert not ts.node(root).is_sample()
+    if ts.num_samples < 2:
+        return tables.tree_sequence()
+
+    # epsilon = 1e-6  # used in rerooting: separate internal nodes from samples by this
+    # assert ts.num_trees == 1
+
+    # # can only use simplify later to match the samples if the originals are at the start
+    # # assert set(ts.samples()) == set(np.arange(ts.num_samples))
+    # assert not ts.node(root).is_sample()
 
     # Include the root as a sample node for tree-rerooting purposes
     # sample_indexes = np.concatenate((ts.samples(), [root]))
     # G = ts.genotype_matrix(samples=sample_indexes, isolated_as_missing=False)
     G = ts.genotype_matrix()
+
     # Hamming distance should be suitable here because it's giving the overall
     # number of differences between the observations. Euclidean is definitely
     # not because of the allele encoding (difference between 0 and 4 is not
     # greater than 0 and 1).
     Y = scipy.spatial.distance.pdist(G.T, "hamming")
-    nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
-    print(nj_tree)
-    ts2 = biotite_to_tskit(nj_tree)
+
+    # nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
+    nj_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
+    # print(nj_tree)
+    biotite_to_tskit_tables(nj_tree, tables)
+    # print(tsk_tree.draw_text())
 
     # # Extract the NJ tree, but rooted at the last leaf
     # root = nj_tree.leaves[-1]  # root is the last entry of the distance matrix
@@ -1737,10 +1729,10 @@ def infer_binary_topology(ts):
     # tables.simplify([node_map[u] for u in np.arange(ts.num_samples)])
     # new_ts = tables.tree_sequence()
 
-    assert list(new_ts.samples()) == list(ts.samples())
-    assert new_ts.num_samples == ts.num_samples
-    assert new_ts.num_trees == 1
-    return new_ts
+    # assert list(new_ts.samples()) == list(ts.samples())
+    # assert new_ts.num_samples == ts.num_samples
+    # assert new_ts.num_trees == 1
+    return tables.tree_sequence()
 
 
 def infer_binary(ts):
@@ -1748,22 +1740,20 @@ def infer_binary(ts):
     Infer a strictly binary tree from the variation data in the
     specified tree sequence.
     """
+    assert ts.num_trees == 1
     assert list(ts.samples()) == list(range(ts.num_samples))
-
-    if ts.num_samples <= 1 or ts.num_mutations == 0:
-        # No need to infer a new tree. Note even for two samples we can have an
-        # unparsimonious arrangement of mutations.
-        return ts
-    if ts.num_samples == 2:
-        binary_ts = ts
-    else:
-        binary_ts = infer_binary_topology(ts)
-
-    assert list(binary_ts.samples()) == list(ts.samples())
-
-    tables = binary_ts.dump_tables()
-    tables.mutations.clear()
+    tables = ts.dump_tables()
+    # Don't clear populations for simplicity
+    tables.edges.clear()
     tables.sites.clear()
+    tables.mutations.clear()
+    # Preserve the samples
+    tables.nodes.truncate(ts.num_samples)
+
+    # Update the tables with the topology
+    infer_binary_topology(ts, tables)
+    binary_ts = tables.tree_sequence()
+
     # Now add on mutations under parsimony
     tree = binary_ts.first()
     for v in ts.variants():

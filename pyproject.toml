@@ -22,6 +22,7 @@ dependencies = [
   "zarr<2.18",
   "humanize",
   "resource",
+  "biotite",
 ]
 dynamic = ["version"]
 
