@@ -528,103 +528,6 @@ class TestFromBiotite:
         self.check_round_trip(tsk_tree)
 
 
-from typing import List
-import dataclasses
-
-
-@dataclasses.dataclass
-class QuintuplyLinkedTree:
-    parent: List
-    left_child: List
-    right_child: List
-    left_sib: List
-    right_sib: List
-
-    def __str__(self):
-        s = "id\tparent\tlchild\trchild\tlsib\trsib\n"
-        for j in range(len(self.parent)):
-            s += (
-                f"{j}\t{self.parent[j]}\t"
-                f"{self.left_child[j]}\t{self.right_child[j]}\t"
-                f"{self.left_sib[j]}\t{self.right_sib[j]}\n"
-            )
-        return s
-
-    def remove_branch(self, p, c):
-        lsib = self.left_sib[c]
-        rsib = self.right_sib[c]
-        if lsib == -1:
-            self.left_child[p] = rsib
-        else:
-            self.right_sib[lsib] = rsib
-        if rsib == -1:
-            self.right_child[p] = lsib
-        else:
-            self.left_sib[rsib] = lsib
-        self.parent[c] = -1
-        self.left_sib[c] = -1
-        self.right_sib[c] = -1
-
-    def insert_branch(self, p, c):
-        assert self.parent[c] == -1, "contradictory edges"
-        self.parent[c] = p
-        u = self.right_child[p]
-        if u == -1:
-            self.left_child[p] = c
-            self.left_sib[c] = -1
-            self.right_sib[c] = -1
-        else:
-            self.right_sib[u] = c
-            self.left_sib[c] = u
-            self.right_sib[c] = -1
-        self.right_child[p] = c
-
-    def push_up(self, u):
-        """
-        Push the node u one level up the tree
-        """
-        parent = self.parent[u]
-        assert parent != -1
-        self.remove_branch(parent, u)
-        grandparent = self.parent[parent]
-        if grandparent != -1:
-            self.remove_branch(grandparent, parent)
-            self.insert_branch(grandparent, u)
-        self.insert_branch(u, parent)
-
-
-def reroot(ts, new_root, scale_time=False):
-    """
-    Reroot the tree around the specified node, keeping node IDs
-    the same.
-    """
-    assert ts.num_trees == 1
-    tree = ts.first()
-    qlt = QuintuplyLinkedTree(
-        left_child=tree.left_child_array.copy(),
-        left_sib=tree.left_sib_array.copy(),
-        right_child=tree.right_child_array.copy(),
-        right_sib=tree.right_sib_array.copy(),
-        parent=tree.parent_array.copy(),
-    )
-
-    # print()
-    # print(qlt)
-    while qlt.parent[new_root] != -1:
-        qlt.push_up(new_root)
-    # print()
-    # print(qlt)
-    tables = ts.dump_tables()
-    tables.edges.clear()
-    # NOTE: could be done with numpy so this will work for large trees.
-    for u in range(ts.num_nodes):
-        if qlt.parent[u] != -1:
-            tables.edges.add_row(0, ts.sequence_length, qlt.parent[u], u)
-    sc2ts.set_tree_time(tables, unit_scale=scale_time)
-    tables.sort()
-    return tables.tree_sequence()
-
-
 class TestRerooting:
 
     def check_properties(self, before, after, root):
@@ -652,7 +555,7 @@ class TestRerooting:
         # 0.00┊ 0 ┊
         #     0   1
         ts1 = tskit.Tree.generate_balanced(2, arity=2).tree_sequence
-        ts2 = reroot(ts1, 1)
+        ts2 = sc2ts.reroot(ts1, 1)
         self.check_properties(ts1, ts2, 1)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [2, -1, 1, -1])
@@ -677,7 +580,7 @@ class TestRerooting:
 
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         root = 5
-        ts2 = reroot(ts1, root)
+        ts2 = sc2ts.reroot(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [4, 4, 5, 5, 6, -1, 5, -1])
@@ -701,7 +604,7 @@ class TestRerooting:
         #     0       1
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         root = 2
-        ts2 = reroot(ts1, root)
+        ts2 = sc2ts.reroot(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [4, 4, -1, 5, 6, 2, 2, -1])
@@ -725,7 +628,7 @@ class TestRerooting:
         #     0           1
         ts1 = tskit.Tree.generate_balanced(6, arity=3).tree_sequence
         root = 3
-        ts2 = reroot(ts1, root)
+        ts2 = sc2ts.reroot(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [6, 6, 7, -1, 8, 8, 9, 3, 9, 3, -1])
