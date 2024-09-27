@@ -7,7 +7,6 @@ import numpy.testing as nt
 
 import sc2ts
 
-
 def assert_variants_equal(vars1, vars2, allele_shuffle=False):
     assert vars1.num_sites == vars2.num_sites
     assert vars1.num_samples == vars2.num_samples
@@ -594,11 +593,13 @@ class TestRerooting:
         # 0.00┊ 0 1 2 3 ┊
         #     0         1
         # ->
-        # 3.00┊   2   ┊
+        # 4.00┊   2   ┊
+        #     ┊   ┃   ┊
+        # 3.00┊   5   ┊
         #     ┊  ┏┻━┓ ┊
         # 2.00┊  6  ┃ ┊
         #     ┊  ┃  ┃ ┊
-        # 1.00┊  4  5 ┊
+        # 1.00┊  4  ┃ ┊
         #     ┊ ┏┻┓ ┃ ┊
         # 0.00┊ 0 1 3 ┊
         #     0       1
@@ -607,8 +608,8 @@ class TestRerooting:
         ts2 = sc2ts.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
-        nt.assert_array_equal(tree.parent_array, [4, 4, -1, 5, 6, 2, 2, -1])
-        nt.assert_array_equal(ts2.nodes_time, [0, 0, 3, 0, 1, 1, 2])
+        nt.assert_array_equal(tree.parent_array, [4, 4, -1, 5, 6, 2, 5, -1])
+        nt.assert_array_equal(ts2.nodes_time, [0, 0, 4, 0, 1, 3, 2])
 
     def test_ternary_example_n6_leaf(self):
         # 2.00┊      9      ┊
@@ -618,11 +619,13 @@ class TestRerooting:
         # 0.00┊ 0 1 2 3 4 5 ┊
         #     0             1
         # ->
-        # 3.00┊       3   ┊
+        # 4.00┊       3   ┊
+        #     ┊       ┃   ┊
+        # 3.00┊       7   ┊
         #     ┊    ┏━━┻━┓ ┊
         # 2.00┊    9    ┃ ┊
         #     ┊  ┏━┻━┓  ┃ ┊
-        # 1.00┊  6   8  7 ┊
+        # 1.00┊  6   8  ┃ ┊
         #     ┊ ┏┻┓ ┏┻┓ ┃ ┊
         # 0.00┊ 0 1 4 5 2 ┊
         #     0           1
@@ -631,5 +634,22 @@ class TestRerooting:
         ts2 = sc2ts.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
-        nt.assert_array_equal(tree.parent_array, [6, 6, 7, -1, 8, 8, 9, 3, 9, 3, -1])
-        nt.assert_array_equal(ts2.nodes_time, [0, 0, 0, 3, 0, 0, 1, 1, 1, 2])
+        nt.assert_array_equal(tree.parent_array, [6, 6, 7, -1, 8, 8, 9, 3, 9, 7, -1])
+        nt.assert_array_equal(ts2.nodes_time, [0, 0, 0, 4, 0, 0, 1, 3, 1, 2])
+
+    def test_example_same_root(self):
+        #  1.00┊  2  ┊
+        #      ┊ ┏┻┓ ┊
+        #  0.00┊ 0 1 ┊
+        #      0     1
+        # ->
+        #  1.00┊  2  ┊
+        #      ┊ ┏┻┓ ┊
+        #  0.00┊ 0 1 ┊
+        #      0     1
+        ts1 = tskit.Tree.generate_balanced(2, arity=2).tree_sequence
+        ts2 = sc2ts.reroot_ts(ts1, new_root=2)
+        self.check_properties(before=ts1, after=ts2, root=2)
+        ts1.tables.assert_equals(ts2.tables)
+
+

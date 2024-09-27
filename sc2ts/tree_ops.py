@@ -18,23 +18,19 @@ from . import core
 logger = logging.getLogger(__name__)
 
 
-def push_up(pi, u):
-    """
-    Push the node u up one level in the oriented tree pi.
-    """
-    parent = pi[u]
-    assert parent != -1
-    pi[u] = -1
-    grandparent = pi[parent]
-    pi[parent] = -1
-    if grandparent != -1:
-        pi[u] = grandparent
-    pi[parent] = u
-
-
 def reroot(pi, new_root):
-    while pi[new_root] != -1:
-        push_up(pi, new_root)
+    # Note: we don't really need to store the path here, but I'm
+    # in a hurry and it's easier.
+    path = []
+    u = new_root
+    while u != -1:
+        path.append(u)
+        u = pi[u]
+    for j in range(len(path) - 1):
+        child = path[j]
+        parent = path[j + 1]
+        pi[parent] = child
+    pi[new_root] = -1
 
 
 def reroot_ts(ts, new_root, scale_time=False):
