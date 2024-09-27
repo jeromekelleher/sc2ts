@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import tskit
 import msprime
+import biotite.sequence.phylo as bsp
 
 import sc2ts
 
@@ -297,7 +298,6 @@ class TestPushUpReversions:
         assert ts2.num_nodes == ts.num_nodes + 1
 
 
-
 class TestTrimBranches:
     def test_one_mutation_three_children(self):
         # 3.00┊   6     ┊
@@ -437,6 +437,49 @@ class TestTrimBranches:
 
 
 class TestInferBinary:
+
+    def check_properties(self, ts):
+        assert ts.num_trees == 1
+        tree = ts.first()
+        if ts.num_samples > 1:
+            assert ts.nodes_time[tree.root] == 1
+            for u in tree.nodes():
+                assert len(tree.children(u)) in (0, 2)
+
+    @pytest.mark.parametrize("n", range(1, 5))
+    def test_flat_one_site_unique_mutations(self, n):
+        L = n + 1
+        tables = tskit.TableCollection(L)
+        tables.sites.add_row(0, "A")
+        root = n
+        for j in range(n):
+            u = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+            tables.edges.add_row(0, L, root, u)
+            tables.mutations.add_row(0, derived_state=f"{j}", node=u)
+        tables.nodes.add_row(time=1)
+        ts1 = tables.tree_sequence()
+        ts2 = sc2ts.infer_binary(ts1)
+        assert ts2.num_mutations == n
+        assert_sequences_equal(ts1, ts2)
+        self.check_properties(ts2)
+
+    @pytest.mark.parametrize("n", range(1, 5))
+    def test_flat_one_site_one_mutation(self, n):
+        L = n + 1
+        tables = tskit.TableCollection(L)
+        root = n
+        for j in range(n):
+            u = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+            tables.edges.add_row(0, L, root, u)
+        tables.nodes.add_row(time=1)
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(0, derived_state="T", node=0)
+        ts1 = tables.tree_sequence()
+        ts2 = sc2ts.infer_binary(ts1)
+        assert ts2.num_mutations == 1
+        assert_sequences_equal(ts1, ts2)
+        self.check_properties(ts2)
+
     @pytest.mark.parametrize("n", [2, 10, 15])
     @pytest.mark.parametrize("mutation_rate", [0.1, 0.5, 1.5])
     def test_simulation(self, n, mutation_rate):
@@ -444,11 +487,7 @@ class TestInferBinary:
         ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
         ts2 = sc2ts.infer_binary(ts1)
         assert_variants_equal(ts1, ts2, allele_shuffle=True)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.num_roots == 1
-        for u in tree.nodes():
-            assert len(tree.children(u)) in (0, 2)
+        self.check_properties(ts2)
 
     @pytest.mark.parametrize("n", [2, 10])
     @pytest.mark.parametrize("num_mutations", [1, 2, 10])
@@ -464,8 +503,25 @@ class TestInferBinary:
         assert_variants_equal(ts1, ts2)
         root = ts2.first().root
         assert np.all(ts2.mutations_node == root)
-        assert ts2.num_trees == 1
-        tree = ts2.first()
-        assert tree.num_roots == 1
-        for u in tree.nodes():
-            assert len(tree.children(u)) in (0, 2)
+        self.check_properties(ts2)
+
+
+class TestFromBiotite:
+
+    def check_round_trip(self, tsk_tree):
+        node_labels = {u: f"{u}" for u in tsk_tree.tree_sequence.samples()}
+        nwk = tsk_tree.as_newick(node_labels=node_labels)
+        biotite_tree = bsp.Tree.from_newick(nwk)
+        converted = sc2ts.biotite_to_tskit(biotite_tree)
+        assert converted.tree_sequence.num_trees == 1
+        assert converted.rank() == tsk_tree.rank()
+
+    @pytest.mark.parametrize("n", range(1, 5))
+    def test_balanced_binary(self, n):
+        tsk_tree = tskit.Tree.generate_balanced(n)
+        self.check_round_trip(tsk_tree)
+
+    @pytest.mark.parametrize("n", range(2, 5))
+    def test_comb(self, n):
+        tsk_tree = tskit.Tree.generate_comb(n)
+        self.check_round_trip(tsk_tree)

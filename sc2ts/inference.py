@@ -20,6 +20,8 @@ import scipy.cluster.hierarchy
 import zarr
 import numba
 import pandas as pd
+import biotite.sequence.phylo as bsp
+
 
 from . import core
 from . import alignments
@@ -654,9 +656,7 @@ def update_top_level_metadata(ts, date):
     return tables.tree_sequence()
 
 
-def add_sample_to_tables(
-    sample, tables, flags=tskit.NODE_IS_SAMPLE, time=0, group_id=None
-):
+def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=None):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
         "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
@@ -665,7 +665,7 @@ def add_sample_to_tables(
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
-    return tables.nodes.add_row(flags=flags, time=time, metadata=metadata)
+    return tables.nodes.add_row(flags=flags, metadata=metadata)
 
 
 def match_path_ts(group):
@@ -676,13 +676,13 @@ def match_path_ts(group):
     tables = tskit.TableCollection(core.REFERENCE_SEQUENCE_LENGTH)
     tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
     tables.mutations.metadata_schema = tskit.MetadataSchema.permissive_json()
-    tables.nodes.add_row(time=1)
     site_id_map = {}
     first_sample = len(tables.nodes)
+    root = len(group)
     for sample in group:
         assert sample.hmm_match.path == list(group.path)
         node_id = add_sample_to_tables(sample, tables, group_id=group.sample_hash)
-        tables.edges.add_row(0, tables.sequence_length, parent=0, child=node_id)
+        tables.edges.add_row(0, tables.sequence_length, parent=root, child=node_id)
         for mut in sample.hmm_match.mutations:
             if (mut.site_id, mut.derived_state) in group.immediate_reversions:
                 # We don't include any of the marked reversions so that they
@@ -699,6 +699,8 @@ def match_path_ts(group):
                 time=0,
                 derived_state=mut.derived_state,
             )
+    # add the root
+    tables.nodes.add_row(time=1)
     tables.sort()
     return tables.tree_sequence()
 
@@ -1612,19 +1614,125 @@ class Matcher(tsinfer.SampleMatcher):
         return self.results
 
 
-def _linkage_matrix_to_tskit(Z):
-    n = Z.shape[0] + 1
-    N = 2 * n
-    parent = np.full(N, -1, dtype=np.int32)
-    time = np.full(N, 0, dtype=np.float64)
-    for j, row in enumerate(Z):
-        u = n + j
-        time[u] = j + 1
-        lc = int(row[0])
-        rc = int(row[1])
-        parent[lc] = u
-        parent[rc] = u
-    return parent[:-1], time[:-1]
+def biotite_to_tskit(tree):
+    """
+    Returns a tskit tree with the topology of the specified biotite tree.
+
+    This is just a wrapper to facilitate testing.
+    """
+    tables = tskit.TableCollection(1)
+    for node in tree.leaves:
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE)
+    biotite_to_tskit_tables(tree, tables)
+    return tables.tree_sequence().first()
+
+
+def biotite_to_tskit_tables(tree, tables):
+    """
+    Updates the specified set of tables with the biotite tree.
+    """
+    L = tables.sequence_length
+    node_map = {}
+    for u, node in enumerate(tree.leaves):
+        node_map[node] = u
+        assert u == node.get_indices()[0]
+
+    stack = [tree.root]
+    while len(stack) > 0:
+        node = stack.pop()
+        if not node.is_leaf():
+            node_map[node] = tables.nodes.add_row()
+            for child in node.children:
+                stack.append(child)
+        if node.parent is not None:
+            tables.edges.add_row(
+                0, L, parent=node_map[node.parent], child=node_map[node]
+            )
+
+    # Add times using max number of hops from leaves
+    pi = np.full(len(tables.nodes), -1, dtype=int)
+    tau = np.full(len(tables.nodes), -1, dtype=float)
+    pi[tables.edges.child] = tables.edges.parent
+    for sample in np.where(tables.nodes.flags == tskit.NODE_IS_SAMPLE)[0]:
+        t = 0
+        u = sample
+        while u != -1:
+            tau[u] = max(tau[u], t)
+            t += 1
+            u = pi[u]
+    tables.nodes.time = tau / max(1, np.max(tau))
+    tables.sort()
+
+
+def infer_binary_topology(ts, tables):
+    assert ts.num_trees == 1
+    assert ts.num_mutations > 0
+
+    if ts.num_samples < 2:
+        return tables.tree_sequence()
+
+    # epsilon = 1e-6  # used in rerooting: separate internal nodes from samples by this
+    # assert ts.num_trees == 1
+
+    # # can only use simplify later to match the samples if the originals are at the start
+    # # assert set(ts.samples()) == set(np.arange(ts.num_samples))
+    # assert not ts.node(root).is_sample()
+
+    # Include the root as a sample node for tree-rerooting purposes
+    # sample_indexes = np.concatenate((ts.samples(), [root]))
+    # G = ts.genotype_matrix(samples=sample_indexes, isolated_as_missing=False)
+    G = ts.genotype_matrix()
+
+    # Hamming distance should be suitable here because it's giving the overall
+    # number of differences between the observations. Euclidean is definitely
+    # not because of the allele encoding (difference between 0 and 4 is not
+    # greater than 0 and 1).
+    Y = scipy.spatial.distance.pdist(G.T, "hamming")
+
+    # nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
+    nj_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
+    # print(nj_tree)
+    biotite_to_tskit_tables(nj_tree, tables)
+    # print(tsk_tree.draw_text())
+
+    # # Extract the NJ tree, but rooted at the last leaf
+    # root = nj_tree.leaves[-1]  # root is the last entry of the distance matrix
+    # time = 1
+    # parent = tables.nodes.add_row(time=time)
+    # L = tables.sequence_length
+    # stack = [(root, None, parent, time)]
+    # node_map = {}
+    # while len(stack) > 0:
+    #     node, prev_node, parent, time = stack.pop()
+    #     for new_node in _biotite_attached_nodes(node):
+    #         print(new_node)
+    #         assert new_node is not None
+    #         if new_node is not prev_node:
+    #             if new_node.is_leaf():
+    #                 ts_node = ts.node(sample_indexes[new_node.index])
+    #                 new_time = ts_node.time
+    #                 u = tables.nodes.append(ts_node)
+    #             else:
+    #                 new_time = time - epsilon
+    #                 u = tables.nodes.add_row(time=new_time)
+    #             assert new_time < tables.nodes[parent].time
+    #             tables.edges.add_row(parent=parent, child=u, left=0, right=L)
+    #             if new_node.is_leaf():
+    #                 node_map[sample_indexes[new_node.index]] = u
+    #                 # print("added internal", u, f"at time {time} (parent is {parent})")
+    #             else:
+    #                 stack.append((new_node, node, u, new_time))
+    #                 # print("made leaf", u, f"(was {sample_indexes[new_node.index]}) at
+    #                 # time {time} (parent is {parent})")
+    # tables.sort()
+    # # Line below makes nodes in the new TS map to those in the old
+    # tables.simplify([node_map[u] for u in np.arange(ts.num_samples)])
+    # new_ts = tables.tree_sequence()
+
+    # assert list(new_ts.samples()) == list(ts.samples())
+    # assert new_ts.num_samples == ts.num_samples
+    # assert new_ts.num_trees == 1
+    return tables.tree_sequence()
 
 
 def infer_binary(ts):
@@ -1633,59 +1741,35 @@ def infer_binary(ts):
     specified tree sequence.
     """
     assert ts.num_trees == 1
+    assert list(ts.samples()) == list(range(ts.num_samples))
     tables = ts.dump_tables()
-    # Don't clear popualtions for simplicity
-    tables.nodes.clear()
+    # Don't clear populations for simplicity
     tables.edges.clear()
     tables.sites.clear()
     tables.mutations.clear()
+    # Preserve the samples
+    tables.nodes.truncate(ts.num_samples)
 
-    G = ts.genotype_matrix()
-    # Hamming distance should be suitable here because it's giving the overall
-    # number of differences between the observations. Euclidean is definitely
-    # not because of the allele encoding (difference between 0 and 4 is not
-    # greater than 0 and 1).
-    Y = scipy.spatial.distance.pdist(G.T, "hamming")
-    # This is the UPGMA algorithm
-    Z = scipy.cluster.hierarchy.average(Y)
-    parent, time = _linkage_matrix_to_tskit(Z)
-    # Rescale time to be from 0 to 1
-    time /= np.max(time)
+    # Update the tables with the topology
+    infer_binary_topology(ts, tables)
+    binary_ts = tables.tree_sequence()
 
-    # Add the samples in first
-    u = 0
-    for v in ts.samples():
-        node = ts.node(v)
-        assert node.time == 0
-        assert time[u] == 0
-        assert u == len(tables.nodes)
-        tables.nodes.append(node)
-        tables.edges.add_row(0, ts.sequence_length, parent=parent[u], child=u)
-        u += 1
-    while u < len(parent):
-        assert u == len(tables.nodes)
-        tables.nodes.add_row(time=time[u], flags=0)
-        if parent[u] != tskit.NULL:
-            tables.edges.add_row(0, ts.sequence_length, parent=parent[u], child=u)
-        u += 1
-
-    tables.sort()
-    ts_binary = tables.tree_sequence()
-
-    tree = ts_binary.first()
-    for var in ts.variants():
+    # Now add on mutations under parsimony
+    tree = binary_ts.first()
+    for v in ts.variants():
         anc, muts = tree.map_mutations(
-            var.genotypes, var.alleles, ancestral_state=var.site.ancestral_state
+            v.genotypes, v.alleles, ancestral_state=v.site.ancestral_state
         )
-        assert anc == var.site.ancestral_state
-        site = tables.sites.add_row(var.site.position, anc)
+        site = tables.sites.add_row(v.site.position, anc)
         for mut in muts:
             tables.mutations.add_row(
                 site=site,
                 node=mut.node,
                 derived_state=mut.derived_state,
             )
-    return tables.tree_sequence()
+    new_ts = tables.tree_sequence()
+    # print(new_ts.draw_text())
+    return new_ts
 
 
 def trim_branches(ts):
