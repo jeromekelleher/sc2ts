@@ -52,7 +52,7 @@ class TestCoalesceMutations:
         # 0.00┊ 0 1 2 3 ┊
         #     0         1
         ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
-        ts2 = sc2ts.inference.coalesce_mutations(ts1)
+        ts2 = sc2ts.coalesce_mutations(ts1)
         ts1.tables.assert_equals(ts2.tables)
 
     def test_two_mutation_groups_one_parent(self):
@@ -69,7 +69,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="G")
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 7
@@ -91,7 +91,7 @@ class TestCoalesceMutations:
         tables.compute_mutation_times()
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 9
@@ -111,7 +111,7 @@ class TestCoalesceMutations:
         tables.compute_mutation_times()
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 1
         assert ts2.num_nodes == 6
@@ -131,7 +131,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 6
@@ -152,7 +152,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 4
         assert ts2.num_nodes == 6
@@ -176,7 +176,7 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=2, node=2, time=0, derived_state="T")
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 4
         assert ts2.num_nodes == 6
@@ -194,7 +194,7 @@ class TestCoalesceMutations:
         ts = prepare(tables)
 
         with pytest.raises(ValueError, match="Multiple mutations"):
-            sc2ts.inference.coalesce_mutations(ts)
+            sc2ts.coalesce_mutations(ts)
 
     def test_mutation_parent(self):
         # 2.00┊   4   ┊
@@ -218,7 +218,7 @@ class TestCoalesceMutations:
 
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.coalesce_mutations(ts)
+        ts2 = sc2ts.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 6
         assert ts2.num_nodes == 6
@@ -227,7 +227,7 @@ class TestCoalesceMutations:
 class TestPushUpReversions:
     def test_no_mutations(self):
         ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
-        ts2 = sc2ts.inference.push_up_reversions(ts1, [0, 1, 2, 3])
+        ts2 = sc2ts.push_up_reversions(ts1, [0, 1, 2, 3])
         ts1.tables.assert_equals(ts2.tables)
 
     def test_one_site_simple_reversion(self):
@@ -246,7 +246,7 @@ class TestPushUpReversions:
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="A")
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.push_up_reversions(ts, [0, 1, 2, 3])
+        ts2 = sc2ts.push_up_reversions(ts, [0, 1, 2, 3])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
@@ -268,7 +268,7 @@ class TestPushUpReversions:
         tables.mutations.add_row(site=0, node=6, time=2, derived_state="T")
         tables.mutations.add_row(site=0, node=5, time=1, derived_state="A")
         ts = prepare(tables)
-        ts2 = sc2ts.inference.push_up_reversions(ts, [5])
+        ts2 = sc2ts.push_up_reversions(ts, [5])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
@@ -293,7 +293,7 @@ class TestPushUpReversions:
 
         ts = prepare(tables)
 
-        ts2 = sc2ts.inference.push_up_reversions(ts, [0, 1, 2, 3])
+        ts2 = sc2ts.push_up_reversions(ts, [0, 1, 2, 3])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
