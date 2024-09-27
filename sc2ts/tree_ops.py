@@ -54,6 +54,22 @@ def reroot_ts(ts, new_root, scale_time=False):
     return tables.tree_sequence()
 
 
+def biotite_to_tskit_tables(tree, tables):
+    """
+    Updates the specified set of tables with the biotite tree.
+    """
+    L = tables.sequence_length
+    pi, n = biotite_to_oriented_forest(tree)
+    assert n == len(tables.nodes)
+    for _ in range(n, len(pi)):
+        tables.nodes.add_row()
+    for u, parent in enumerate(pi):
+        if parent != -1:
+            tables.edges.add_row(0, L, parent, u)
+    set_tree_time(tables, unit_scale=True)
+    tables.sort()
+
+
 def biotite_to_tskit(tree):
     """
     Returns a tskit tree with the topology of the specified biotite tree.
@@ -120,22 +136,6 @@ def biotite_to_oriented_forest(tree):
     return pi, n
 
 
-def biotite_to_tskit_tables(tree, tables):
-    """
-    Updates the specified set of tables with the biotite tree.
-    """
-    L = tables.sequence_length
-    pi, n = biotite_to_oriented_forest(tree)
-    assert n == len(tables.nodes)
-    for _ in range(n, len(pi)):
-        tables.nodes.add_row()
-    for u, parent in enumerate(pi):
-        if parent != -1:
-            tables.edges.add_row(0, L, parent, u)
-    set_tree_time(tables, unit_scale=True)
-    tables.sort()
-
-
 def add_tree_to_tables(tables, pi, tau):
     # add internal nodes
     for j in range(len(tables.nodes), len(tau)):
@@ -155,9 +155,9 @@ def infer_binary_topology(ts, tables):
 
     samples = ts.samples()
     tree = ts.first()
-    # samples = np.concatenate((samples, [tree.root]))
-    # G = ts.genotype_matrix(samples=samples, isolated_as_missing=False)
-    G = ts.genotype_matrix()
+    # Include the root as a sample in the tree building
+    samples = np.concatenate((samples, [tree.root]))
+    G = ts.genotype_matrix(samples=samples, isolated_as_missing=False)
 
     # Hamming distance should be suitable here because it's giving the overall
     # number of differences between the observations. Euclidean is definitely
@@ -168,21 +168,19 @@ def infer_binary_topology(ts, tables):
     # nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
     biotite_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
     pi, n = biotite_to_oriented_forest(biotite_tree)
+    # Node n - 1 is the pre-specified root, so force rerooting around that.
+    reroot(pi, n - 1)
 
-    assert n == len(tables.nodes)
+    assert n == len(tables.nodes) + 1
     tau = max_leaf_distance(pi, n)
     tau /= max(1, np.max(tau))
     add_tree_to_tables(tables, pi, tau)
     tables.sort()
 
-    # print("HERE", biotite_tree)
-    # biotite_to_tskit_tables(biotite_tree, tables)
-    # ts = tables.tree_sequence()
-    # print(ts.draw_text())
-
     return tables.tree_sequence()
 
 
+# TODO rename this to infer_sample_group_tree
 def infer_binary(ts):
     """
     Infer a strictly binary tree from the variation data in the
