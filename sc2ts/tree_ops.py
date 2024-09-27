@@ -165,8 +165,11 @@ def infer_binary_topology(ts, tables):
     # greater than 0 and 1).
     Y = scipy.spatial.distance.pdist(G.T, "hamming")
 
-    # nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
-    biotite_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
+    if ts.num_samples < 3:
+        # NJ fails with < 4
+        biotite_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
+    else:
+        biotite_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
     pi, n = biotite_to_oriented_forest(biotite_tree)
     # Node n - 1 is the pre-specified root, so force rerooting around that.
     reroot(pi, n - 1)
