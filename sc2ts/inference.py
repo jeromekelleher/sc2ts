@@ -1627,6 +1627,23 @@ def biotite_to_tskit(tree):
     return tables.tree_sequence().first()
 
 
+def set_tree_time(tables, unit_scale=False):
+    # Add times using max number of hops from leaves
+    pi = np.full(len(tables.nodes), -1, dtype=int)
+    tau = np.full(len(tables.nodes), -1, dtype=float)
+    pi[tables.edges.child] = tables.edges.parent
+    for sample in np.where(tables.nodes.flags == tskit.NODE_IS_SAMPLE)[0]:
+        t = 0
+        u = sample
+        while u != -1:
+            tau[u] = max(tau[u], t)
+            t += 1
+            u = pi[u]
+    if unit_scale:
+        tau /= max(1, np.max(tau))
+    tables.nodes.time = tau
+
+
 def biotite_to_tskit_tables(tree, tables):
     """
     Updates the specified set of tables with the biotite tree.
@@ -1648,19 +1665,7 @@ def biotite_to_tskit_tables(tree, tables):
             tables.edges.add_row(
                 0, L, parent=node_map[node.parent], child=node_map[node]
             )
-
-    # Add times using max number of hops from leaves
-    pi = np.full(len(tables.nodes), -1, dtype=int)
-    tau = np.full(len(tables.nodes), -1, dtype=float)
-    pi[tables.edges.child] = tables.edges.parent
-    for sample in np.where(tables.nodes.flags == tskit.NODE_IS_SAMPLE)[0]:
-        t = 0
-        u = sample
-        while u != -1:
-            tau[u] = max(tau[u], t)
-            t += 1
-            u = pi[u]
-    tables.nodes.time = tau / max(1, np.max(tau))
+    set_tree_time(tables, unit_scale=True)
     tables.sort()
 
 
