@@ -551,7 +551,12 @@ def extend(
         f"mutations={base_ts.num_mutations};date={base_ts.metadata['sc2ts']['date']}"
     )
 
-    metadata_matches = list(metadata_db.get(date))
+    additional_metadata_clause = None
+    # Quick hack
+    if date > "2020-03-01":
+        additional_metadata_clause = "Viridian_cons_het == '0' AND Viridian_cons_het != '.'"
+
+    metadata_matches = list(metadata_db.get(date, additional_metadata_clause))
 
     logger.info(f"Got {len(metadata_matches)} metadata matches")
     # first check for samples that are in the alignment_store

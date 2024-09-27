@@ -75,9 +75,12 @@ class MetadataDb(collections.abc.Mapping):
             for row in self.conn.execute(sql):
                 yield row
 
-    def get(self, date):
+    def get(self, date, additional_clause=None):
         sql = "SELECT * FROM samples WHERE date==?"
+        if additional_clause is not None:
+            sql = f"{sql} AND {additional_clause}"
         with self.conn:
+            logger.debug(f"Running {sql}")
             for row in self.conn.execute(sql, [date]):
                 yield row
 
