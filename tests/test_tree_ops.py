@@ -555,7 +555,7 @@ class TestRerooting:
         # 0.00┊ 0 ┊
         #     0   1
         ts1 = tskit.Tree.generate_balanced(2, arity=2).tree_sequence
-        ts2 = sc2ts.reroot(ts1, 1)
+        ts2 = sc2ts.reroot_ts(ts1, 1)
         self.check_properties(ts1, ts2, 1)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [2, -1, 1, -1])
@@ -580,7 +580,7 @@ class TestRerooting:
 
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         root = 5
-        ts2 = sc2ts.reroot(ts1, root)
+        ts2 = sc2ts.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [4, 4, 5, 5, 6, -1, 5, -1])
@@ -604,7 +604,7 @@ class TestRerooting:
         #     0       1
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         root = 2
-        ts2 = sc2ts.reroot(ts1, root)
+        ts2 = sc2ts.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [4, 4, -1, 5, 6, 2, 2, -1])
@@ -628,7 +628,7 @@ class TestRerooting:
         #     0           1
         ts1 = tskit.Tree.generate_balanced(6, arity=3).tree_sequence
         root = 3
-        ts2 = sc2ts.reroot(ts1, root)
+        ts2 = sc2ts.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [6, 6, 7, -1, 8, 8, 9, 3, 9, 3, -1])

@@ -32,7 +32,12 @@ def push_up(pi, u):
     pi[parent] = u
 
 
-def reroot(ts, new_root, scale_time=False):
+def reroot(pi, new_root):
+    while pi[new_root] != -1:
+        push_up(pi, new_root)
+
+
+def reroot_ts(ts, new_root, scale_time=False):
     """
     Reroot the tree around the specified node, keeping node IDs
     the same.
@@ -40,8 +45,7 @@ def reroot(ts, new_root, scale_time=False):
     assert ts.num_trees == 1
     tree = ts.first()
     pi = tree.parent_array.copy()
-    while pi[new_root] != -1:
-        push_up(pi, new_root)
+    reroot(pi, new_root)
 
     tables = ts.dump_tables()
     tables.edges.clear()
@@ -67,6 +71,20 @@ def biotite_to_tskit(tree):
     return tables.tree_sequence().first()
 
 
+def max_leaf_distance(pi, n):
+    tau = np.zeros(len(pi))
+    for j in range(n):
+        u = j
+        t = 0
+        while u != -1:
+            # TODO we can also stop this loop early, I just haven't
+            # thought about it.
+            tau[u] = max(tau[u], t)
+            t += 1
+            u = pi[u]
+    return tau
+
+
 def set_tree_time(tables, unit_scale=False):
     # Add times using max number of hops from leaves
     pi = np.full(len(tables.nodes), -1, dtype=int)
@@ -84,29 +102,52 @@ def set_tree_time(tables, unit_scale=False):
     tables.nodes.time = tau
 
 
-def biotite_to_tskit_tables(tree, tables):
-    """
-    Updates the specified set of tables with the biotite tree.
-    """
-    L = tables.sequence_length
+def biotite_to_oriented_forest(tree):
     node_map = {}
     for u, node in enumerate(tree.leaves):
         node_map[node] = u
         assert u == node.get_indices()[0]
+    n = len(node_map)
+    pi = [-1] * n
 
     stack = [tree.root]
     while len(stack) > 0:
         node = stack.pop()
         if not node.is_leaf():
-            node_map[node] = tables.nodes.add_row()
+            assert node not in node_map
+            node_map[node] = len(pi)
+            pi.append(-1)
             for child in node.children:
                 stack.append(child)
         if node.parent is not None:
-            tables.edges.add_row(
-                0, L, parent=node_map[node.parent], child=node_map[node]
-            )
+            pi[node_map[node]] = node_map[node.parent]
+    return pi, n
+
+
+def biotite_to_tskit_tables(tree, tables):
+    """
+    Updates the specified set of tables with the biotite tree.
+    """
+    L = tables.sequence_length
+    pi, n = biotite_to_oriented_forest(tree)
+    assert n == len(tables.nodes)
+    for _ in range(n, len(pi)):
+        tables.nodes.add_row()
+    for u, parent in enumerate(pi):
+        if parent != -1:
+            tables.edges.add_row(0, L, parent, u)
     set_tree_time(tables, unit_scale=True)
     tables.sort()
+
+
+def add_tree_to_tables(tables, pi, tau):
+    # add internal nodes
+    for j in range(len(tables.nodes), len(tau)):
+        tables.nodes.add_row(time=tau[j])
+    L = tables.sequence_length
+    for u, parent in enumerate(pi):
+        if parent != -1:
+            tables.edges.add_row(0, L, parent, u)
 
 
 def infer_binary_topology(ts, tables):
@@ -116,16 +157,10 @@ def infer_binary_topology(ts, tables):
     if ts.num_samples < 2:
         return tables.tree_sequence()
 
-    # epsilon = 1e-6  # used in rerooting: separate internal nodes from samples by this
-    # assert ts.num_trees == 1
-
-    # # can only use simplify later to match the samples if the originals are at the start
-    # # assert set(ts.samples()) == set(np.arange(ts.num_samples))
-    # assert not ts.node(root).is_sample()
-
-    # Include the root as a sample node for tree-rerooting purposes
-    # sample_indexes = np.concatenate((ts.samples(), [root]))
-    # G = ts.genotype_matrix(samples=sample_indexes, isolated_as_missing=False)
+    samples = ts.samples()
+    tree = ts.first()
+    # samples = np.concatenate((samples, [tree.root]))
+    # G = ts.genotype_matrix(samples=samples, isolated_as_missing=False)
     G = ts.genotype_matrix()
 
     # Hamming distance should be suitable here because it's giving the overall
@@ -135,48 +170,20 @@ def infer_binary_topology(ts, tables):
     Y = scipy.spatial.distance.pdist(G.T, "hamming")
 
     # nj_tree = bsp.neighbor_joining(scipy.spatial.distance.squareform(Y))
-    nj_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
-    # print(nj_tree)
-    biotite_to_tskit_tables(nj_tree, tables)
-    # print(tsk_tree.draw_text())
+    biotite_tree = bsp.upgma(scipy.spatial.distance.squareform(Y))
+    pi, n = biotite_to_oriented_forest(biotite_tree)
 
-    # # Extract the NJ tree, but rooted at the last leaf
-    # root = nj_tree.leaves[-1]  # root is the last entry of the distance matrix
-    # time = 1
-    # parent = tables.nodes.add_row(time=time)
-    # L = tables.sequence_length
-    # stack = [(root, None, parent, time)]
-    # node_map = {}
-    # while len(stack) > 0:
-    #     node, prev_node, parent, time = stack.pop()
-    #     for new_node in _biotite_attached_nodes(node):
-    #         print(new_node)
-    #         assert new_node is not None
-    #         if new_node is not prev_node:
-    #             if new_node.is_leaf():
-    #                 ts_node = ts.node(sample_indexes[new_node.index])
-    #                 new_time = ts_node.time
-    #                 u = tables.nodes.append(ts_node)
-    #             else:
-    #                 new_time = time - epsilon
-    #                 u = tables.nodes.add_row(time=new_time)
-    #             assert new_time < tables.nodes[parent].time
-    #             tables.edges.add_row(parent=parent, child=u, left=0, right=L)
-    #             if new_node.is_leaf():
-    #                 node_map[sample_indexes[new_node.index]] = u
-    #                 # print("added internal", u, f"at time {time} (parent is {parent})")
-    #             else:
-    #                 stack.append((new_node, node, u, new_time))
-    #                 # print("made leaf", u, f"(was {sample_indexes[new_node.index]}) at
-    #                 # time {time} (parent is {parent})")
-    # tables.sort()
-    # # Line below makes nodes in the new TS map to those in the old
-    # tables.simplify([node_map[u] for u in np.arange(ts.num_samples)])
-    # new_ts = tables.tree_sequence()
+    assert n == len(tables.nodes)
+    tau = max_leaf_distance(pi, n)
+    tau /= max(1, np.max(tau))
+    add_tree_to_tables(tables, pi, tau)
+    tables.sort()
 
-    # assert list(new_ts.samples()) == list(ts.samples())
-    # assert new_ts.num_samples == ts.num_samples
-    # assert new_ts.num_trees == 1
+    # print("HERE", biotite_tree)
+    # biotite_to_tskit_tables(biotite_tree, tables)
+    # ts = tables.tree_sequence()
+    # print(ts.draw_text())
+
     return tables.tree_sequence()
 
 
