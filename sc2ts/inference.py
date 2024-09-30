@@ -478,6 +478,7 @@ def preprocess(
     alignment_store,
     pango_lineage_key="pango",
     show_progress=False,
+    max_daily_samples=2**32,
 ):
     keep_sites = base_ts.sites_position.astype(int)
     problematic_sites = core.get_problematic_sites()
@@ -503,7 +504,6 @@ def preprocess(
             sample.alignment_qc = ma.qc_summary()
             sample.masked_sites = ma.masked_sites
             sample.alignment = ma.alignment[keep_sites]
-            samples.append(sample)
             num_Ns = ma.original_base_composition.get("N", 0)
             non_nuc_counts = dict(ma.original_base_composition)
             for nuc in "ACGT":
@@ -512,7 +512,14 @@ def preprocess(
                     f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
                 )
             num_masked = len(ma.masked_sites)
+            if date > "2020-03-01" and np.sum(sample.alignment == -1) > 1:
+                # Roughly equivalent to 1 het
+                logger.debug(f"Skip strain containing {num_masked} masked sites")
+                continue
+            samples.append(sample)
             logger.debug(f"Mask {strain}: masked={num_masked} {counts}")
+            if len(samples) == max_daily_samples:
+                break
 
     return samples
 
@@ -554,7 +561,7 @@ def extend(
     additional_metadata_clause = None
     # Quick hack
     if date > "2020-03-01":
-        additional_metadata_clause = "Viridian_cons_het == '0' AND Viridian_cons_het != '.'"
+        additional_metadata_clause = "Viridian_cons_het <= '1' AND Viridian_cons_het != '.'"
 
     metadata_matches = list(metadata_db.get(date, additional_metadata_clause))
 
@@ -569,15 +576,15 @@ def extend(
     # metadata_matches = list(
     #     metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
     # )
-    if max_daily_samples is not None:
-        if max_daily_samples < len(samples_with_aligments):
-            seed_prefix = bytes(np.array([random_seed], dtype=int).data)
-            seed_suffix = hashlib.sha256(date.encode()).digest()
-            rng = random.Random(seed_prefix + seed_suffix)
-            samples_with_aligments = rng.sample(
-                samples_with_aligments, max_daily_samples
-            )
-            logger.info(f"Subset to {len(metadata_matches)} samples")
+    # if max_daily_samples is not None:
+    #     if max_daily_samples < len(samples_with_aligments):
+    #         seed_prefix = bytes(np.array([random_seed], dtype=int).data)
+    #         seed_suffix = hashlib.sha256(date.encode()).digest()
+    #         rng = random.Random(seed_prefix + seed_suffix)
+    #         samples_with_aligments = rng.sample(
+    #             samples_with_aligments, max_daily_samples
+    #         )
+    #         logger.info(f"Subset to {len(metadata_matches)} samples")
 
     samples = preprocess(
         samples_with_aligments,
@@ -586,6 +593,7 @@ def extend(
         alignment_store,
         pango_lineage_key="Viridian_pangolin",  # TODO parametrise
         show_progress=show_progress,
+        max_daily_samples=max_daily_samples,
     )
 
     if len(samples) == 0:
