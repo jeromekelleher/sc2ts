@@ -169,7 +169,8 @@ class MaskedAlignment:
 def encode_and_mask(alignment, window_size=7):
     # TODO make window_size param
     a = encode_alignment(alignment)
-    masked_sites = mask_alignment(a, start=1, window_size=window_size)
+    # masked_sites = mask_alignment(a, start=1, window_size=window_size)
+    masked_sites = []
     return MaskedAlignment(
         alignment=a,
         masked_sites=np.array(masked_sites, dtype=int),
