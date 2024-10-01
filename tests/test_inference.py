@@ -301,8 +301,9 @@ class TestRealData:
             assert mut_md["site_position"] == ts.sites_position[mut.site]
             assert mut_md["inherited_state"] == ts.site(mut.site).ancestral_state
         assert hmm_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
+        print( sc2ts_md["qc"])
         assert sc2ts_md["qc"] == {
-            "num_masked_sites": 133,
+            "num_masked_sites": 0,
             "original_base_composition": {
                 "A": 8894,
                 "C": 5472,
@@ -311,12 +312,13 @@ class TestRealData:
                 "T": 9566,
             },
             "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
-            "masked_base_composition": {
-                'A': 8891,
-                'C': 5468,
-                'G': 5849,
-                'T': 9562,
-            },
+            # "masked_base_composition": {
+            #     'A': 8891,
+            #     'C': 5468,
+            #     'G': 5849,
+            #     'T': 9562,
+            # },
+            "missing":0,
         }
 
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)

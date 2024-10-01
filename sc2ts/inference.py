@@ -511,8 +511,9 @@ def preprocess(
                 counts = ",".join(
                     f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
                 )
-            num_masked = len(ma.masked_sites)
-            logger.debug(f"Mask {strain}: masked={num_masked} {counts}")
+            num_missing = int(np.sum(sample.alignment == -1))
+            sample.alignment_qc["missing"] = num_missing
+            logger.debug(f"Mask {strain}: missing={num_missing} {counts}")
 
     return samples
 

@@ -155,14 +155,14 @@ class MaskedAlignment:
     masked_sites: np.ndarray
     original_base_composition: dict
     original_md5: str
-    masked_base_composition: str
+    # masked_base_composition: str
 
     def qc_summary(self):
         return {
             "num_masked_sites": self.masked_sites.shape[0],
             "original_base_composition": self.original_base_composition,
             "original_md5": self.original_md5,
-            "masked_base_composition": self.masked_base_composition,
+            # "masked_base_composition": self.masked_base_composition,
         }
 
 
@@ -176,8 +176,8 @@ def encode_and_mask(alignment, window_size=7):
         masked_sites=np.array(masked_sites, dtype=int),
         original_base_composition=base_composition(haplotype=alignment),
         original_md5=hashlib.md5(alignment[1:]).hexdigest(),
-        masked_base_composition=base_composition(
-            haplotype=alignment,
-            excluded_sites=masked_sites,
-        ),
+        # masked_base_composition=base_composition(
+        #     haplotype=alignment,
+        #     excluded_sites=masked_sites,
+        # ),
     )
