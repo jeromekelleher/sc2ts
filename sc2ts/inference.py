@@ -842,7 +842,9 @@ def add_matching_results(
                 continue
 
             for sample in group:
-                site_masked_samples[sample.masked_sites] += 1
+                # Quick hack to track where missingness occurs - we should rename this
+                missing_sites = np.where(sample.alignment == -1)[0]
+                site_masked_samples[missing_sites] += 1
 
             flat_ts = match_path_ts(group)
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:

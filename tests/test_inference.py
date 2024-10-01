@@ -301,7 +301,7 @@ class TestRealData:
             assert mut_md["site_position"] == ts.sites_position[mut.site]
             assert mut_md["inherited_state"] == ts.site(mut.site).ancestral_state
         assert hmm_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
-        print( sc2ts_md["qc"])
+        # print( sc2ts_md["qc"])
         assert sc2ts_md["qc"] == {
             "num_masked_sites": 0,
             "original_base_composition": {
