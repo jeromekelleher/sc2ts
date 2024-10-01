@@ -34,8 +34,7 @@ def recombinant_example_1(ts_map):
     h = H[0].copy()
     h[bp:] = H[1][bp:]
 
-    s = sc2ts.Sample("frankentype", "2020-02-14")
-    s.alignment = h
+    s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
     return ts, s
 
 
@@ -87,11 +86,10 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        ma = sc2ts.alignments.encode_and_mask(alignment)
-        h = ma.alignment[ts.sites_position.astype(int)]
-        samples[0].alignment = h
+        a = sc2ts.encode_alignment(alignment)
+        h = a[ts.sites_position.astype(int)]
+        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -104,13 +102,12 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        ma = sc2ts.alignments.encode_and_mask(alignment)
-        h = ma.alignment[ts.sites_position.astype(int)]
+        a = sc2ts.encode_alignment(alignment)
+        h = a[ts.sites_position.astype(int)]
+        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         # Mutate to gap
         h[site_id] = sc2ts.core.ALLELES.index("-")
-        samples[0].alignment = h
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -130,13 +127,11 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        ma = sc2ts.alignments.encode_and_mask(alignment)
-        ref = ma.alignment[ts.sites_position.astype(int)]
+        a = sc2ts.encode_alignment(alignment)
+        ref = a[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
-        samples[0].alignment = h
+        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -931,8 +926,7 @@ class TestMatchRecombinants:
     def test_all_As(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         h = np.zeros(ts.num_sites, dtype=np.int8)
-        s = sc2ts.Sample("zerotype", "2020-02-14")
-        s.alignment = h
+        s = sc2ts.Sample("zerotype", "2020-02-14", haplotype=h)
 
         sc2ts.match_recombinants(
             samples=[s],

@@ -804,7 +804,7 @@ class TreeInfo:
         df = self._collect_node_data(self.recombinants)
         if len(df) == 0:
             return
-        sample_map = get_recombinant_samples(self.ts)
+        # sample_map = get_recombinant_samples(self.ts)
         causal_strain = []
         causal_pango = []
         causal_date = []
