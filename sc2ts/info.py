@@ -464,10 +464,10 @@ class TreeInfo:
                 )
 
     def _preprocess_sites(self, show_progress):
-        self.sites_num_masked_samples = np.zeros(self.ts.num_sites, dtype=int)
+        self.sites_num_missing_samples = np.zeros(self.ts.num_sites, dtype=int)
         if self.ts.table_metadata_schemas.site.schema is not None:
             for site in self.ts.sites():
-                self.sites_num_masked_samples[site.id] = site.metadata["masked_samples"]
+                self.sites_num_missing_samples[site.id] = site.metadata["missing_samples"]
         else:
             warnings.warn("Site QC metadata unavailable")
 
@@ -621,8 +621,8 @@ class TreeInfo:
             ("max_mutations_per_non_sample_node", max_non_sample_mutations),
             ("max_missing_sites_per_sample", np.max(missing_sites_per_sample)),
             ("mean_missing_sites_per_sample", np.mean(missing_sites_per_sample)),
-            ("max_masked_samples_per_site", np.max(self.sites_num_masked_samples)),
-            ("mean_masked_samples_per_site", np.mean(self.sites_num_masked_samples)),
+            ("max_missing_samples_per_site", np.max(self.sites_num_missing_samples)),
+            ("mean_missing_samples_per_site", np.mean(self.sites_num_missing_samples)),
             ("max_samples_per_day", np.max(self.num_samples_per_day)),
             ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
         ]
@@ -1335,10 +1335,10 @@ class TreeInfo:
         plt.ylabel("Number of mutations")
         plt.xlabel("Position on genome")
 
-    def plot_masked_samples_per_site(self, annotate_threshold=0.5):
+    def plot_missing_samples_per_site(self, annotate_threshold=0.5):
         fig, ax = plt.subplots(1, 1, figsize=(16, 4))
         self._add_genes_to_axis(ax)
-        count = self.sites_num_masked_samples
+        count = self.sites_num_missing_samples
         pos = self.ts.sites_position
         ax.plot(pos, count)
         threshold = np.max(count) * annotate_threshold

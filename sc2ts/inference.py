@@ -282,7 +282,7 @@ def initial_ts(additional_problematic_sites=list()):
     # 1-based coordinates
     for pos in range(1, L):
         if pos not in problematic_sites:
-            tables.sites.add_row(pos, reference[pos], metadata={"masked_samples": 0})
+            tables.sites.add_row(pos, reference[pos], metadata={"missing_samples": 0})
     # TODO should probably make the ultimate ancestor time something less
     # plausible or at least configurable. However, this will be removed
     # in later versions when we remove the dependence on tsinfer.
@@ -806,7 +806,7 @@ def add_matching_results(
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
-    site_masked_samples = np.zeros(int(ts.sequence_length), dtype=int)
+    site_missing_samples = np.zeros(int(ts.sequence_length), dtype=int)
     num_samples = 0
     for sample in match_db.get(where_clause):
         path = tuple(sample.hmm_match.path)
@@ -854,9 +854,8 @@ def add_matching_results(
                 continue
 
             for sample in group:
-                # Quick hack to track where missingness occurs - we should rename this
                 missing_sites = np.where(sample.haplotype == -1)[0]
-                site_masked_samples[missing_sites] += 1
+                site_missing_samples[missing_sites] += 1
 
             flat_ts = match_path_ts(group)
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
@@ -896,7 +895,7 @@ def add_matching_results(
     tables.sites.clear()
     for site in ts.sites():
         md = site.metadata
-        md["masked_samples"] += int(site_masked_samples[int(site.position)])
+        md["missing_samples"] += int(site_missing_samples[int(site.position)])
         tables.sites.append(site.replace(metadata=md))
 
     # NOTE: Doing the parsimony hueristic updates really is complicated a lot
