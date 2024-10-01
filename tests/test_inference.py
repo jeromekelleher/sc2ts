@@ -296,26 +296,14 @@ class TestRealData:
             assert mut_md["site_position"] == ts.sites_position[mut.site]
             assert mut_md["inherited_state"] == ts.site(mut.site).ancestral_state
         assert hmm_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
-        # print( sc2ts_md["qc"])
-        assert sc2ts_md["qc"] == {
-            "num_masked_sites": 0,
-            "original_base_composition": {
-                "A": 8894,
-                "C": 5472,
-                "G": 5850,
-                "N": 121,
-                "T": 9566,
-            },
-            "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
-            # "masked_base_composition": {
-            #     'A': 8891,
-            #     'C': 5468,
-            #     'G': 5849,
-            #     'T': 9562,
-            # },
-            "missing":0,
+        assert sc2ts_md["num_missing_sites"] == 0
+        assert sc2ts_md["alignment_composition"] == {
+            "A": 8820,
+            "C": 5426,
+            "G": 5694,
+            "T": 9477,
         }
-
+        assert sum(sc2ts_md["alignment_composition"].values()) == ts.num_sites
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
@@ -477,17 +465,17 @@ class TestRealData:
             "2020-01-30": {"nodes": 21, "mutations": 19},
             "2020-01-31": {"nodes": 22, "mutations": 21},
             "2020-02-01": {"nodes": 27, "mutations": 27},
-            "2020-02-02": {"nodes": 32, "mutations": 36},
-            "2020-02-03": {"nodes": 35, "mutations": 42},
-            "2020-02-04": {"nodes": 40, "mutations": 48},
-            "2020-02-05": {"nodes": 41, "mutations": 48},
-            "2020-02-06": {"nodes": 46, "mutations": 51},
-            "2020-02-07": {"nodes": 48, "mutations": 57},
-            "2020-02-08": {"nodes": 53, "mutations": 58},
-            "2020-02-09": {"nodes": 55, "mutations": 61},
-            "2020-02-10": {"nodes": 56, "mutations": 65},
-            "2020-02-11": {"nodes": 58, "mutations": 66},
-            "2020-02-13": {"nodes": 62, "mutations": 68},
+            "2020-02-02": {"nodes": 32, "mutations": 39},
+            "2020-02-03": {"nodes": 35, "mutations": 45},
+            "2020-02-04": {"nodes": 40, "mutations": 54},
+            "2020-02-05": {"nodes": 41, "mutations": 54},
+            "2020-02-06": {"nodes": 46, "mutations": 57},
+            "2020-02-07": {"nodes": 48, "mutations": 63},
+            "2020-02-08": {"nodes": 53, "mutations": 64},
+            "2020-02-09": {"nodes": 55, "mutations": 67},
+            "2020-02-10": {"nodes": 56, "mutations": 71},
+            "2020-02-11": {"nodes": 58, "mutations": 75},
+            "2020-02-13": {"nodes": 62, "mutations": 77},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
@@ -729,7 +717,7 @@ class TestSyntheticAlignments:
             ],
         }
 
-        assert smd["hmm_reruns"] == { }
+        assert smd["hmm_reruns"] == {}
 
     def test_all_As(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Same as the recombinant_example_1() function above
