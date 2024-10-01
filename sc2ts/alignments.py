@@ -62,8 +62,18 @@ def decode_alignment(a):
     return alleles[a]
 
 
-def base_composition(haplotype):
-    return collections.Counter(haplotype)
+def base_composition(haplotype, excluded_sites=None):
+    """
+    Haplotype includes an arbitrary character at the start.
+    Also, excluded site positions are 1-based.
+    """
+    if excluded_sites is not None:
+        mask = np.zeros(len(haplotype), dtype=bool)
+        mask[excluded_sites] = True
+        # Remove the first site from both haplotype and mask.
+        masked_haplotype = haplotype[1:][~mask[1:]]
+        return collections.Counter(masked_haplotype)
+    return collections.Counter(haplotype[1:])
 
 
 def compress_alignment(a):
@@ -145,12 +155,14 @@ class MaskedAlignment:
     masked_sites: np.ndarray
     original_base_composition: dict
     original_md5: str
+    masked_base_composition: str
 
     def qc_summary(self):
         return {
             "num_masked_sites": self.masked_sites.shape[0],
             "original_base_composition": self.original_base_composition,
             "original_md5": self.original_md5,
+            "masked_base_composition": self.masked_base_composition,
         }
 
 
@@ -161,6 +173,10 @@ def encode_and_mask(alignment, window_size=7):
     return MaskedAlignment(
         alignment=a,
         masked_sites=np.array(masked_sites, dtype=int),
-        original_base_composition=base_composition(alignment[1:]),
+        original_base_composition=base_composition(haplotype=alignment),
         original_md5=hashlib.md5(alignment[1:]).hexdigest(),
+        masked_base_composition=base_composition(
+            haplotype=alignment,
+            excluded_sites=masked_sites,
+        ),
     )

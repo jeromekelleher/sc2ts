@@ -311,6 +311,12 @@ class TestRealData:
                 "T": 9566,
             },
             "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
+            "masked_base_composition": {
+                'A': 8891,
+                'C': 5468,
+                'G': 5849,
+                'T': 9562,
+            },
         }
 
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
