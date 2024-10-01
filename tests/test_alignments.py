@@ -96,66 +96,19 @@ class TestEncodeAligment:
         assert a[-1] == -1
 
 
-class TestMasking:
-    # Window size of 1 is weird because we have to have two or more
-    # ambiguous characters. That means we only filter if something is
-    # surrounded.
-    @pytest.mark.parametrize(
-        ["hap", "expected", "masked"],
-        [
-            ("A", "A", 0),
-            ("-", "-", 0),
-            ("-A-", "-N-", 1),
-            ("NAN", "NNN", 1),
-            ("---AAC---", "-N-AAC-N-", 2),
-        ],
-    )
-    def test_examples_w1(self, hap, expected, masked):
-        hap = np.array(list(hap), dtype="U1")
-        a = sa.encode_alignment(hap)
-        expected = np.array(list(expected), dtype="U1")
-        m = sa.mask_alignment(a, window_size=1)
-        assert len(m) == masked
-        assert_array_equal(expected, sa.decode_alignment(a))
 
-    @pytest.mark.parametrize(
-        ["hap", "expected", "masked"],
-        [
-            ("A", "A", 0),
-            ("-", "-", 0),
-            ("--A--", "-NNN-", 3),
-            ("---AAAA---", "NNNNAANNNN", 8),
-            ("NNNAAAANNN", "NNNNAANNNN", 8),
-            ("-N-AAAA-N-", "NNNNAANNNN", 8),
-        ],
-    )
-    def test_examples_w2(self, hap, expected, masked):
-        hap = np.array(list(hap), dtype="U1")
-        a = sa.encode_alignment(hap)
-        expected = np.array(list(expected), dtype="U1")
-        m = sa.mask_alignment(a, window_size=2)
-        assert len(m) == masked
-        assert_array_equal(expected, sa.decode_alignment(a))
-
-    @pytest.mark.parametrize("w", [0, -1, -2])
-    def test_bad_window_size(self, w):
-        a = np.zeros(2, dtype=np.int8)
-        with pytest.raises(ValueError):
-            sa.mask_alignment(a, window_size=w)
-
-
-class TestEncodeAndMask:
-    def test_known(self, fx_alignment_store):
-        a = fx_alignment_store["SRR11772659"]
-        ma = sa.encode_and_mask(a)
-        assert ma.original_base_composition == {
-            "T": 9566,
-            "A": 8894,
-            "G": 5850,
-            "C": 5472,
-            "N": 121,
-        }
-        assert ma.original_md5 == "e96feaa72c4f4baba73c2e147ede7502"
-        assert len(ma.masked_sites) == 133
-        assert ma.masked_sites[0] == 1
-        assert ma.masked_sites[-1] == 29903
+# class TestEncodeAndMask:
+#     def test_known(self, fx_alignment_store):
+#         a = fx_alignment_store["SRR11772659"]
+#         ma = sa.encode_and_mask(a)
+#         assert ma.original_base_composition == {
+#             "T": 9566,
+#             "A": 8894,
+#             "G": 5850,
+#             "C": 5472,
+#             "N": 121,
+#         }
+#         assert ma.original_md5 == "e96feaa72c4f4baba73c2e147ede7502"
+#         assert len(ma.masked_sites) == 133
+#         assert ma.masked_sites[0] == 1
+#         assert ma.masked_sites[-1] == 29903

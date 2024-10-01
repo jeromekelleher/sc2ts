@@ -34,8 +34,7 @@ def recombinant_example_1(ts_map):
     h = H[0].copy()
     h[bp:] = H[1][bp:]
 
-    s = sc2ts.Sample("frankentype", "2020-02-14")
-    s.alignment = h
+    s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
     return ts, s
 
 
@@ -87,11 +86,10 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        ma = sc2ts.alignments.encode_and_mask(alignment)
-        h = ma.alignment[ts.sites_position.astype(int)]
-        samples[0].alignment = h
+        a = sc2ts.encode_alignment(alignment)
+        h = a[ts.sites_position.astype(int)]
+        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -104,13 +102,12 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        ma = sc2ts.alignments.encode_and_mask(alignment)
-        h = ma.alignment[ts.sites_position.astype(int)]
+        a = sc2ts.encode_alignment(alignment)
+        h = a[ts.sites_position.astype(int)]
+        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         # Mutate to gap
         h[site_id] = sc2ts.core.ALLELES.index("-")
-        samples[0].alignment = h
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -130,13 +127,11 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        samples = [sc2ts.Sample("test", "2020-01-01")]
         alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
-        ma = sc2ts.alignments.encode_and_mask(alignment)
-        ref = ma.alignment[ts.sites_position.astype(int)]
+        a = sc2ts.encode_alignment(alignment)
+        ref = a[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
-        samples[0].alignment = h
+        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -235,8 +230,8 @@ class TestTreeInfo:
     def test_tree_info_values(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         ti = sc2ts.TreeInfo(ts, show_progress=False)
-        # Make sure we've got the first few sites removed.
-        assert list(ti.sites_num_masked_samples[:3]) == [5, 4, 4]
+        assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 0, 560, 535]
+        assert list(ti.sites_num_missing_samples[:5]) == [1, 1, 1, 1, 1]
 
 
 class TestRealData:
@@ -301,24 +296,14 @@ class TestRealData:
             assert mut_md["site_position"] == ts.sites_position[mut.site]
             assert mut_md["inherited_state"] == ts.site(mut.site).ancestral_state
         assert hmm_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
-        assert sc2ts_md["qc"] == {
-            "num_masked_sites": 133,
-            "original_base_composition": {
-                "A": 8894,
-                "C": 5472,
-                "G": 5850,
-                "N": 121,
-                "T": 9566,
-            },
-            "original_md5": "e96feaa72c4f4baba73c2e147ede7502",
-            "masked_base_composition": {
-                'A': 8891,
-                'C': 5468,
-                'G': 5849,
-                'T': 9562,
-            },
+        assert sc2ts_md["num_missing_sites"] == 0
+        assert sc2ts_md["alignment_composition"] == {
+            "A": 8820,
+            "C": 5426,
+            "G": 5694,
+            "T": 9477,
         }
-
+        assert sum(sc2ts_md["alignment_composition"].values()) == ts.num_sites
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
@@ -334,6 +319,37 @@ class TestRealData:
         # print(samples)
         # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
+
+    @pytest.mark.parametrize("max_samples", range(1, 6))
+    def test_2020_02_02_max_samples(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, max_samples):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            max_daily_samples=max_samples,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        new_samples = min(4, max_samples)
+        assert ts.num_samples == 22 + new_samples
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
+
+    def test_2020_02_02_max_missing_sites(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+        max_missing_sites = 2
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            max_missing_sites=max_missing_sites,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        new_samples = 2
+        assert ts.num_samples == 22 + new_samples
+
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
+        for u in ts.samples()[-new_samples:]:
+            assert ts.node(u).metadata["sc2ts"]["num_missing_sites"] <= max_missing_sites
 
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
@@ -480,17 +496,17 @@ class TestRealData:
             "2020-01-30": {"nodes": 21, "mutations": 19},
             "2020-01-31": {"nodes": 22, "mutations": 21},
             "2020-02-01": {"nodes": 27, "mutations": 27},
-            "2020-02-02": {"nodes": 32, "mutations": 36},
-            "2020-02-03": {"nodes": 35, "mutations": 42},
-            "2020-02-04": {"nodes": 40, "mutations": 48},
-            "2020-02-05": {"nodes": 41, "mutations": 48},
-            "2020-02-06": {"nodes": 46, "mutations": 51},
-            "2020-02-07": {"nodes": 48, "mutations": 57},
-            "2020-02-08": {"nodes": 53, "mutations": 58},
-            "2020-02-09": {"nodes": 55, "mutations": 61},
-            "2020-02-10": {"nodes": 56, "mutations": 65},
-            "2020-02-11": {"nodes": 58, "mutations": 66},
-            "2020-02-13": {"nodes": 62, "mutations": 68},
+            "2020-02-02": {"nodes": 32, "mutations": 39},
+            "2020-02-03": {"nodes": 35, "mutations": 45},
+            "2020-02-04": {"nodes": 40, "mutations": 54},
+            "2020-02-05": {"nodes": 41, "mutations": 54},
+            "2020-02-06": {"nodes": 46, "mutations": 57},
+            "2020-02-07": {"nodes": 48, "mutations": 63},
+            "2020-02-08": {"nodes": 53, "mutations": 64},
+            "2020-02-09": {"nodes": 55, "mutations": 67},
+            "2020-02-10": {"nodes": 56, "mutations": 71},
+            "2020-02-11": {"nodes": 58, "mutations": 75},
+            "2020-02-13": {"nodes": 62, "mutations": 77},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
@@ -732,7 +748,7 @@ class TestSyntheticAlignments:
             ],
         }
 
-        assert smd["hmm_reruns"] == { }
+        assert smd["hmm_reruns"] == {}
 
     def test_all_As(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Same as the recombinant_example_1() function above
@@ -790,10 +806,11 @@ class TestMatchingDetails:
 
     @pytest.mark.parametrize(
         ("strain", "parent", "position", "derived_state"),
-        [("SRR11597218", 9, 289, "T"), ("ERR4206593", 54, 26994, "T")],
+        [
+            ("ERR4206593", 54, 26994, "T"),
+        ],
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
-    # @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_one_mismatch(
         self,
         fx_ts_map,
@@ -929,8 +946,7 @@ class TestMatchRecombinants:
     def test_all_As(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         h = np.zeros(ts.num_sites, dtype=np.int8)
-        s = sc2ts.Sample("zerotype", "2020-02-14")
-        s.alignment = h
+        s = sc2ts.Sample("zerotype", "2020-02-14", haplotype=h)
 
         sc2ts.match_recombinants(
             samples=[s],

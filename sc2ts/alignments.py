@@ -1,50 +1,14 @@
 import logging
-import pathlib
-import dataclasses
 import collections.abc
-import hashlib
 import bz2
 
 import lmdb
-import numba
 import tqdm
 import numpy as np
 
 from . import core
 
 logger = logging.getLogger(__name__)
-
-GAP = core.ALLELES.index("-")
-MISSING = -1
-
-
-@numba.njit
-def mask_alignment(a, start=0, window_size=7):
-    """
-    Following the approach in fa2vcf, if any base is has two or more ambiguous
-    or gap characters with distance window_size of it, mark it as missing data.
-    """
-    if window_size < 1:
-        raise ValueError("Window must be >= 1")
-    b = a.copy()
-    n = len(a)
-    masked_sites = []
-    for j in range(start, n):
-        ambiguous = 0
-        k = j - 1
-        while k >= start and k >= j - window_size:
-            if b[k] == GAP or b[k] == MISSING:
-                ambiguous += 1
-            k -= 1
-        k = j + 1
-        while k < n and k <= j + window_size:
-            if b[k] == GAP or b[k] == MISSING:
-                ambiguous += 1
-            k += 1
-        if ambiguous > 1:
-            a[j] = MISSING
-            masked_sites.append(j)
-    return masked_sites
 
 
 def encode_alignment(h):
@@ -60,20 +24,6 @@ def decode_alignment(a):
         raise ValueError("Cannot decode alignment")
     alleles = np.array(list(core.ALLELES + "N"), dtype="U1")
     return alleles[a]
-
-
-def base_composition(haplotype, excluded_sites=None):
-    """
-    Haplotype includes an arbitrary character at the start.
-    Also, excluded site positions are 1-based.
-    """
-    if excluded_sites is not None:
-        mask = np.zeros(len(haplotype), dtype=bool)
-        mask[excluded_sites] = True
-        # Remove the first site from both haplotype and mask.
-        masked_haplotype = haplotype[1:][~mask[1:]]
-        return collections.Counter(masked_haplotype)
-    return collections.Counter(haplotype[1:])
 
 
 def compress_alignment(a):
@@ -147,36 +97,3 @@ class AlignmentStore(collections.abc.Mapping):
     def __len__(self):
         with self.env.begin() as txn:
             return txn.stat()["entries"]
-
-
-@dataclasses.dataclass
-class MaskedAlignment:
-    alignment: np.ndarray
-    masked_sites: np.ndarray
-    original_base_composition: dict
-    original_md5: str
-    masked_base_composition: str
-
-    def qc_summary(self):
-        return {
-            "num_masked_sites": self.masked_sites.shape[0],
-            "original_base_composition": self.original_base_composition,
-            "original_md5": self.original_md5,
-            "masked_base_composition": self.masked_base_composition,
-        }
-
-
-def encode_and_mask(alignment, window_size=7):
-    # TODO make window_size param
-    a = encode_alignment(alignment)
-    masked_sites = mask_alignment(a, start=1, window_size=window_size)
-    return MaskedAlignment(
-        alignment=a,
-        masked_sites=np.array(masked_sites, dtype=int),
-        original_base_composition=base_composition(haplotype=alignment),
-        original_md5=hashlib.md5(alignment[1:]).hexdigest(),
-        masked_base_composition=base_composition(
-            haplotype=alignment,
-            excluded_sites=masked_sites,
-        ),
-    )

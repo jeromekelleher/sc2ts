@@ -20,8 +20,8 @@ def _validate_samples(ts, samples, alignment_store, show_progress):
         disable=not show_progress,
     ) as bar:
         for j, strain in bar:
-            ma = alignments.encode_and_mask(alignment_store[strain])
-            G[:, j] = ma.alignment[keep_sites]
+            a = alignments.encode_alignment(alignment_store[strain])
+            G[:, j] = a[keep_sites]
 
     vars_iter = ts.variants(samples=samples, alleles=tuple(core.ALLELES))
     with tqdm.tqdm(
