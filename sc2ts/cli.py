@@ -351,6 +351,14 @@ def summarise_base(ts, date, progress):
     ),
 )
 @click.option(
+    "--max-missing-sites",
+    default=None,
+    type=int,
+    help=(
+        "The maximum number of missing sites in a sample to be accepted for inclusion"
+    ),
+)
+@click.option(
     "--random-seed",
     default=42,
     type=int,
@@ -386,6 +394,7 @@ def extend(
     min_root_mutations,
     retrospective_window,
     max_daily_samples,
+    max_missing_sites,
     num_threads,
     random_seed,
     progress,
@@ -427,6 +436,7 @@ def extend(
             min_root_mutations=min_root_mutations,
             retrospective_window=retrospective_window,
             max_daily_samples=max_daily_samples,
+            max_missing_sites=max_missing_sites,
             random_seed=random_seed,
             num_threads=num_threads,
             show_progress=progress,

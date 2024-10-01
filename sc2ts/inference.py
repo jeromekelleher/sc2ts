@@ -479,7 +479,7 @@ def make_sample(strain, date, pango, metadata, alignment):
         pango,
         metadata,
         haplotype=alignments.encode_alignment(alignment),
-        # Need to do this here because encoding gets rid of 
+        # Need to do this here because encoding gets rid of
         # ambiguous bases etc.
         alignment_composition=collections.Counter(alignment),
     )
@@ -511,13 +511,13 @@ def preprocess(
             # NOTE everything we store about the sample is **excluding** the problematic_sites
             sample = make_sample(strain, date, pango, md, alignment[keep_sites])
             num_missing_sites = sample.num_missing_sites
-            samples.append(sample)
-            # if sample.num_missing_sites < max_missing_sites:
-                # samples.append(sample)
-                # logger.debug(f"Encode {strain}: missing={num_missing} {counts}")
-            # else:
-                # logger.debug(f"Filter {strain}: missing={num_missing} {counts}")
-
+            logger.debug(f"Encoded {strain} {pango} missing={num_missing_sites}")
+            if sample.num_missing_sites <= max_missing_sites:
+                samples.append(sample)
+            else:
+                logger.debug(
+                    f"Filter {strain}: missing={num_missing_sites} < {max_missing_sites}"
+                )
     return samples
 
 
@@ -535,6 +535,7 @@ def extend(
     max_daily_samples=None,
     show_progress=False,
     retrospective_window=None,
+    max_missing_sites=None,
     random_seed=42,
     num_threads=0,
 ):
@@ -548,6 +549,8 @@ def extend(
         min_root_mutations = 2
     if retrospective_window is None:
         retrospective_window = 30
+    if max_missing_sites is None:
+        max_missing_sites = np.inf
 
     check_base_ts(base_ts)
     logger.info(
@@ -558,25 +561,6 @@ def extend(
     metadata_matches = list(metadata_db.get(date))
 
     logger.info(f"Got {len(metadata_matches)} metadata matches")
-    # first check for samples that are in the alignment_store
-    # samples_with_aligments = []
-    # for md in metadata_matches:
-    #     if md["strain"] in alignment_store:
-    #         samples_with_aligments.append(md)
-
-    # logger.info(f"Verified {len(samples_with_aligments)} have alignments")
-    # metadata_matches = list(
-    #     metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
-    # )
-    # if max_daily_samples is not None:
-    #     if max_daily_samples < len(samples_with_aligments):
-    #         seed_prefix = bytes(np.array([random_seed], dtype=int).data)
-    #         seed_suffix = hashlib.sha256(date.encode()).digest()
-    #         rng = random.Random(seed_prefix + seed_suffix)
-    #         samples_with_aligments = rng.sample(
-    #             samples_with_aligments, max_daily_samples
-    #         )
-    #         logger.info(f"Subset to {len(metadata_matches)} samples")
 
     samples = preprocess(
         metadata_matches,
@@ -585,6 +569,7 @@ def extend(
         alignment_store,
         pango_lineage_key="Viridian_pangolin",  # TODO parametrise
         show_progress=show_progress,
+        max_missing_sites=max_missing_sites,
     )
 
     if max_daily_samples is not None:
@@ -670,7 +655,7 @@ def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=No
         "hmm_match": sample.hmm_match.asdict(),
         "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
         "alignment_composition": dict(sample.alignment_composition),
-        "num_missing_sites": sample.num_missing_sites
+        "num_missing_sites": sample.num_missing_sites,
     }
     if group_id is not None:
         sc2ts_md["group_id"] = group_id

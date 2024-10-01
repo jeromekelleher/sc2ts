@@ -320,6 +320,37 @@ class TestRealData:
         # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
+    @pytest.mark.parametrize("max_samples", range(1, 6))
+    def test_2020_02_02_max_samples(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, max_samples):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            max_daily_samples=max_samples,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        new_samples = min(4, max_samples)
+        assert ts.num_samples == 22 + new_samples
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
+
+    def test_2020_02_02_max_missing_sites(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+        max_missing_sites = 2
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            max_missing_sites=max_missing_sites,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        new_samples = 2
+        assert ts.num_samples == 22 + new_samples
+
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
+        for u in ts.samples()[-new_samples:]:
+            assert ts.node(u).metadata["sc2ts"]["num_missing_sites"] <= max_missing_sites
+
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
