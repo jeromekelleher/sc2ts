@@ -159,7 +159,7 @@ class MaskedAlignment:
 
     def qc_summary(self):
         return {
-            "num_masked_sites": self.masked_sites.shape[0],
+            # "num_masked_sites": self.masked_sites.shape[0],
             "original_base_composition": self.original_base_composition,
             "original_md5": self.original_md5,
             # "masked_base_composition": self.masked_base_composition,

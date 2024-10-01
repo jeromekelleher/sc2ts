@@ -503,7 +503,6 @@ def preprocess(
             sample.alignment_qc = ma.qc_summary()
             sample.masked_sites = ma.masked_sites
             sample.alignment = ma.alignment[keep_sites]
-            samples.append(sample)
             num_Ns = ma.original_base_composition.get("N", 0)
             non_nuc_counts = dict(ma.original_base_composition)
             for nuc in "ACGT":
@@ -512,8 +511,12 @@ def preprocess(
                     f"{key}={count}" for key, count in sorted(non_nuc_counts.items())
                 )
             num_missing = int(np.sum(sample.alignment == -1))
-            sample.alignment_qc["missing"] = num_missing
-            logger.debug(f"Mask {strain}: missing={num_missing} {counts}")
+            sample.alignment_qc["num_missing_sites"] = num_missing
+            if num_missing < 1000:
+                samples.append(sample)
+                logger.debug(f"Mask {strain}: missing={num_missing} {counts}")
+            else:
+                logger.debug(f"Filter {strain}: missing={num_missing} {counts}")
 
     return samples
 
@@ -556,33 +559,41 @@ def extend(
 
     logger.info(f"Got {len(metadata_matches)} metadata matches")
     # first check for samples that are in the alignment_store
-    samples_with_aligments = []
-    for md in metadata_matches:
-        if md["strain"] in alignment_store:
-            samples_with_aligments.append(md)
+    # samples_with_aligments = []
+    # for md in metadata_matches:
+    #     if md["strain"] in alignment_store:
+    #         samples_with_aligments.append(md)
 
-    logger.info(f"Verified {len(samples_with_aligments)} have alignments")
+    # logger.info(f"Verified {len(samples_with_aligments)} have alignments")
     # metadata_matches = list(
     #     metadata_db.query("SELECT * FROM samples WHERE strain=='SRR19463295'")
     # )
-    if max_daily_samples is not None:
-        if max_daily_samples < len(samples_with_aligments):
-            seed_prefix = bytes(np.array([random_seed], dtype=int).data)
-            seed_suffix = hashlib.sha256(date.encode()).digest()
-            rng = random.Random(seed_prefix + seed_suffix)
-            samples_with_aligments = rng.sample(
-                samples_with_aligments, max_daily_samples
-            )
-            logger.info(f"Subset to {len(metadata_matches)} samples")
+    # if max_daily_samples is not None:
+    #     if max_daily_samples < len(samples_with_aligments):
+    #         seed_prefix = bytes(np.array([random_seed], dtype=int).data)
+    #         seed_suffix = hashlib.sha256(date.encode()).digest()
+    #         rng = random.Random(seed_prefix + seed_suffix)
+    #         samples_with_aligments = rng.sample(
+    #             samples_with_aligments, max_daily_samples
+    #         )
+    #         logger.info(f"Subset to {len(metadata_matches)} samples")
 
     samples = preprocess(
-        samples_with_aligments,
+        metadata_matches,
         base_ts,
         date,
         alignment_store,
         pango_lineage_key="Viridian_pangolin",  # TODO parametrise
         show_progress=show_progress,
     )
+
+    if max_daily_samples is not None:
+        if max_daily_samples < len(samples):
+            seed_prefix = bytes(np.array([random_seed], dtype=int).data)
+            seed_suffix = hashlib.sha256(date.encode()).digest()
+            rng = random.Random(seed_prefix + seed_suffix)
+            samples = rng.sample(samples, max_daily_samples)
+            logger.info(f"Subset to {len(metadata_matches)} samples")
 
     if len(samples) == 0:
         logger.warning(f"Nothing to do for {date}")
