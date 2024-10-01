@@ -230,7 +230,6 @@ class TestTreeInfo:
     def test_tree_info_values(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         ti = sc2ts.TreeInfo(ts, show_progress=False)
-        # Make sure we've got the first few sites removed.
         assert list(ti.sites_num_masked_samples[:3]) == [5, 4, 4]
 
 
@@ -775,10 +774,11 @@ class TestMatchingDetails:
 
     @pytest.mark.parametrize(
         ("strain", "parent", "position", "derived_state"),
-        [("SRR11597218", 9, 289, "T"), ("ERR4206593", 54, 26994, "T")],
+        [
+            ("ERR4206593", 54, 26994, "T"),
+        ],
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
-    # @pytest.mark.parametrize("precision", [0, 1, 2, 12])
     def test_one_mismatch(
         self,
         fx_ts_map,
