@@ -372,7 +372,7 @@ class TreeInfo:
 
         self.nodes_max_descendant_samples = None
         self.nodes_date = None
-        self.nodes_num_masked_sites = None
+        self.nodes_num_missing_sites = None
         self.nodes_metadata = None
 
         top_level_md = ts.metadata["sc2ts"]
@@ -427,7 +427,7 @@ class TreeInfo:
             ts, show_progress=show_progress
         )
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
-        self.nodes_num_masked_sites = np.zeros(ts.num_nodes, dtype=np.int32)
+        self.nodes_num_missing_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
         self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
@@ -448,25 +448,15 @@ class TreeInfo:
             md = node.metadata
             self.nodes_metadata[node.id] = md
             group_id = None
-            try:
-                sc2ts_md = md["sc2ts"]
-                group_id = sc2ts_md.get("group_id", None)
-            except KeyError:
-                warnings.warn("Node sc2ts metadata not available")
-
+            sc2ts_md = md["sc2ts"]
+            group_id = sc2ts_md.get("group_id", None)
             if group_id is not None:
                 self.nodes_sample_group[group_id].append(node.id)
-
             if node.is_sample():
                 self.nodes_date[node.id] = md["date"]
                 pango = md.get(self.pango_source, "unknown")
                 self.pango_lineage_samples[pango].append(node.id)
-                try:
-                    qc = md["sc2ts"]["qc"]
-                    self.nodes_num_masked_sites[node.id] = qc["num_masked_sites"]
-                except KeyError:
-                    if node.id > 1:
-                        warnings.warn("Node QC metadata not available")
+                self.nodes_num_missing_sites[node.id] = sc2ts_md.get("num_missing_sites", 0)
             else:
                 # Rounding down here, might be misleading
                 self.nodes_date[node.id] = self.time_zero_as_date - int(
@@ -597,7 +587,7 @@ class TreeInfo:
         nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
         sites_with_zero_muts = np.sum(self.sites_num_mutations == 0)
         latest_sample = self.nodes_date[samples[-1]]
-        masked_sites_per_sample = self.nodes_num_masked_sites[samples]
+        missing_sites_per_sample = self.nodes_num_missing_sites[samples]
         non_samples = (self.ts.nodes_flags & tskit.NODE_IS_SAMPLE) == 0
         max_non_sample_mutations = np.max(self.nodes_num_mutations[non_samples])
         insertions = np.sum(self.mutations_inherited_state == "-")
@@ -629,8 +619,8 @@ class TreeInfo:
             ("median_mutations_per_site", np.median(self.sites_num_mutations)),
             ("max_mutations_per_node", np.max(self.nodes_num_mutations)),
             ("max_mutations_per_non_sample_node", max_non_sample_mutations),
-            ("max_masked_sites_per_sample", np.max(masked_sites_per_sample)),
-            ("mean_masked_sites_per_sample", np.mean(masked_sites_per_sample)),
+            ("max_missing_sites_per_sample", np.max(missing_sites_per_sample)),
+            ("mean_missing_sites_per_sample", np.mean(missing_sites_per_sample)),
             ("max_masked_samples_per_site", np.max(self.sites_num_masked_samples)),
             ("mean_masked_samples_per_site", np.mean(self.sites_num_masked_samples)),
             ("max_samples_per_day", np.max(self.num_samples_per_day)),
@@ -1209,9 +1199,9 @@ class TreeInfo:
         plt.xlabel("Number of mutations")
         plt.ylabel("Number of nodes")
 
-    def plot_masked_sites_per_sample(self):
+    def plot_missing_sites_per_sample(self):
         # plt.title(f"Nodes with >= 10 muts: {nodes_with_many_muts}")
-        plt.hist(self.nodes_num_masked_sites[self.ts.samples()], rwidth=0.9)
+        plt.hist(self.nodes_num_missing_sites[self.ts.samples()], rwidth=0.9)
         # plt.xlabel("Number of mutations")
         # plt.ylabel("Number of nodes")
 

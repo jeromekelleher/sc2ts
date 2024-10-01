@@ -230,7 +230,7 @@ class TestTreeInfo:
     def test_tree_info_values(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         ti = sc2ts.TreeInfo(ts, show_progress=False)
-        assert list(ti.sites_num_masked_samples[:3]) == [5, 4, 4]
+        assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 0, 560, 535]
 
 
 class TestRealData:
