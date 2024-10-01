@@ -507,7 +507,7 @@ def preprocess(
             except KeyError:
                 logger.debug(f"No alignment stored for {strain}")
                 continue
-            pango = (md.get(pango_lineage_key, "PangoUnknown"),)
+            pango = md.get(pango_lineage_key, "PangoUnknown")
             # NOTE everything we store about the sample is **excluding** the problematic_sites
             sample = make_sample(strain, date, pango, md, alignment[keep_sites])
             num_missing_sites = sample.num_missing_sites
@@ -516,7 +516,7 @@ def preprocess(
                 samples.append(sample)
             else:
                 logger.debug(
-                    f"Filter {strain}: missing={num_missing_sites} < {max_missing_sites}"
+                    f"Filter {strain}: missing={num_missing_sites} > {max_missing_sites}"
                 )
     return samples
 
