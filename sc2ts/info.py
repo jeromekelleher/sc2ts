@@ -178,7 +178,7 @@ def get_recombinant_samples(ts):
     out = {}
     for u in recomb_nodes:
         node = ts.node(u)
-        recomb_date = node.metadata["date_added"]
+        recomb_date = node.metadata["sc2ts"]["date_added"]
         causal_sample = -1
         # Search the subtree for a causal sample.
         for v in tree.nodes(u, order="levelorder"):
