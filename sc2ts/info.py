@@ -467,7 +467,7 @@ class TreeInfo:
         self.sites_num_missing_samples = np.zeros(self.ts.num_sites, dtype=int)
         if self.ts.table_metadata_schemas.site.schema is not None:
             for site in self.ts.sites():
-                self.sites_num_missing_samples[site.id] = site.metadata["missing_samples"]
+                self.sites_num_missing_samples[site.id] = site.metadata.get("missing_samples", -1)
         else:
             warnings.warn("Site QC metadata unavailable")
 
