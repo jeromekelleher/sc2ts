@@ -689,8 +689,8 @@ class TestSyntheticAlignments:
         assert row.recombinant == recomb_node.id
         assert row.group_id == group_id
         assert row.date_added == date
-        assert row.max_descendant_samples == 1
-        assert row.num_parents == 2
+        assert row.descendants == 1
+        assert row.parents == 2
 
     def test_recombinant_example_2(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Pick a distinct strain to be the root of our two new haplotypes added
