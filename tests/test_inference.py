@@ -321,7 +321,9 @@ class TestRealData:
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
     @pytest.mark.parametrize("max_samples", range(1, 6))
-    def test_2020_02_02_max_samples(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, max_samples):
+    def test_2020_02_02_max_samples(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, max_samples
+    ):
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
             metadata_db=fx_metadata_db,
@@ -334,7 +336,9 @@ class TestRealData:
         assert ts.num_samples == 22 + new_samples
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
 
-    def test_2020_02_02_max_missing_sites(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+    def test_2020_02_02_max_missing_sites(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db
+    ):
         max_missing_sites = 2
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
@@ -349,7 +353,9 @@ class TestRealData:
 
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
         for u in ts.samples()[-new_samples:]:
-            assert ts.node(u).metadata["sc2ts"]["num_missing_sites"] <= max_missing_sites
+            assert (
+                ts.node(u).metadata["sc2ts"]["num_missing_sites"] <= max_missing_sites
+            )
 
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
@@ -675,6 +681,16 @@ class TestSyntheticAlignments:
         assert edges[0].left == 0
         assert edges[0].right == 29904
         assert edges[0].child == ts.samples()[-1]
+
+        ti = sc2ts.TreeInfo(ts, show_progress=False)
+        df = ti.recombinants_summary()
+        assert df.shape[0] == 1
+        row = df.iloc[0]
+        assert row.recombinant == recomb_node.id
+        assert row.group_id == group_id
+        assert row.date_added == date
+        assert row.descendants == 1
+        assert row.parents == 2
 
     def test_recombinant_example_2(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Pick a distinct strain to be the root of our two new haplotypes added

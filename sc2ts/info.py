@@ -386,6 +386,7 @@ class TreeInfo:
         self.nodes_num_mutations = np.bincount(
             ts.mutations_node, minlength=ts.num_nodes
         )
+        self.nodes_num_parents = np.bincount(ts.edges_child, minlength=ts.num_edges)
 
         # The number of samples per day in time-ago (i.e., the nodes_time units).
         self.num_samples_per_day = np.bincount(ts.nodes_time[samples].astype(int))
@@ -456,7 +457,9 @@ class TreeInfo:
                 self.nodes_date[node.id] = md["date"]
                 pango = md.get(self.pango_source, "unknown")
                 self.pango_lineage_samples[pango].append(node.id)
-                self.nodes_num_missing_sites[node.id] = sc2ts_md.get("num_missing_sites", 0)
+                self.nodes_num_missing_sites[node.id] = sc2ts_md.get(
+                    "num_missing_sites", 0
+                )
             else:
                 # Rounding down here, might be misleading
                 self.nodes_date[node.id] = self.time_zero_as_date - int(
@@ -467,7 +470,9 @@ class TreeInfo:
         self.sites_num_missing_samples = np.zeros(self.ts.num_sites, dtype=int)
         if self.ts.table_metadata_schemas.site.schema is not None:
             for site in self.ts.sites():
-                self.sites_num_missing_samples[site.id] = site.metadata.get("missing_samples", -1)
+                self.sites_num_missing_samples[site.id] = site.metadata.get(
+                    "missing_samples", -1
+                )
         else:
             warnings.warn("Site QC metadata unavailable")
 
@@ -791,43 +796,18 @@ class TreeInfo:
         )
 
     def recombinants_summary(self):
-        df = self._collect_node_data(self.recombinants)
-        if len(df) == 0:
-            return
-        # sample_map = get_recombinant_samples(self.ts)
-        causal_strain = []
-        causal_pango = []
-        causal_date = []
-        interval_left = []
-        interval_right = []
-        for u in df.node:
-            md = self.nodes_metadata[sample_map[u]]
-            causal_strain.append(md["strain"])
-            causal_pango.append(md[self.pango_source])
-            causal_date.append(md["date"])
-            try:
-                hmm_md = self.nodes_metadata[u]["sc2ts"]["hmm"]
-                # print(hmm_md)
-                assert hmm_md[0]["direction"] == "forward"
-                assert hmm_md[1]["direction"] == "reverse"
-                interval_left.append(hmm_md[1]["path"][0]["right"])
-                interval_right.append(hmm_md[0]["path"][0]["right"])
-            except KeyError:
-                interval_left.append(0)
-                interval_right.append(0)
-        df["causal_strain"] = causal_strain
-        df["causal_pango"] = causal_pango
-        df["causal_date"] = causal_date
-        df["breakpoint_interval_left"] = interval_left
-        df["breakpoint_interval_right"] = interval_right
-        df["max_descendant_samples"] = self.nodes_max_descendant_samples[df.node]
-
-        df = df.set_index("node")
-        # The MRCA table will contain duplicate rows here for two-or-more matches.
-        # We just hacking for now to get things working well for two-parent recombs
-        mrca_table = get_recombinant_mrca_table(self.ts).set_index("recombinant_node")
-        # assert len(mrca_table) == len(df)
-        return df.join(mrca_table.drop_duplicates())
+        data = []
+        for u in self.recombinants:
+            md = self.nodes_metadata[u]["sc2ts"]
+            data.append(
+                {
+                    "recombinant": u,
+                    "parents": self.nodes_num_parents[u],
+                    "descendants": self.nodes_max_descendant_samples[u],
+                    **md,
+                }
+            )
+        return pd.DataFrame(data)
 
     def combine_recombinant_info(self):
         def get_imputed_pango(u, pango_source):
@@ -1422,6 +1402,7 @@ class TreeInfo:
             attach_date=attach_date,
         )
 
+
 def country_abbr(country):
     return {
         "United Kingdom": "UK",
@@ -1445,16 +1426,17 @@ class SampleGroupInfo:
     attach_date: None
 
     def draw_svg(
-            self,
-            size=(800, 600),
-            time_scale=None,
-            y_axis=True,
-            mutation_labels=None,
-            style=None,
-            highlight_universal_mutations=None,
-            x_regions=None,
-            node_labels=None,
-            **kwargs):
+        self,
+        size=(800, 600),
+        time_scale=None,
+        y_axis=True,
+        mutation_labels=None,
+        style=None,
+        highlight_universal_mutations=None,
+        x_regions=None,
+        node_labels=None,
+        **kwargs,
+    ):
         """
         Draw an SVG representation of the tree of samples that trace to a single origin.
 
@@ -1494,17 +1476,21 @@ class SampleGroupInfo:
             }
         elif node_labels == "Country":
             node_labels = {
-                n.id: n.metadata["Country"] for n in ts.nodes() if "Country" in n.metadata
+                n.id: n.metadata["Country"]
+                for n in ts.nodes()
+                if "Country" in n.metadata
             }
         elif node_labels == "Country_abbr":
             node_labels = {
                 n.id: country_abbr(n.metadata["Country"])
-                for n in ts.nodes() if "Country" in n.metadata
+                for n in ts.nodes()
+                if "Country" in n.metadata
             }
         elif node_labels == "pango+country":
             node_labels = {
                 n.id: f"{n.metadata.get(pango_md, '')}:{country_abbr(n.metadata.get('Country', ''))}"
-                for n in ts.nodes() if pango_md in n.metadata or "Country" in n.metadata
+                for n in ts.nodes()
+                if pango_md in n.metadata or "Country" in n.metadata
             }
 
         assert ts.num_trees == 1
@@ -1541,7 +1527,9 @@ class SampleGroupInfo:
                         inherited_state = parent.derived_state
                         parent_inherited_state = site.ancestral_state
                         if parent.parent >= 0:
-                            parent_inherited_state = ts.mutation(parent.parent).derived_state
+                            parent_inherited_state = ts.mutation(
+                                parent.parent
+                            ).derived_state
                         if parent_inherited_state == mut.derived_state:
                             reverted_mutations.append(mut.id)
                     # Reverse map label name to mutation id, so we can count duplicates
@@ -1550,9 +1538,13 @@ class SampleGroupInfo:
             # If more than one mutation has the same label, add a prefix with the counts
             mutation_labels = {
                 m_id: label + (f" ({i+1}/{len(ids)})" if len(ids) > 1 else "")
-                for label, ids in mutation_labels.items() for i, m_id in enumerate(ids)}
+                for label, ids in mutation_labels.items()
+                for i, m_id in enumerate(ids)
+            }
         # some default styles
-        styles = [".mut .lab {fill: darkred} .mut .sym {stroke: darkred} .background path {fill: white}"]
+        styles = [
+            ".mut .lab {fill: darkred} .mut .sym {stroke: darkred} .background path {fill: white}"
+        ]
         if len(multiple_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in multiple_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in multiple_mutations)
@@ -1564,8 +1556,12 @@ class SampleGroupInfo:
         if len(universal_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in universal_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in universal_mutations)
-            sym_ax_css = ", ".join(f".x-axis .mut.m{m} .sym" for m in universal_mutations)
-            styles.append(lab_css + "{font-weight: bold}" + sym_css + "{stroke-width: 3}")
+            sym_ax_css = ", ".join(
+                f".x-axis .mut.m{m} .sym" for m in universal_mutations
+            )
+            styles.append(
+                lab_css + "{font-weight: bold}" + sym_css + "{stroke-width: 3}"
+            )
             styles.append(sym_ax_css + "{stroke-width: 8}")
         svg = self.ts.draw_svg(
             size=size,
@@ -1582,11 +1578,14 @@ class SampleGroupInfo:
         # calls once https://github.com/tskit-dev/tskit/pull/3002 is in tskit
         if len(x_regions) > 0:
             assert svg.startswith("<svg")
-            header = svg[:svg.find(">") + 1]
+            header = svg[: svg.find(">") + 1]
             footer = "</svg>"
 
             # Find SVG positions of the X axis
-            m = re.search(r'class="x-axis".*?class="ax-line" x1="([\d\.]+)" x2="([\d\.]+)" y1="([\d\.]+)"', svg)
+            m = re.search(
+                r'class="x-axis".*?class="ax-line" x1="([\d\.]+)" x2="([\d\.]+)" y1="([\d\.]+)"',
+                svg,
+            )
             assert m is not None
             x1, x2, y1 = float(m.group(1)), float(m.group(2)), float(m.group(3))
             xdiff = x2 - x1
@@ -1595,18 +1594,18 @@ class SampleGroupInfo:
             x_scale = xdiff / ts.sequence_length
             x_boxes = [
                 x_box_svg.format(
-                    x=x1 + p1 * x_scale,
-                    w=(p2-p1) * x_scale,
-                    y=y1,
-                    h=20)  # height of the box: hardcoded for now to match font height
+                    x=x1 + p1 * x_scale, w=(p2 - p1) * x_scale, y=y1, h=20
+                )  # height of the box: hardcoded for now to match font height
                 for p1, p2 in x_regions.keys()
             ]
             x_names = [
-                x_name_svg.format(x=x1 + (p[0] + p[1])/2 * x_scale, y=y1+2, name=name)
+                x_name_svg.format(
+                    x=x1 + (p[0] + p[1]) / 2 * x_scale, y=y1 + 2, name=name
+                )
                 for p, name in x_regions.items()
             ]
             # add the new SVG to the old
-            svg = (header + "".join(x_boxes) +  "".join(x_names) + footer) + svg
+            svg = (header + "".join(x_boxes) + "".join(x_names) + footer) + svg
             # Now wrap both in another SVG
             svg = header + svg + footer
 
