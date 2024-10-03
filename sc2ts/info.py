@@ -799,11 +799,21 @@ class TreeInfo:
         data = []
         for u in self.recombinants:
             md = self.nodes_metadata[u]["sc2ts"]
+            group_id = md["group_id"]
+            # NOTE this is overlapping quite a bit with the SampleGroupInfo
+            # class functionality here, but we just want something quick for
+            # now here.
+            causal_lineages = collections.Counter()
+            for v in self.nodes_sample_group[group_id]:
+                if self.ts.nodes_flags[v] & tskit.NODE_IS_SAMPLE > 0:
+                    pango = self.nodes_metadata[v].get(self.pango_source, "Unknown")
+                    causal_lineages[pango] += 1
             data.append(
                 {
                     "recombinant": u,
                     "parents": self.nodes_num_parents[u],
                     "descendants": self.nodes_max_descendant_samples[u],
+                    "causal_pango": dict(causal_lineages),
                     **md,
                 }
             )
