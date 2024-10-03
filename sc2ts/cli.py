@@ -221,6 +221,10 @@ def info_ts(ts_path, recombinants, verbose, log_file):
 
     ti = sc2ts.TreeInfo(ts, quick=False)
     # print("info", ti.node_counts())
+    # TODO output these as TSVs rather than using pandas display?
+    pd.set_option('display.max_rows', 500)
+    pd.set_option('display.max_columns', 500)
+    pd.set_option('display.width', 1000)
     print(ti.summary())
     # TODO more
     if recombinants:
