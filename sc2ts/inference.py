@@ -26,6 +26,9 @@ from . import tree_ops
 
 logger = logging.getLogger(__name__)
 
+MISSING = -1
+DELETION = core.ALLELES.index("-")
+
 
 def get_progress(iterable, date, phase, show_progress, total=None):
     bar_format = (
@@ -282,7 +285,11 @@ def initial_ts(additional_problematic_sites=list()):
     # 1-based coordinates
     for pos in range(1, L):
         if pos not in problematic_sites:
-            tables.sites.add_row(pos, reference[pos], metadata={"missing_samples": 0})
+            tables.sites.add_row(
+                pos,
+                reference[pos],
+                metadata={"sc2ts": {"missing_samples": 0, "deletion_samples": 0}},
+            )
     # TODO should probably make the ultimate ancestor time something less
     # plausible or at least configurable. However, this will be removed
     # in later versions when we remove the dependence on tsinfer.
@@ -343,7 +350,11 @@ class Sample:
 
     @property
     def num_missing_sites(self):
-        return int(np.sum(self.haplotype == -1))
+        return int(np.sum(self.haplotype == MISSING))
+
+    @property
+    def num_deletion_sites(self):
+        return int(np.sum(self.haplotype == DELETION))
 
     def summary(self):
         hmm_match = "No match" if self.hmm_match is None else self.hmm_match.summary()
@@ -511,7 +522,11 @@ def preprocess(
             # NOTE everything we store about the sample is **excluding** the problematic_sites
             sample = make_sample(strain, date, pango, md, alignment[keep_sites])
             num_missing_sites = sample.num_missing_sites
-            logger.debug(f"Encoded {strain} {pango} missing={num_missing_sites}")
+            num_deletion_sites = sample.num_deletion_sites
+            logger.debug(
+                f"Encoded {strain} {pango} missing={num_missing_sites} "
+                f"deletions={num_deletion_sites}"
+            )
             if sample.num_missing_sites <= max_missing_sites:
                 samples.append(sample)
             else:
@@ -577,8 +592,8 @@ def extend(
             seed_prefix = bytes(np.array([random_seed], dtype=int).data)
             seed_suffix = hashlib.sha256(date.encode()).digest()
             rng = random.Random(seed_prefix + seed_suffix)
+            logger.info(f"Subset from {len(samples)} to {max_daily_samples}")
             samples = rng.sample(samples, max_daily_samples)
-            logger.info(f"Subset to {len(metadata_matches)} samples")
 
     if len(samples) == 0:
         logger.warning(f"Nothing to do for {date}")
@@ -791,7 +806,8 @@ def add_matching_results(
 
     # Group matches by path and set of immediate reversions.
     grouped_matches = collections.defaultdict(list)
-    site_missing_samples = np.zeros(int(ts.sequence_length), dtype=int)
+    site_missing_samples = np.zeros(ts.num_sites, dtype=int)
+    site_deletion_samples = np.zeros(ts.num_sites, dtype=int)
     num_samples = 0
     for sample in match_db.get(where_clause):
         path = tuple(sample.hmm_match.path)
@@ -837,23 +853,12 @@ def add_matching_results(
                     f"{group.summary()}"
                 )
                 continue
-
-            for sample in group:
-                missing_sites = np.where(sample.haplotype == -1)[0]
-                site_missing_samples[missing_sites] += 1
-
             flat_ts = match_path_ts(group)
             if flat_ts.num_mutations == 0 or flat_ts.num_samples == 1:
                 poly_ts = flat_ts
             else:
                 binary_ts = tree_ops.infer_binary(flat_ts)
-                # print(binary_ts.draw_text())
-                # print(binary_ts.tables.mutations)
                 poly_ts = tree_ops.trim_branches(binary_ts)
-
-                # print(poly_ts.draw_text())
-                # print(poly_ts.tables.mutations)
-                # print("----")
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             num_root_mutations = np.sum(poly_ts.mutations_node == tree.root)
@@ -876,11 +881,19 @@ def add_matching_results(
             attach_nodes.extend(nodes)
             added_groups.append(group)
 
+            # Update the metadata
+            for sample in group:
+                missing_sites = np.where(sample.haplotype == MISSING)[0]
+                site_missing_samples[missing_sites] += 1
+                deletion_sites = np.where(sample.haplotype == DELETION)
+                site_deletion_samples[deletion_sites] += 1
+
     # Update the sites with metadata for these newly added samples.
     tables.sites.clear()
     for site in ts.sites():
         md = site.metadata
-        md["missing_samples"] += int(site_missing_samples[int(site.position)])
+        md["sc2ts"]["missing_samples"] += int(site_missing_samples[site.id])
+        md["sc2ts"]["deletion_samples"] += int(site_deletion_samples[site.id])
         tables.sites.append(site.replace(metadata=md))
 
     # NOTE: Doing the parsimony hueristic updates really is complicated a lot

@@ -429,6 +429,7 @@ class TreeInfo:
         )
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
         self.nodes_num_missing_sites = np.zeros(ts.num_nodes, dtype=np.int32)
+        self.nodes_num_deletion_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
         self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
@@ -460,6 +461,11 @@ class TreeInfo:
                 self.nodes_num_missing_sites[node.id] = sc2ts_md.get(
                     "num_missing_sites", 0
                 )
+                try:
+                    deletions = sc2ts_md["alignment_composition"].get("-", 0)
+                except KeyError:
+                    deletions = -1
+                self.nodes_num_deletion_sites[node.id] = deletions
             else:
                 # Rounding down here, might be misleading
                 self.nodes_date[node.id] = self.time_zero_as_date - int(
@@ -467,14 +473,19 @@ class TreeInfo:
                 )
 
     def _preprocess_sites(self, show_progress):
-        self.sites_num_missing_samples = np.zeros(self.ts.num_sites, dtype=int)
-        if self.ts.table_metadata_schemas.site.schema is not None:
-            for site in self.ts.sites():
-                self.sites_num_missing_samples[site.id] = site.metadata.get(
-                    "missing_samples", -1
-                )
-        else:
-            warnings.warn("Site QC metadata unavailable")
+        self.sites_num_missing_samples = np.full(self.ts.num_sites, -1, dtype=int)
+        self.sites_num_deletion_samples = np.full(self.ts.num_sites, -1, dtype=int)
+        for site in self.ts.sites():
+            md = site.metadata
+            try:
+                self.sites_num_missing_samples[site.id] = md["sc2ts"]["missing_samples"]
+                self.sites_num_deletion_samples[site.id] = md["sc2ts"][
+                    "deletion_samples"
+                ]
+            except KeyError:
+                # Both of these keys were added at the same time, so no point
+                # in doing two try/catches here.
+                pass
 
     def _preprocess_mutations(self, show_progress):
         ts = self.ts
@@ -588,11 +599,12 @@ class TreeInfo:
             (self.ts.nodes_flags == core.NODE_IS_IMMEDIATE_REVERSION_MARKER)
         )
 
-        samples = self.ts.samples()
+        samples = self.ts.samples()[1:]  # skip reference
         nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
         sites_with_zero_muts = np.sum(self.sites_num_mutations == 0)
         latest_sample = self.nodes_date[samples[-1]]
         missing_sites_per_sample = self.nodes_num_missing_sites[samples]
+        deletion_sites_per_sample = self.nodes_num_deletion_sites[samples]
         non_samples = (self.ts.nodes_flags & tskit.NODE_IS_SAMPLE) == 0
         max_non_sample_mutations = np.max(self.nodes_num_mutations[non_samples])
         insertions = np.sum(self.mutations_inherited_state == "-")
@@ -628,6 +640,13 @@ class TreeInfo:
             ("mean_missing_sites_per_sample", np.mean(missing_sites_per_sample)),
             ("max_missing_samples_per_site", np.max(self.sites_num_missing_samples)),
             ("mean_missing_samples_per_site", np.mean(self.sites_num_missing_samples)),
+            ("max_deletion_sites_per_sample", np.max(deletion_sites_per_sample)),
+            ("mean_deletion_sites_per_sample", np.mean(deletion_sites_per_sample)),
+            ("max_deletion_samples_per_site", np.max(self.sites_num_deletion_samples)),
+            (
+                "mean_deletion_samples_per_site",
+                np.mean(self.sites_num_deletion_samples),
+            ),
             ("max_samples_per_day", np.max(self.num_samples_per_day)),
             ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
         ]
@@ -1190,10 +1209,12 @@ class TreeInfo:
         plt.ylabel("Number of nodes")
 
     def plot_missing_sites_per_sample(self):
-        # plt.title(f"Nodes with >= 10 muts: {nodes_with_many_muts}")
+        plt.title("Missing sites per sample")
         plt.hist(self.nodes_num_missing_sites[self.ts.samples()], rwidth=0.9)
-        # plt.xlabel("Number of mutations")
-        # plt.ylabel("Number of nodes")
+
+    def plot_deletion_sites_per_sample(self):
+        plt.title("Deletion sites per sample")
+        plt.hist(self.nodes_num_deletion_sites[self.ts.samples()], rwidth=0.9)
 
     def plot_branch_length_distributions(
         self, log_scale=True, min_value=1, exact_match=False, max_value=400
@@ -1339,9 +1360,24 @@ class TreeInfo:
                 x, y = int(pos[start]), int(pos[min(self.ts.num_sites - 1, end)])
                 plt.annotate(f"{x}-{y}", xy=(x, count[start]), xycoords="data")
 
-        # problematic_sites = get_problematic_sites()
-        # plt.plot(problematic_sites)
-        plt.ylabel("Number masked samples")
+        plt.ylabel("Number missing samples")
+        plt.xlabel("Position on genome")
+
+    def plot_deletion_samples_per_site(self, annotate_threshold=0.5):
+        fig, ax = plt.subplots(1, 1, figsize=(16, 4))
+        self._add_genes_to_axis(ax)
+        count = self.sites_num_deletion_samples
+        pos = self.ts.sites_position
+        ax.plot(pos, count)
+        threshold = np.max(count) * annotate_threshold
+        # Show runs of sites exceeding threshold
+        for v, start, length in zip(*find_runs(count > threshold)):
+            if v:
+                end = start + length
+                x, y = int(pos[start]), int(pos[min(self.ts.num_sites - 1, end)])
+                plt.annotate(f"{x}-{y}", xy=(x, count[start]), xycoords="data")
+
+        plt.ylabel("Number samples with deletion")
         plt.xlabel("Position on genome")
 
     def plot_samples_per_day(self):
