@@ -7,7 +7,6 @@ from sc2ts import info
 
 class TestTallyLineages:
 
-    @pytest.mark.skip("FIXME")
     def test_last_date(self, fx_ts_map, fx_metadata_db):
         date = "2020-02-13"
         df = info.tally_lineages(fx_ts_map[date], fx_metadata_db)

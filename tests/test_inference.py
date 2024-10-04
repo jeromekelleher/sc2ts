@@ -316,7 +316,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 5
-        assert ts.metadata["sc2ts"]["num_exact_matches"] == 2
+        assert ts.metadata["sc2ts"]["num_exact_matches"] == {"B": 2}
         assert ts.node(5).metadata["sc2ts"]["num_exact_matches"] == 2
         ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
 
@@ -329,7 +329,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 22
-        assert ts.metadata["sc2ts"]["num_exact_matches"] == 4
+        assert ts.metadata["sc2ts"]["num_exact_matches"] == {"A": 2, "B": 2}
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
@@ -500,7 +500,7 @@ class TestRealData:
                 k = md["num_exact_matches"]
                 assert k > 0
                 exact_matches += k
-        assert ts.metadata["sc2ts"]["num_exact_matches"] == exact_matches
+        assert sum(ts.metadata["sc2ts"]["num_exact_matches"].values()) == exact_matches
 
     @pytest.mark.parametrize(
         ["strain", "num_deletions"],
@@ -667,9 +667,10 @@ class TestSyntheticAlignments:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_nodes == base_ts.num_nodes
+
         assert (
-            ts.metadata["sc2ts"]["num_exact_matches"]
-            == base_ts.metadata["sc2ts"]["num_exact_matches"] + 2
+            sum(ts.metadata["sc2ts"]["num_exact_matches"].values())
+            == sum(base_ts.metadata["sc2ts"]["num_exact_matches"].values()) + 2
         )
         samples = ts.samples()
         samples_strain = ts.metadata["sc2ts"]["samples_strain"]

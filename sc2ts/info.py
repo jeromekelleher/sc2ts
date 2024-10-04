@@ -120,8 +120,10 @@ major_lineages = [
 def tally_lineages(ts, metadata_db, show_progress=False):
     cov_lineages = core.get_cov_lineages_data()
 
-    date = ts.metadata["sc2ts"]["date"]
-    counter = collections.Counter()
+    md = ts.metadata["sc2ts"]
+    date = md["date"]
+    # Take the exact matches into account also.
+    counter = collections.Counter(md["num_exact_matches"])
     key = "Viridian_pangolin"
     iterator = tqdm.tqdm(
         ts.samples()[1:],

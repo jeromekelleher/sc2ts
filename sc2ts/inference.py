@@ -275,7 +275,7 @@ def initial_ts(additional_problematic_sites=list()):
             "date": core.REFERENCE_DATE,
             "samples_strain": [core.REFERENCE_STRAIN],
             "additional_problematic_sites": additional_problematic_sites,
-            "num_exact_matches": 0,
+            "num_exact_matches": {},
         }
     }
 
@@ -725,12 +725,14 @@ def add_exact_matches(match_db, ts, date):
         return ts
     logger.info(f"Update ARG with {len(samples)} exact matches for {date}")
     nodes_num_exact_matches = np.zeros(ts.num_nodes, dtype=int)
+    pango_counts = collections.Counter()
     for sample in samples:
         assert len(sample.hmm_match.path) == 1
         assert len(sample.hmm_match.mutations) == 0
         parent = sample.hmm_match.path[0].parent
         logger.debug(f"Increment exact match {sample.strain}->{parent}")
         nodes_num_exact_matches[parent] += 1
+        pango_counts[sample.pango] += 1
         # node_id = add_sample_to_tables(
         #     sample,
         #     tables,
@@ -738,6 +740,7 @@ def add_exact_matches(match_db, ts, date):
         # )
         # logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
         # tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
+    logger.info(f"Updating exact match counts: {dict(pango_counts)}")
     tables = ts.dump_tables()
     for u in np.where(nodes_num_exact_matches > 0)[0]:
         row = tables.nodes[u]
@@ -747,7 +750,8 @@ def add_exact_matches(match_db, ts, date):
         md["sc2ts"]["num_exact_matches"] += int(nodes_num_exact_matches[u])
         tables.nodes[u] = row.replace(metadata=md)
     md = tables.metadata
-    md["sc2ts"]["num_exact_matches"] += len(samples)
+    pango_counts.update(md["sc2ts"]["num_exact_matches"])
+    md["sc2ts"]["num_exact_matches"] = dict(pango_counts)
     tables.metadata = md
     return tables.tree_sequence()
 
