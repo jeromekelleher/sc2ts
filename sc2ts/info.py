@@ -1389,6 +1389,16 @@ class TreeInfo:
         plt.xlabel("Date")
         plt.ylabel("Number of samples")
 
+    def plot_inference_time(self):
+        plt.figure(figsize=(16, 4))
+        timestamps = np.array(
+            [p.timestamp for p in self.ts.provenances()], dtype="datetime64[s]"
+        )
+        minutes = np.diff(timestamps).astype(float) / 60
+        plt.plot(minutes)
+        plt.xlabel("Day")
+        plt.ylabel("Inference time (mins)")
+
     def plot_recombinants_per_day(self):
         counter = collections.Counter()
         for u in self.recombinants:
