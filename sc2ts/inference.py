@@ -275,6 +275,7 @@ def initial_ts(additional_problematic_sites=list()):
             "date": core.REFERENCE_DATE,
             "samples_strain": [core.REFERENCE_STRAIN],
             "additional_problematic_sites": additional_problematic_sites,
+            "num_exact_matches": 0,
         }
     }
 
@@ -634,7 +635,7 @@ def extend(
     assert min_group_size is not None
     earliest_date = parse_date(date) - datetime.timedelta(days=retrospective_window)
     ts, groups = add_matching_results(
-        f"match_date<'{date}' AND match_date>'{earliest_date}'",
+        f"hmm_cost>0 AND match_date<'{date}' AND match_date>'{earliest_date}'",
         ts=ts,
         match_db=match_db,
         date=date,
@@ -723,20 +724,31 @@ def add_exact_matches(match_db, ts, date):
         logger.info(f"No exact matches on {date}")
         return ts
     logger.info(f"Update ARG with {len(samples)} exact matches for {date}")
-    tables = ts.dump_tables()
+    nodes_num_exact_matches = np.zeros(ts.num_nodes, dtype=int)
     for sample in samples:
         assert len(sample.hmm_match.path) == 1
         assert len(sample.hmm_match.mutations) == 0
-        node_id = add_sample_to_tables(
-            sample,
-            tables,
-            flags=tskit.NODE_IS_SAMPLE | core.NODE_IS_EXACT_MATCH,
-        )
         parent = sample.hmm_match.path[0].parent
-        logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
-        tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
-    tables.sort()
-    tables.build_index()
+        logger.debug(f"Increment exact match {sample.strain}->{parent}")
+        nodes_num_exact_matches[parent] += 1
+        # node_id = add_sample_to_tables(
+        #     sample,
+        #     tables,
+        #     flags=tskit.NODE_IS_SAMPLE | core.NODE_IS_EXACT_MATCH,
+        # )
+        # logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
+        # tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
+    tables = ts.dump_tables()
+    for u in np.where(nodes_num_exact_matches > 0)[0]:
+        row = tables.nodes[u]
+        md = row.metadata
+        if "num_exact_matches" not in md["sc2ts"]:
+            md["sc2ts"]["num_exact_matches"] = 0
+        md["sc2ts"]["num_exact_matches"] += int(nodes_num_exact_matches[u])
+        tables.nodes[u] = row.replace(metadata=md)
+    md = tables.metadata
+    md["sc2ts"]["num_exact_matches"] += len(samples)
+    tables.metadata = md
     return tables.tree_sequence()
 
 
