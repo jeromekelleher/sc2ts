@@ -231,7 +231,8 @@ class TestTreeInfo:
         ts = fx_ts_map["2020-02-13"]
         ti = sc2ts.TreeInfo(ts, show_progress=False)
         assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 0, 560, 535]
-        assert list(ti.sites_num_missing_samples[:5]) == [1, 1, 1, 1, 1]
+        assert list(ti.sites_num_missing_samples[:5]) == [4, 4, 4, 4, 4]
+        assert list(ti.sites_num_deletion_samples[:5]) == [0, 0, 0, 0, 0]
 
 
 class TestRealData:
@@ -357,6 +358,58 @@ class TestRealData:
                 ts.node(u).metadata["sc2ts"]["num_missing_sites"] <= max_missing_sites
             )
 
+    @pytest.mark.parametrize(
+        ["strain", "start", "length"],
+        [("SRR11597164", 1547, 1), ("SRR11597190", 3951, 3)],
+    )
+    def test_2020_02_02_deletion_sample(
+        self,
+        fx_ts_map,
+        strain,
+        start,
+        length,
+    ):
+        ts = fx_ts_map["2020-02-02"]
+        u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+        md = ts.node(u).metadata["sc2ts"]
+        assert md["alignment_composition"]["-"] == length
+        for j in range(length):
+            site = ts.site(position=start + j)
+            assert len(site.mutations) == 1
+            for mut in site.mutations:
+                assert mut.node == u
+                assert mut.derived_state == "-"
+            assert site.metadata["sc2ts"]["deletion_samples"] == 1
+
+    @pytest.mark.parametrize(
+        ["strain", "num_missing"], [("SRR11597164", 1), ("SRR11597114", 278)]
+    )
+    def test_2020_02_02_deletion_sample(
+        self,
+        fx_ts_map,
+        fx_alignment_store,
+        strain,
+        num_missing,
+    ):
+        alignment = fx_alignment_store[strain]
+        a = sc2ts.encode_alignment(alignment)
+        a[sc2ts.get_problematic_sites()] = -2
+
+        missing_positions = np.where(a == -1)[0][1:]
+        assert len(missing_positions) == num_missing
+        ts_prev = fx_ts_map["2020-02-01"]
+        ts = fx_ts_map["2020-02-02"]
+        u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+        md = ts.node(u).metadata["sc2ts"]
+        assert md["num_missing_sites"] == num_missing
+        for pos in missing_positions:
+            site = ts.site(position=pos)
+            site_prev = ts_prev.site(position=pos)
+            assert (
+                site.metadata["sc2ts"]["missing_samples"]
+                > site_prev.metadata["sc2ts"]["missing_samples"]
+            )
+
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
@@ -430,6 +483,29 @@ class TestRealData:
                 else:
                     assert "group_id" in md
         assert exact_matches > 0
+
+    @pytest.mark.parametrize(
+        ["strain", "num_deletions"],
+        [
+            ("SRR11597190", 3),
+            ("SRR11597174", 3),
+            ("SRR11597164", 1),
+            ("SRR11597218", 3),
+        ],
+    )
+    def test_deletion_samples(self, fx_ts_map, strain, num_deletions):
+        ts = fx_ts_map[self.dates[-1]]
+        u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+        md = ts.node(u).metadata["sc2ts"]
+        assert md["alignment_composition"]["-"] == num_deletions
+
+    @pytest.mark.parametrize(
+        "position", [1547, 3951, 3952, 3953, 7260, 7261, 7262, 29749, 29750, 29751]
+    )
+    def test_deletion_tracking(self, fx_ts_map, position):
+        ts = fx_ts_map[self.dates[-1]]
+        site = ts.site(position=position)
+        assert site.metadata["sc2ts"]["deletion_samples"] == 1
 
     @pytest.mark.parametrize(
         ["gid", "date", "internal", "strains"],
