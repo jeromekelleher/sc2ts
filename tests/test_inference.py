@@ -691,6 +691,7 @@ class TestSyntheticAlignments:
         assert row.date_added == date
         assert row.descendants == 1
         assert row.parents == 2
+        assert row.causal_pango == {"Unknown": 1}
 
     def test_recombinant_example_2(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Pick a distinct strain to be the root of our two new haplotypes added
