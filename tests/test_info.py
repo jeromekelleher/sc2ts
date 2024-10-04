@@ -4,6 +4,7 @@ import pandas as pd
 from sc2ts import info
 
 
+
 class TestTallyLineages:
 
     def test_last_date(self, fx_ts_map, fx_metadata_db):

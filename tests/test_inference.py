@@ -25,7 +25,7 @@ def recombinant_example_1(ts_map):
         ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
         for strain in strains
     ]
-    assert nodes == [36, 51]
+    assert nodes == [32, 46]
     # Site positions
     # SRR11597188 36  [(871, 'G'), (3027, 'G'), (3787, 'T')]
     # SRR11597163 51  [(15324, 'T'), (29303, 'T')]
@@ -307,6 +307,19 @@ class TestRealData:
         assert sum(sc2ts_md["alignment_composition"].values()) == ts.num_sites
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
+    def test_2020_01_25(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-01-24"],
+            date="2020-01-25",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        assert ts.num_samples == 5
+        assert ts.metadata["sc2ts"]["num_exact_matches"] == {"B": 2}
+        assert ts.node(5).metadata["sc2ts"]["num_exact_matches"] == 2
+        ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
+
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
@@ -315,10 +328,9 @@ class TestRealData:
             date="2020-02-02",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
-        assert ts.num_samples == 26
+        assert ts.num_samples == 22
+        assert ts.metadata["sc2ts"]["num_exact_matches"] == {"A": 2, "B": 2}
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
-        # print(samples)
-        # print(fx_ts_map["2020-02-02"])
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
     @pytest.mark.parametrize("max_samples", range(1, 6))
@@ -334,7 +346,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         new_samples = min(4, max_samples)
-        assert ts.num_samples == 22 + new_samples
+        assert ts.num_samples == 18 + new_samples
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
 
     def test_2020_02_02_max_missing_sites(
@@ -350,7 +362,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         new_samples = 2
-        assert ts.num_samples == 22 + new_samples
+        assert ts.num_samples == 18 + new_samples
 
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
         for u in ts.samples()[-new_samples:]:
@@ -472,17 +484,23 @@ class TestRealData:
 
     def test_node_type_metadata(self, fx_ts_map):
         ts = fx_ts_map[self.dates[-1]]
-        exact_matches = 0
         for node in list(ts.nodes())[2:]:
             md = node.metadata["sc2ts"]
             if node.is_sample():
-                # All samples are either exact matches, or added as part of a group
+                # All samples are added as part of a group
                 assert "hmm_match" in md
-                if node.flags & sc2ts.NODE_IS_EXACT_MATCH:
-                    exact_matches += 1
-                else:
-                    assert "group_id" in md
-        assert exact_matches > 0
+                assert "group_id" in md
+
+    def test_exact_match_count(self, fx_ts_map):
+        ts = fx_ts_map[self.dates[-1]]
+        exact_matches = 0
+        for node in list(ts.nodes()):
+            md = node.metadata["sc2ts"]
+            if "num_exact_matches" in md:
+                k = md["num_exact_matches"]
+                assert k > 0
+                exact_matches += k
+        assert sum(ts.metadata["sc2ts"]["num_exact_matches"].values()) == exact_matches
 
     @pytest.mark.parametrize(
         ["strain", "num_deletions"],
@@ -572,23 +590,23 @@ class TestRealData:
         expected = {
             "2020-01-19": {"nodes": 3, "mutations": 3},
             "2020-01-24": {"nodes": 6, "mutations": 4},
-            "2020-01-25": {"nodes": 10, "mutations": 6},
-            "2020-01-28": {"nodes": 12, "mutations": 11},
-            "2020-01-29": {"nodes": 15, "mutations": 15},
-            "2020-01-30": {"nodes": 21, "mutations": 19},
-            "2020-01-31": {"nodes": 22, "mutations": 21},
-            "2020-02-01": {"nodes": 27, "mutations": 27},
-            "2020-02-02": {"nodes": 32, "mutations": 39},
-            "2020-02-03": {"nodes": 35, "mutations": 45},
-            "2020-02-04": {"nodes": 40, "mutations": 54},
-            "2020-02-05": {"nodes": 41, "mutations": 54},
-            "2020-02-06": {"nodes": 46, "mutations": 57},
-            "2020-02-07": {"nodes": 48, "mutations": 63},
-            "2020-02-08": {"nodes": 53, "mutations": 64},
-            "2020-02-09": {"nodes": 55, "mutations": 67},
-            "2020-02-10": {"nodes": 56, "mutations": 71},
-            "2020-02-11": {"nodes": 58, "mutations": 75},
-            "2020-02-13": {"nodes": 62, "mutations": 77},
+            "2020-01-25": {"nodes": 8, "mutations": 6},
+            "2020-01-28": {"nodes": 10, "mutations": 11},
+            "2020-01-29": {"nodes": 12, "mutations": 15},
+            "2020-01-30": {"nodes": 17, "mutations": 19},
+            "2020-01-31": {"nodes": 18, "mutations": 21},
+            "2020-02-01": {"nodes": 23, "mutations": 27},
+            "2020-02-02": {"nodes": 28, "mutations": 39},
+            "2020-02-03": {"nodes": 31, "mutations": 45},
+            "2020-02-04": {"nodes": 36, "mutations": 54},
+            "2020-02-05": {"nodes": 36, "mutations": 54},
+            "2020-02-06": {"nodes": 41, "mutations": 57},
+            "2020-02-07": {"nodes": 43, "mutations": 63},
+            "2020-02-08": {"nodes": 48, "mutations": 64},
+            "2020-02-09": {"nodes": 49, "mutations": 67},
+            "2020-02-10": {"nodes": 50, "mutations": 71},
+            "2020-02-11": {"nodes": 51, "mutations": 75},
+            "2020-02-13": {"nodes": 54, "mutations": 77},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
@@ -598,36 +616,17 @@ class TestRealData:
         [
             ("SRR11397726", 5),
             ("SRR11397729", 5),
-            ("SRR11597132", 9),
-            ("SRR11597177", 9),
-            ("SRR11597156", 9),
-            ("SRR11597216", 1),
-            ("SRR11597207", 39),
-            ("ERR4205570", 54),
+            ("SRR11597132", 7),
+            ("SRR11597177", 7),
+            ("SRR11597156", 7),
         ],
     )
     def test_exact_matches(self, fx_ts_map, strain, parent):
         ts = fx_ts_map[self.dates[-1]]
-        node = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
-        x = ts.node(node)
-        assert x.flags == (tskit.NODE_IS_SAMPLE | sc2ts.core.NODE_IS_EXACT_MATCH)
-        md = x.metadata
-        assert md["strain"] == strain
-        sc2ts_md = md["sc2ts"]
-        hmm_md = sc2ts_md["hmm_match"]
-        assert len(hmm_md["path"]) == 1
-        assert hmm_md["path"][0] == {
-            "parent": parent,
-            "left": 0,
-            "right": ts.sequence_length,
-        }
-        edges = np.where(ts.edges_child == node)[0]
-        assert len(edges) == 1
-        e = edges[0]
-        assert ts.edges_parent[e] == parent
-        assert ts.edges_left[e] == 0
-        assert ts.edges_right[e] == ts.sequence_length
-        assert np.sum(ts.mutations_node == node) == 0
+        assert strain not in ts.metadata["sc2ts"]["samples_strain"]
+        md = ts.node(parent).metadata["sc2ts"]
+        assert "num_exact_matches" in md
+        assert md["num_exact_matches"] > 1
 
 
 class TestSyntheticAlignments:
@@ -667,29 +666,18 @@ class TestSyntheticAlignments:
             date=date,
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
-        assert ts.num_nodes == base_ts.num_nodes + 2
-        assert ts.num_edges == base_ts.num_edges + 2
-        assert ts.num_mutations == base_ts.num_mutations
-        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
-        assert samples_strain[-2:] == fake_strains
+        assert ts.num_nodes == base_ts.num_nodes
+
+        assert (
+            sum(ts.metadata["sc2ts"]["num_exact_matches"].values())
+            == sum(base_ts.metadata["sc2ts"]["num_exact_matches"].values()) + 2
+        )
         samples = ts.samples()
-        tree = ts.first()
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
         for strain, fake_strain in zip(strains, fake_strains):
-            original_node = samples[samples_strain.index(strain)]
-            new_node = samples[samples_strain.index(fake_strain)]
-            assert tree.parent(new_node) == original_node
-            assert (
-                ts.nodes_flags[new_node]
-                == sc2ts.NODE_IS_EXACT_MATCH | tskit.NODE_IS_SAMPLE
-            )
-            smd = ts.node(new_node).metadata["sc2ts"]
-            assert smd["hmm_match"] == {
-                "mutations": [],
-                "path": [
-                    {"left": 0, "parent": original_node, "right": 29904},
-                ],
-            }
-            assert len(smd["hmm_reruns"]) == 0
+            node = samples[samples_strain.index(strain)]
+            smd = ts.node(node).metadata["sc2ts"]
+            assert smd["num_exact_matches"] == 1
 
     def test_recombinant_example_1(self, tmp_path, fx_ts_map, fx_alignment_store):
         # Same as the recombinant_example_1() function above
@@ -731,8 +719,8 @@ class TestSyntheticAlignments:
         assert smd["hmm_match"] == {
             "mutations": [],
             "path": [
-                {"left": 0, "parent": 36, "right": 15324},
-                {"left": 15324, "parent": 52, "right": 29904},
+                {"left": 0, "parent": 32, "right": 15324},
+                {"left": 15324, "parent": 47, "right": 29904},
             ],
         }
         assert smd["hmm_reruns"] == {}
@@ -747,10 +735,10 @@ class TestSyntheticAlignments:
         assert len(edges) == 2
         assert edges[0].left == 0
         assert edges[0].right == 15324
-        assert edges[0].parent == 36
+        assert edges[0].parent == 32
         assert edges[1].left == 15324
         assert edges[1].right == 29904
-        assert edges[1].parent == 52
+        assert edges[1].parent == 47
 
         edges = ts.tables.edges[ts.edges_parent == recomb_node.id]
         assert len(edges) == 1
@@ -836,8 +824,8 @@ class TestSyntheticAlignments:
         assert smd["hmm_match"] == {
             "mutations": [],
             "path": [
-                {"left": 0, "parent": 62, "right": 29800},
-                {"left": 29800, "parent": 63, "right": 29904},
+                {"left": 0, "parent": 54, "right": 29800},
+                {"left": 29800, "parent": 55, "right": 29904},
             ],
         }
 
@@ -867,7 +855,7 @@ class TestSyntheticAlignments:
 
 class TestMatchingDetails:
     @pytest.mark.parametrize(
-        ("strain", "parent"), [("SRR11597207", 39), ("ERR4205570", 54)]
+        ("strain", "parent"), [("SRR11597207", 35), ("ERR4205570", 48)]
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     def test_exact_matches(
@@ -900,7 +888,7 @@ class TestMatchingDetails:
     @pytest.mark.parametrize(
         ("strain", "parent", "position", "derived_state"),
         [
-            ("ERR4206593", 54, 26994, "T"),
+            ("ERR4206593", 48, 26994, "T"),
         ],
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
@@ -974,9 +962,8 @@ class TestMatchingDetails:
             num_threads=0,
         )
         interval_right = 15324
-        left_parent = 36
-        # 52 is the parent of 51, and sequence identical.
-        right_parent = 52
+        left_parent = 32
+        right_parent = 47
 
         m = matches[0]
         assert len(m.mutations) == 0
@@ -999,9 +986,8 @@ class TestMatchRecombinants:
             num_mismatches=2,
             num_threads=0,
         )
-        left_parent = 36
-        # 52 is the parent of 51, and sequence identical.
-        right_parent = 52
+        left_parent = 32
+        right_parent = 47
         interval_right = 15324
 
         m = s.hmm_reruns["forward"]
@@ -1021,8 +1007,7 @@ class TestMatchRecombinants:
         assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_left
-        # 52 is the parent of 51, and sequence identical.
-        assert m.path[1].parent == 52
+        assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_left
         assert m.path[1].right == ts.sequence_length
 
