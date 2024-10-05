@@ -235,6 +235,43 @@ def get_path_mrca(path1, path2, node_time):
     )
 
 
+@numba.njit
+def _get_num_muts(
+    ts_num_nodes,
+    tree_nodes_preorder,
+    tree_parent_array,
+    tree_nodes_num_mutations,
+):
+    num_muts = np.zeros(ts_num_nodes, dtype=np.int32)
+    for node in tree_nodes_preorder:
+        pa = tree_parent_array[node]
+        if pa > -1:
+            num_muts[node] = num_muts[pa]
+        num_muts[node] += tree_nodes_num_mutations[node]
+    return num_muts
+
+
+def get_num_muts(ts):
+    num_muts_all_trees = np.zeros(ts.num_nodes, dtype=np.int32)
+    for tree in ts.trees():
+        tree_nodes_preorder = tree.preorder()
+        assert np.min(tree_nodes_preorder) >= 0
+        tree_parent_array = tree.parent_array
+        mut_pos = ts.sites_position[ts.mutations_site]
+        is_mut_in_tree = (tree.interval.left <= mut_pos) & (mut_pos < tree.interval.right)
+        tree_nodes_num_muts = np.bincount(
+            ts.mutations_node[is_mut_in_tree],
+            minlength=ts.num_nodes,
+        )
+        num_muts_all_trees += _get_num_muts(
+            ts_num_nodes=ts.num_nodes,
+            tree_nodes_preorder=tree_nodes_preorder,
+            tree_parent_array=tree_parent_array,
+            tree_nodes_num_mutations=tree_nodes_num_muts,
+        )
+    return num_muts_all_trees
+
+
 def get_recombinant_edges(ts):
     """
     Return the partial edges from the tree sequence grouped by child (which must
