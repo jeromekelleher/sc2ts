@@ -1326,8 +1326,12 @@ class TreeInfo:
         if xlim is not None:
             plt.xlim(xlim)
 
-    def plot_mutations_per_site(self, annotate_threshold=0.9):
-        count = self.sites_num_mutations
+    def plot_mutations_per_site(self, annotate_threshold=0.9, select=None):
+        if select is None:
+            count = self.sites_num_mutations
+        else:
+            count = np.bincount(self.ts.mutations_site[select], minlength=self.ts.num_sites)
+
         pos = self.ts.sites_position
         zero_fraction = np.sum(count == 0) / self.ts.num_sites
 
