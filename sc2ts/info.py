@@ -28,6 +28,9 @@ class LineageDetails:
     Details about major known lineages that we can use for QC purposes.
 
     https://github.com/jeromekelleher/sc2ts/issues/290
+
+    The month and year of the first detected sample are taken from
+    https://www.ecdc.europa.eu/en/covid-19/variants-concern
     """
 
     pango_lineage: str
@@ -47,6 +50,13 @@ major_lineages = [
         ["C5388A", "C3267T"],
     ),
     LineageDetails(
+        "B.1.351",
+        "20H",
+        "Beta",
+        "2020-09",
+        None,   # TODO: From which source?
+    ),
+    LineageDetails(
         "B.1.617.2",
         "21A",
         "Delta",
@@ -58,6 +68,13 @@ major_lineages = [
             "C22995A",
             "C27752T",
         ],
+    ),
+    LineageDetails(
+        "P.1",
+        "20J",
+        "Gamma",
+        "2020-12",
+        None,   # TODO: From which source?
     ),
     LineageDetails(
         "BA.1",
@@ -114,7 +131,6 @@ major_lineages = [
         ["T27383A", "C27382G"],
     ),
 ]
-# 20J , P.1 , Gamma , voc , 2020-09-11
 
 
 def tally_lineages(ts, metadata_db, show_progress=False):
