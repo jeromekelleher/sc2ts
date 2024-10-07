@@ -54,7 +54,7 @@ major_lineages = [
         "20H",
         "Beta",
         "2020-09",
-        None,   # TODO: From which source?
+        None,  # TODO: From which source?
     ),
     LineageDetails(
         "B.1.617.2",
@@ -74,7 +74,7 @@ major_lineages = [
         "20J",
         "Gamma",
         "2020-12",
-        None,   # TODO: From which source?
+        None,  # TODO: From which source?
     ),
     LineageDetails(
         "BA.1",
@@ -274,7 +274,9 @@ def get_num_muts(ts):
         assert np.min(tree_nodes_preorder) >= 0
         tree_parent_array = tree.parent_array
         mut_pos = ts.sites_position[ts.mutations_site]
-        is_mut_in_tree = (tree.interval.left <= mut_pos) & (mut_pos < tree.interval.right)
+        is_mut_in_tree = (tree.interval.left <= mut_pos) & (
+            mut_pos < tree.interval.right
+        )
         tree_nodes_num_muts = np.bincount(
             ts.mutations_node[is_mut_in_tree],
             minlength=ts.num_nodes,
@@ -893,6 +895,50 @@ class TreeInfo:
             )
         return pd.DataFrame(data)
 
+    def deletions_summary(self):
+        deletion_ids = np.where(self.mutations_derived_state == "-")[0]
+        df = pd.DataFrame(
+            {
+                "mutation": deletion_ids,
+                "position": self.mutations_position[deletion_ids],
+                "node": self.ts.mutations_node[deletion_ids],
+            }
+        )
+        df = df.sort_values(["position", "node"])
+        events = {}
+        for row in df.itertuples():
+            if row.node not in events:
+                events[row.node] = [
+                    DeletionEvent(row.position, row.node, 1, [row.mutation])
+                ]
+            else:
+                for e in events[row.node]:
+                    if row.position == e.start + e.length:
+                        e.length += 1
+                        e.mutations.append(row.mutation)
+                        break
+                else:
+                    # Didn't find an event to extend, add another one
+                    events[row.node].append(
+                        DeletionEvent(row.position, row.node, 1, [row.mutation])
+                    )
+        # Now unwrap the events and compute summaries
+        data = []
+        for event_list in events.values():
+            for e in event_list:
+                num_inheritors = self.mutations_num_inheritors[e.mutations]
+                data.append(
+                    {
+                        "start": e.start,
+                        "node": e.node,
+                        "length": e.length,
+                        "max_inheritors": np.max(num_inheritors),
+                        "min_inheritors": np.min(num_inheritors),
+                    }
+                )
+
+        return pd.DataFrame(data)
+
     def combine_recombinant_info(self):
         def get_imputed_pango(u, pango_source):
             # Can set pango_source to "Nextclade_pango" or "GISAID_lineage"
@@ -1383,7 +1429,9 @@ class TreeInfo:
         if select is None:
             count = self.sites_num_mutations
         else:
-            count = np.bincount(self.ts.mutations_site[select], minlength=self.ts.num_sites)
+            count = np.bincount(
+                self.ts.mutations_site[select], minlength=self.ts.num_sites
+            )
 
         pos = self.ts.sites_position
         zero_fraction = np.sum(count == 0) / self.ts.num_sites
@@ -1516,6 +1564,14 @@ class TreeInfo:
             ts=tables.tree_sequence(),
             attach_date=attach_date,
         )
+
+
+@dataclasses.dataclass
+class DeletionEvent:
+    start: int
+    node: int
+    length: int
+    mutations: List
 
 
 def country_abbr(country):
