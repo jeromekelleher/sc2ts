@@ -523,6 +523,9 @@ def preprocess(
     splits = min(len(samples_md), 3)
     work = np.array_split(samples_md, splits)
     samples = []
+
+    bar = get_progress(samples, date, f"preprocess", show_progress)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(preprocess_worker, w, alignment_store, keep_sites)
@@ -530,6 +533,7 @@ def preprocess(
         ]
         for future in concurrent.futures.as_completed(futures):
             for s in future.result():
+                bar.update()
                 s.date = date
                 s.pango = s.metadata.get(pango_lineage_key, "PangoUnknown")
                 num_missing_sites = s.num_missing_sites
@@ -544,6 +548,7 @@ def preprocess(
                     logger.debug(
                         f"Filter {s.strain}: missing={num_missing_sites} > {max_missing_sites}"
                     )
+    bar.close()
     return samples
 
 
