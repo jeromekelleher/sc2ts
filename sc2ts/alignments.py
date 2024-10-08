@@ -39,6 +39,7 @@ def decompress_alignment(b):
 class AlignmentStore(collections.abc.Mapping):
     def __init__(self, path, mode="r"):
         map_size = 1024**4
+        self.path = path
         self.env = lmdb.Environment(
             str(path), subdir=False, readonly=mode == "r", map_size=map_size
         )
