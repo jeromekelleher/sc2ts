@@ -1,5 +1,6 @@
 import collections
 import logging
+import json
 import warnings
 import dataclasses
 import datetime
@@ -1494,15 +1495,32 @@ class TreeInfo:
         plt.xlabel("Date")
         plt.ylabel("Number of samples")
 
-    def plot_inference_time(self):
-        plt.figure(figsize=(16, 4))
-        timestamps = np.array(
-            [p.timestamp for p in self.ts.provenances()], dtype="datetime64[s]"
-        )
-        minutes = np.diff(timestamps).astype(float) / 60
-        plt.plot(minutes)
-        plt.xlabel("Day")
-        plt.ylabel("Inference time (mins)")
+    def plot_resources(self, start_date="2020-04-01"):
+        ts = self.ts
+        fig, ax = plt.subplots(2, sharex=True, figsize=(16, 8))
+        timestamp = np.zeros(ts.num_provenances, dtype="datetime64[s]")
+        date = np.zeros(ts.num_provenances, dtype="datetime64[D]")
+        num_samples = np.zeros(ts.num_provenances, dtype=int)
+        for j in range(ts.num_provenances):
+            p = ts.provenance(j)
+            timestamp[j] = p.timestamp
+            record = json.loads(p.record)
+            text_date = record["parameters"]["args"][2]
+            date[j] = text_date
+
+            days_ago = self.time_zero_as_date - date[j]
+            # Avoid division by zero
+            num_samples[j] = max(1, self.num_samples_per_day[days_ago.astype(int)])
+
+        keep = date >= np.array([start_date], dtype="datetime64[D]")
+
+        wall_time = np.append([0], np.diff(timestamp).astype(float))
+        ax[0].plot(date[keep], wall_time[keep] / 60)
+        ax[1].set_xlabel("Date")
+        ax[0].set_ylabel("Elapsed time (mins)")
+        ax[1].plot(date[keep], wall_time[keep] / num_samples[keep])
+        ax[1].set_ylabel("Elapsed time per sample (s)")
+        return ax
 
     def plot_recombinants_per_day(self):
         counter = collections.Counter()
