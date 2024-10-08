@@ -490,22 +490,15 @@ def preprocess_worker(samples_md, alignment_store_path, keep_sites):
         samples = []
         for md in samples_md:
             strain = md["strain"]
-            try:
-                alignment = alignment_store[strain]
-            except KeyError:
-                logger.debug(f"No alignment stored for {strain}")
-                continue
-            a = alignment[keep_sites]
-            sample = Sample(
-                strain,
-                metadata=md,
-                haplotype=alignments.encode_alignment(a),
+            alignment = alignment_store.get(strain, None)
+            sample = Sample(strain, metadata=md)
+            if alignment is not None:
+                a = alignment[keep_sites]
+                sample.haplotype = alignments.encode_alignment(a)
                 # Need to do this here because encoding gets rid of
                 # ambiguous bases etc.
-                alignment_composition=collections.Counter(a),
-            )
+                sample.alignment_composition = collections.Counter(a)
             samples.append(sample)
-
     return samples
 
 
@@ -533,6 +526,10 @@ def preprocess(
         ]
         for future in concurrent.futures.as_completed(futures):
             for s in future.result():
+                bar.update()
+                if s.haplotype is None:
+                    logger.debug(f"No alignment stored for {s.strain}")
+                    continue
                 s.date = date
                 s.pango = s.metadata.get(pango_lineage_key, "PangoUnknown")
                 num_missing_sites = s.num_missing_sites
