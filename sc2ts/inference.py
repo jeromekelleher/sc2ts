@@ -484,26 +484,27 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
-def preprocess_worker(samples_md, alignment_store, keep_sites):
+def preprocess_worker(samples_md, alignment_store_path, keep_sites):
     # print("preprocess worker", samples_md)
-    samples = []
-    for md in samples_md:
-        strain = md["strain"]
-        try:
-            alignment = alignment_store[strain]
-        except KeyError:
-            logger.debug(f"No alignment stored for {strain}")
-            continue
-        a = alignment[keep_sites]
-        sample = Sample(
-            strain,
-            metadata=md,
-            haplotype=alignments.encode_alignment(a),
-            # Need to do this here because encoding gets rid of
-            # ambiguous bases etc.
-            alignment_composition=collections.Counter(a),
-        )
-        samples.append(sample)
+    with alignments.AlignmentStore(alignment_store_path) as alignment_store:
+        samples = []
+        for md in samples_md:
+            strain = md["strain"]
+            try:
+                alignment = alignment_store[strain]
+            except KeyError:
+                logger.debug(f"No alignment stored for {strain}")
+                continue
+            a = alignment[keep_sites]
+            sample = Sample(
+                strain,
+                metadata=md,
+                haplotype=alignments.encode_alignment(a),
+                # Need to do this here because encoding gets rid of
+                # ambiguous bases etc.
+                alignment_composition=collections.Counter(a),
+            )
+            samples.append(sample)
 
     return samples
 
@@ -520,20 +521,18 @@ def preprocess(
 ):
     num_workers = max(1, num_workers)
     keep_sites = base_ts.sites_position.astype(int)
-    splits = min(len(samples_md), 3)
+    splits = min(len(samples_md), 2 * num_workers)
     work = np.array_split(samples_md, splits)
     samples = []
 
-    bar = get_progress(samples, date, f"preprocess", show_progress)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+    bar = get_progress(samples_md, date, f"preprocess", show_progress)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
-            executor.submit(preprocess_worker, w, alignment_store, keep_sites)
+            executor.submit(preprocess_worker, w, alignment_store.path, keep_sites)
             for w in work
         ]
         for future in concurrent.futures.as_completed(futures):
             for s in future.result():
-                bar.update()
                 s.date = date
                 s.pango = s.metadata.get(pango_lineage_key, "PangoUnknown")
                 num_missing_sites = s.num_missing_sites
