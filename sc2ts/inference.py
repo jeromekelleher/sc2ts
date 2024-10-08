@@ -4,6 +4,7 @@ import logging
 import datetime
 import dataclasses
 import collections
+import concurrent.futures
 import pickle
 import hashlib
 import sqlite3
@@ -337,7 +338,7 @@ def increment_time(date, ts):
 @dataclasses.dataclass
 class Sample:
     strain: str
-    date: str
+    date: str = "2020-01-01"
     pango: str = "Unknown"
     metadata: Dict = dataclasses.field(default_factory=dict)
     alignment_composition: Dict = None
@@ -483,20 +484,22 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
-def make_sample(strain, date, pango, metadata, alignment):
-
-    sample = Sample(
-        strain,
-        date,
-        pango,
-        metadata,
-        haplotype=alignments.encode_alignment(alignment),
-        # Need to do this here because encoding gets rid of
-        # ambiguous bases etc.
-        alignment_composition=collections.Counter(alignment),
-    )
-
-    return sample
+def preprocess_worker(samples_md, alignment_store_path, keep_sites):
+    # print("preprocess worker", samples_md)
+    with alignments.AlignmentStore(alignment_store_path) as alignment_store:
+        samples = []
+        for md in samples_md:
+            strain = md["strain"]
+            alignment = alignment_store.get(strain, None)
+            sample = Sample(strain, metadata=md)
+            if alignment is not None:
+                a = alignment[keep_sites]
+                sample.haplotype = alignments.encode_alignment(a)
+                # Need to do this here because encoding gets rid of
+                # ambiguous bases etc.
+                sample.alignment_composition = collections.Counter(a)
+            samples.append(sample)
+    return samples
 
 
 def preprocess(
@@ -507,33 +510,41 @@ def preprocess(
     pango_lineage_key="pango",
     show_progress=False,
     max_missing_sites=np.inf,
+    num_workers=0,
 ):
+    num_workers = max(1, num_workers)
     keep_sites = base_ts.sites_position.astype(int)
-
+    splits = min(len(samples_md), 2 * num_workers)
+    work = np.array_split(samples_md, splits)
     samples = []
-    with get_progress(samples_md, date, "preprocess", show_progress) as bar:
-        for md in bar:
-            strain = md["strain"]
-            try:
-                alignment = alignment_store[strain]
-            except KeyError:
-                logger.debug(f"No alignment stored for {strain}")
-                continue
-            pango = md.get(pango_lineage_key, "PangoUnknown")
-            # NOTE everything we store about the sample is **excluding** the problematic_sites
-            sample = make_sample(strain, date, pango, md, alignment[keep_sites])
-            num_missing_sites = sample.num_missing_sites
-            num_deletion_sites = sample.num_deletion_sites
-            logger.debug(
-                f"Encoded {strain} {pango} missing={num_missing_sites} "
-                f"deletions={num_deletion_sites}"
-            )
-            if sample.num_missing_sites <= max_missing_sites:
-                samples.append(sample)
-            else:
+
+    bar = get_progress(samples_md, date, f"preprocess", show_progress)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = [
+            executor.submit(preprocess_worker, w, alignment_store.path, keep_sites)
+            for w in work
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            for s in future.result():
+                bar.update()
+                if s.haplotype is None:
+                    logger.debug(f"No alignment stored for {s.strain}")
+                    continue
+                s.date = date
+                s.pango = s.metadata.get(pango_lineage_key, "PangoUnknown")
+                num_missing_sites = s.num_missing_sites
+                num_deletion_sites = s.num_deletion_sites
                 logger.debug(
-                    f"Filter {strain}: missing={num_missing_sites} > {max_missing_sites}"
+                    f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
+                    f"deletions={num_deletion_sites}"
                 )
+                if num_missing_sites <= max_missing_sites:
+                    samples.append(s)
+                else:
+                    logger.debug(
+                        f"Filter {s.strain}: missing={num_missing_sites} > {max_missing_sites}"
+                    )
+    bar.close()
     return samples
 
 
@@ -586,6 +597,7 @@ def extend(
         pango_lineage_key="Viridian_pangolin",  # TODO parametrise
         show_progress=show_progress,
         max_missing_sites=max_missing_sites,
+        num_workers=num_threads,
     )
 
     if max_daily_samples is not None:
