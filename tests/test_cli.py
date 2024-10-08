@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import click.testing as ct
 import pytest
@@ -21,7 +23,7 @@ class TestInitialise:
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
         other_ts = sc2ts.initial_ts()
-        other_ts.tables.assert_equals(ts.tables)
+        other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
 
@@ -41,9 +43,33 @@ class TestInitialise:
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
         other_ts = sc2ts.initial_ts(additional_problematic_sites=additional)
-        other_ts.tables.assert_equals(ts.tables)
+        other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
+
+    def test_provenance(self, tmp_path):
+        ts_path = tmp_path / "trees.ts"
+        match_db_path = tmp_path / "match.db"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"initialise {ts_path} {match_db_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        ts = tskit.load(ts_path)
+        assert ts.num_provenances == 1
+        prov = ts.provenance(0)
+        record = json.loads(prov.record)
+        assert "software" in record
+        assert "parameters" in record
+        assert "environment" in record
+        assert "resources" in record
+        resources = record["resources"]
+        assert "elapsed_time" in resources
+        assert "user_time" in resources
+        assert "sys_time" in resources
+        assert "max_memory" in resources
 
 
 class TestListDates:

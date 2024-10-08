@@ -34,24 +34,38 @@ logger = logging.getLogger(__name__)
 __before = time.time()
 
 
-def summarise_usage():
-    # Measure all times in minutes
-    wall_time = (time.time() - __before) / 60
-    user_time = os.times().user / 60
-    sys_time = os.times().system / 60
+def get_resources():
+    # Measure all times in seconds
+    wall_time = time.time() - __before
+    os_times = os.times()
+    user_time = os_times.user + os_times.children_user
+    sys_time = os_times.system + os_times.children_system
     if resource is None:
         # Don't report max memory on Windows. We could do this using the psutil lib, via
         # psutil.Process(os.getpid()).get_ext_memory_info().peak_wset if demand exists
-        maxmem_str = "?"
+        maxmem = -1
     else:
         max_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         if sys.platform != "darwin":
             max_mem *= 1024  # Linux and other OSs (e.g. freeBSD) report maxrss in kb
+    return {
+        "elapsed_time": wall_time,
+        "user_time": user_time,
+        "sys_time": sys_time,
+        "max_memory": max_mem, # bytes
+    }
+
+
+def summarise_usage():
+    d = get_resources()
+    # Report times in minutes
+    wall_time = d["elapsed_time"] / 60
+    user_time = d["user_time"] / 60
+    sys_time = d["sys_time"] / 60
+    max_mem = d["max_memory"]
+    if max_mem > 0:
         maxmem_str = "; max_memory=" + humanize.naturalsize(max_mem, binary=True)
-    return (
-        f"elapsed={wall_time:.2f}m; user={user_time:.2f}m; sys={sys_time:.2f}m"
-        + maxmem_str
-    )
+    return f"elapsed={wall_time:.2f}m; user={user_time:.2f}m; sys={sys_time:.2f}m{maxmem_str}"
 
 
 def get_environment():
@@ -89,6 +103,7 @@ def get_provenance_dict():
         "software": {"name": "sc2ts", "version": core.__version__},
         "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
         "environment": get_environment(),
+        "resources": get_resources(),
     }
     return document
 
@@ -222,9 +237,9 @@ def info_ts(ts_path, recombinants, verbose, log_file):
     ti = sc2ts.TreeInfo(ts, quick=False)
     # print("info", ti.node_counts())
     # TODO output these as TSVs rather than using pandas display?
-    pd.set_option('display.max_rows', 500)
-    pd.set_option('display.max_columns', 500)
-    pd.set_option('display.width', 1000)
+    pd.set_option("display.max_rows", 500)
+    pd.set_option("display.max_columns", 500)
+    pd.set_option("display.width", 1000)
     print(ti.summary())
     # TODO more
     if recombinants:
@@ -267,7 +282,7 @@ def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
         )
 
     base_ts = sc2ts.initial_ts(additional_problematic)
-    base_ts.dump(ts)
+    add_provenance(base_ts, ts)
     logger.info(f"New base ts at {ts}")
     sc2ts.MatchDb.initialise(match_db)
 
