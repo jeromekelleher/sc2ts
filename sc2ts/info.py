@@ -1484,6 +1484,22 @@ class TreeInfo:
         ax.set_ylabel("Number deletion samples")
         return fig, [ax]
 
+    def compute_deletion_overlaps(self, df_del):
+        ts = self.ts
+        overlaps = np.zeros(int(ts.sequence_length))
+        df_del = self.deletions_summary()
+        for row in df_del.itertuples():
+            overlaps[row.start : row.start + row.length] += 1
+        return overlaps[ts.sites_position.astype(int)]
+
+    def plot_deletion_overlaps(self, annotate_threshold=0.9):
+        df_del = self.deletions_summary()
+        fig, ax = self._plot_per_site_count(
+            self.compute_deletion_overlaps(df_del), annotate_threshold
+        )
+        ax.set_ylabel("Overlapping deletions")
+        return fig, [ax]
+
     def plot_samples_per_day(self):
         fig, ax = self._wide_plot(1, 1)
         t = np.arange(self.num_samples_per_day.shape[0])
