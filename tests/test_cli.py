@@ -63,6 +63,21 @@ class TestInitialise:
         # > 29674 (rightmost coordinate of ORF10)
         assert sites == list(range(1, 266)) + list(range(29675, 29904))
 
+    def test_mask_problematic_regions(self, tmp_path):
+        ts_path = tmp_path / "trees.ts"
+        match_db_path = tmp_path / "match.db"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"initialise {ts_path} {match_db_path} --mask-problematic-regions",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        ts = tskit.load(ts_path)
+        sites = ts.metadata["sc2ts"]["additional_problematic_sites"]
+        # NTD: [21602-22472)
+        # ORF8: [27939-28257)
+        assert sites == list(range(21602, 22472)) + list(range(27939, 28257))
 
     def test_provenance(self, tmp_path):
         ts_path = tmp_path / "trees.ts"

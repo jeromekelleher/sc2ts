@@ -273,10 +273,18 @@ def add_provenance(ts, output_file):
         "problematic sites"
     ),
 )
+@click.option(
+    "--mask-problematic-regions",
+    is_flag=True,
+    flag_value=True,
+    help=(
+        "If true, add the problematic regions problematic sites"
+    ),
+)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def initialise(
-    ts, match_db, additional_problematic_sites, mask_flanks, verbose, log_file
+    ts, match_db, additional_problematic_sites, mask_flanks, mask_problematic_regions, verbose, log_file
 ):
     """
     Initialise a new base tree sequence to begin inference.
@@ -294,6 +302,10 @@ def initialise(
     if mask_flanks:
         additional_problematic = np.concatenate(
             (core.get_flank_coordinates(), additional_problematic)
+        )
+    if mask_problematic_regions:
+        additional_problematic = np.concatenate(
+            (core.get_problematic_regions(), additional_problematic)
         )
 
     additional_problematic = np.unique(additional_problematic)

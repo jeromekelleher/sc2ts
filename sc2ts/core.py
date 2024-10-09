@@ -76,10 +76,11 @@ def get_problematic_regions():
 
     The 1-based (half-open) coordinates were taken from the UCSC Genome Browser.
     """
+    orf8 = get_gene_coordinates()["ORF8"]
     return np.concatenate(
         [
             np.arange(21602, 22472, dtype=np.int64),  # NTD domain in S
-            np.arange(27939, 28257, dtype=np.int64),  # ORF8
+            np.arange(*orf8, dtype=np.int64),  
         ]
     )
 
@@ -141,7 +142,7 @@ __cached_genes = None
 def get_gene_coordinates():
     """
     Returns a map of gene name to interval, (start, stop). These are
-    half-open, start-inclusive, right exclusive.
+    half-open, left-inclusive, right-exclusive.
     """
     global __cached_genes
     if __cached_genes is None:
