@@ -1,12 +1,20 @@
+import inspect
+
 import pytest
 import numpy as np
 import pandas as pd
+import matplotlib
 
 import msprime
 import tskit
 
 from sc2ts import info
 
+
+@pytest.fixture
+def fx_ti_2020_02_13(fx_ts_map):
+    ts = fx_ts_map["2020-02-13"]
+    return info.TreeInfo(ts, show_progress=False)
 
 
 class TestTallyLineages:
@@ -93,7 +101,7 @@ class TestCountMutations:
     def test_2trees_0mut(self):
         ts = msprime.sim_ancestry(
             2,
-            recombination_rate=1e6, # Nearly guarantee recomb.
+            recombination_rate=1e6,  # Nearly guarantee recomb.
             sequence_length=2,
         )
         assert ts.num_trees == 2
@@ -105,7 +113,7 @@ class TestCountMutations:
         ts = msprime.sim_ancestry(
             4,
             ploidy=1,
-            recombination_rate=1e6, # Nearly guarantee recomb.
+            recombination_rate=1e6,  # Nearly guarantee recomb.
             sequence_length=2,
         )
         tables = ts.dump_tables()
@@ -122,7 +130,7 @@ class TestCountMutations:
         ts = msprime.sim_ancestry(
             4,
             ploidy=1,
-            recombination_rate=1e6, # Nearly guarantee recomb.
+            recombination_rate=1e6,  # Nearly guarantee recomb.
             sequence_length=2,
         )
         tables = ts.dump_tables()
@@ -141,7 +149,7 @@ class TestCountMutations:
         ts = msprime.sim_ancestry(
             4,
             ploidy=1,
-            recombination_rate=1e6, # Nearly guarantee recomb.
+            recombination_rate=1e6,  # Nearly guarantee recomb.
             sequence_length=2,
         )
         tables = ts.dump_tables()
@@ -156,3 +164,25 @@ class TestCountMutations:
         expected[3] = 1
         actual = info.get_num_muts(ts)
         np.testing.assert_equal(expected, actual)
+
+
+class TestTreeInfo:
+    def test_tree_info_values(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 0, 560, 535]
+        assert list(ti.sites_num_missing_samples[:5]) == [4, 4, 4, 4, 4]
+        assert list(ti.sites_num_deletion_samples[:5]) == [0, 0, 0, 0, 0]
+
+    @pytest.mark.parametrize(
+        "method",
+        [
+            func
+            for (name, func) in inspect.getmembers(info.TreeInfo)
+            if name.startswith("plot")
+        ],
+    )
+    def test_plots(self, fx_ti_2020_02_13, method):
+        fig, axes = method(fx_ti_2020_02_13)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        for ax in axes:
+            assert isinstance(ax, matplotlib.axes.Axes)

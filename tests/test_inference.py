@@ -224,17 +224,6 @@ class TestMirrorTsCoords:
         self.check_double_mirror(ts)
 
 
-# TODO move this to another file and test a bunch of stuff using the
-# TI as a fixture
-class TestTreeInfo:
-    def test_tree_info_values(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        ti = sc2ts.TreeInfo(ts, show_progress=False)
-        assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 0, 560, 535]
-        assert list(ti.sites_num_missing_samples[:5]) == [4, 4, 4, 4, 4]
-        assert list(ti.sites_num_deletion_samples[:5]) == [0, 0, 0, 0, 0]
-
-
 class TestRealData:
     dates = [
         "2020-01-01",
