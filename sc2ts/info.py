@@ -1305,7 +1305,7 @@ class TreeInfo:
     def _histogram(self, data, title, bins=None, xlabel=None, ylabel=None):
         fig, ax = plt.subplots(1, 1)
         fig.suptitle(title)
-        ax.hist(data, rwidth=0.9, bins=None)
+        ax.hist(data, rwidth=0.9, bins=bins)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         return fig, [ax]
@@ -1445,7 +1445,7 @@ class TreeInfo:
             if v:
                 end = start + length
                 x, y = int(pos[start]), int(pos[min(self.ts.num_sites - 1, end)])
-                if x == y + 1:
+                if x == y - 1:
                     label = f"{x}"
                 else:
                     label = f"{x}-{y}"
