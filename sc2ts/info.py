@@ -1565,7 +1565,12 @@ class TreeInfo:
         if remove_clones:
             # TODO
             raise NotImplementedError("remove_clones not implemented")
-        ts = self.ts
+        # remove mutation times, so they get spaced evenly along a branch
+        tables = self.ts.dump_tables()
+        time = tables.mutations.time
+        time[:] = tskit.UNKNOWN_TIME
+        tables.mutations.time = time
+        ts = tables.tree_sequence()
         tracked_nodes = self.pango_lineage_samples[lineage]
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(list(tskit.drawing._postorder_tracked_minlex_traversal(
