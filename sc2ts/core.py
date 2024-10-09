@@ -58,6 +58,21 @@ def get_problematic_sites():
     return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
 
 
+def get_problematic_regions():
+    """
+    These regions have been reported to have highly recurrent or unusual
+    patterns of deletions.
+
+    https://github.com/jeromekelleher/sc2ts/issues/231#issuecomment-2401405355
+
+    The 1-based (half-open) coordinates were taken from the UCSC Genome Browser.
+    """
+    return np.concatenate([
+        np.arange(21602, 22472, dtype=np.int64),    # NTD domain in S
+        np.arange(27939, 28257, dtype=np.int64),    # ORF8
+    ])
+
+
 @dataclasses.dataclass
 class CovLineage:
     name: str
