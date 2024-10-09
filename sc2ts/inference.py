@@ -255,7 +255,7 @@ def initial_ts(additional_problematic_sites=list()):
     problematic_sites = set(core.get_problematic_sites()) | set(
         additional_problematic_sites
     )
-
+    logger.info(f"Masking out {len(problematic_sites)} sites (additional={len(additional_problematic_sites)})")
     tables = tskit.TableCollection(L)
     tables.time_units = core.TIME_UNITS
 

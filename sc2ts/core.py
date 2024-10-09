@@ -65,12 +65,35 @@ def get_problematic_regions():
 
     https://github.com/jeromekelleher/sc2ts/issues/231#issuecomment-2401405355
 
+    Region: NTD domain
+    Coords: [21602-22472)
+    Multiple highly recurrent deleted regions in NTD domain in Spike
+    https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7971772/
+
+    Region: ORF8
+    https://virological.org/t/repeated-loss-of-orf8-expression-in-circulating-sars-cov-2-lineages/931/1
+
     The 1-based (half-open) coordinates were taken from the UCSC Genome Browser.
     """
-    return np.concatenate([
-        np.arange(21602, 22472, dtype=np.int64),    # NTD domain in S
-        np.arange(27939, 28257, dtype=np.int64),    # ORF8
-    ])
+    orf8 = get_gene_coordinates()["ORF8"]
+    return np.concatenate(
+        [
+            np.arange(21602, 22472, dtype=np.int64),  # NTD domain in S
+            np.arange(*orf8, dtype=np.int64),
+        ]
+    )
+
+
+def get_flank_coordinates():
+    """
+    Return the coordinates at either end of the genome for masking out.
+    """
+    genes = get_gene_coordinates()
+    start = genes["ORF1ab"][0]
+    end = genes["ORF10"][1]
+    return np.concatenate(
+        (np.arange(1, start), np.arange(end, REFERENCE_SEQUENCE_LENGTH))
+    )
 
 
 @dataclasses.dataclass
@@ -116,6 +139,10 @@ __cached_genes = None
 
 
 def get_gene_coordinates():
+    """
+    Returns a map of gene name to interval, (start, stop). These are
+    half-open, left-inclusive, right-exclusive.
+    """
     global __cached_genes
     if __cached_genes is None:
         d = {}

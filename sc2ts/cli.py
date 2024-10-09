@@ -52,7 +52,7 @@ def get_resources():
         "elapsed_time": wall_time,
         "user_time": user_time,
         "sys_time": sys_time,
-        "max_memory": max_mem, # bytes
+        "max_memory": max_mem,  # bytes
     }
 
 
@@ -264,24 +264,52 @@ def add_provenance(ts, output_file):
     type=click.Path(exists=True, dir_okay=False),
     help="File containing the list of additional problematic sites to exclude.",
 )
+@click.option(
+    "--mask-flanks",
+    is_flag=True,
+    flag_value=True,
+    help=(
+        "If true, add the non-genic regions at either end of the genome to "
+        "problematic sites"
+    ),
+)
+@click.option(
+    "--mask-problematic-regions",
+    is_flag=True,
+    flag_value=True,
+    help=(
+        "If true, add the problematic regions problematic sites"
+    ),
+)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def initialise(ts, match_db, additional_problematic_sites, verbose, log_file):
+def initialise(
+    ts, match_db, additional_problematic_sites, mask_flanks, mask_problematic_regions, verbose, log_file
+):
     """
     Initialise a new base tree sequence to begin inference.
     """
     setup_logging(verbose, log_file)
 
-    additional_problematic = []
+    additional_problematic = np.array([], dtype=int)
     if additional_problematic_sites is not None:
-        additional_problematic = (
-            np.loadtxt(additional_problematic_sites, ndmin=1).astype(int).tolist()
-        )
+        additional_problematic = np.loadtxt(
+            additional_problematic_sites, ndmin=1
+        ).astype(int)
         logger.info(
             f"Excluding additional {len(additional_problematic)} problematic sites"
         )
+    if mask_flanks:
+        additional_problematic = np.concatenate(
+            (core.get_flank_coordinates(), additional_problematic)
+        )
+    if mask_problematic_regions:
+        additional_problematic = np.concatenate(
+            (core.get_problematic_regions(), additional_problematic)
+        )
 
-    base_ts = sc2ts.initial_ts(additional_problematic)
+    additional_problematic = np.unique(additional_problematic)
+    base_ts = sc2ts.initial_ts(additional_problematic.tolist())
     add_provenance(base_ts, ts)
     logger.info(f"New base ts at {ts}")
     sc2ts.MatchDb.initialise(match_db)
