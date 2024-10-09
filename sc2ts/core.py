@@ -71,7 +71,6 @@ def get_problematic_regions():
     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7971772/
 
     Region: ORF8
-    Coords: [27939-28257)
     https://virological.org/t/repeated-loss-of-orf8-expression-in-circulating-sars-cov-2-lineages/931/1
 
     The 1-based (half-open) coordinates were taken from the UCSC Genome Browser.
@@ -80,7 +79,7 @@ def get_problematic_regions():
     return np.concatenate(
         [
             np.arange(21602, 22472, dtype=np.int64),  # NTD domain in S
-            np.arange(*orf8, dtype=np.int64),  
+            np.arange(*orf8, dtype=np.int64),
         ]
     )
 
