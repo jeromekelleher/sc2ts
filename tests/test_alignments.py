@@ -33,7 +33,7 @@ class TestAlignmentsStore:
 def test_get_gene_coordinates():
     d = core.get_gene_coordinates()
     assert len(d) == 11
-    assert d["S"] == (21563, 25384)
+    assert d["S"] == (21563, 25385)
 
 
 class TestEncodeAligment:
