@@ -47,6 +47,23 @@ class TestInitialise:
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
 
+    def test_mask_flanks(self, tmp_path):
+        ts_path = tmp_path / "trees.ts"
+        match_db_path = tmp_path / "match.db"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"initialise {ts_path} {match_db_path} --mask-flanks",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        ts = tskit.load(ts_path)
+        sites = ts.metadata["sc2ts"]["additional_problematic_sites"]
+        # < 266 (leftmost coordinate of ORF1a)
+        # > 29674 (rightmost coordinate of ORF10)
+        assert sites == list(range(1, 266)) + list(range(29675, 29904))
+
+
     def test_provenance(self, tmp_path):
         ts_path = tmp_path / "trees.ts"
         match_db_path = tmp_path / "match.db"
