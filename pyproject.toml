@@ -12,7 +12,9 @@ dependencies = [
   # FIXME
   "tsinfer @ git+https://github.com/jeromekelleher/tsinfer.git@experimental-hmm",
   "pyfaidx",
-  "tskit>=0.5.3",
+  # FIXME - reinstate when 0.5.9 is released
+  # "tskit>=0.5.9",
+  "tskit @ git+https://github.com/tskit-dev/tskit.git@main#subdirectory=python",
   "tszip",
   "pandas",
   "numba",
