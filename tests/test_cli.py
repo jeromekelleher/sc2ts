@@ -76,8 +76,8 @@ class TestInitialise:
         ts = tskit.load(ts_path)
         sites = ts.metadata["sc2ts"]["additional_problematic_sites"]
         # NTD: [21602-22472)
-        # ORF8: [27939-28257)
-        assert sites == list(range(21602, 22472)) + list(range(27939, 28257))
+        # ORF8: [27894, 28260)
+        assert sites == list(range(21602, 22472)) + list(range(27894, 28260))
 
     def test_provenance(self, tmp_path):
         ts_path = tmp_path / "trees.ts"
