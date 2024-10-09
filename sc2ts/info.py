@@ -12,6 +12,7 @@ import tskit
 import numpy as np
 import tqdm
 import pandas as pd
+import humanize
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from IPython.display import Markdown, HTML
@@ -1409,8 +1410,8 @@ class TreeInfo:
         ax2.set_xticks(mids, minor=False)
         ax2.set_xticklabels(list(genes.keys()), rotation="vertical")
 
-    def _wide_plot(self, *args, **kwargs):
-        return plt.subplots(*args, figsize=(16, 4), **kwargs)
+    def _wide_plot(self, *args, height=4, **kwargs):
+        return plt.subplots(*args, figsize=(16, height), **kwargs)
 
     def plot_ts_tv_per_site(self, annotate_threshold=0.9):
         nonzero = self.sites_num_transversions != 0
@@ -1510,29 +1511,53 @@ class TreeInfo:
 
     def plot_resources(self, start_date="2020-04-01"):
         ts = self.ts
-        fig, ax = self._wide_plot(2, sharex=True)
-        timestamp = np.zeros(ts.num_provenances, dtype="datetime64[s]")
+        fig, ax = self._wide_plot(3, height=8, sharex=True)
+        elapsed_time = np.zeros(ts.num_provenances)
+        cpu_time = np.zeros(ts.num_provenances)
+        max_mem = np.zeros(ts.num_provenances)
         date = np.zeros(ts.num_provenances, dtype="datetime64[D]")
         num_samples = np.zeros(ts.num_provenances, dtype=int)
-        for j in range(ts.num_provenances):
+        for j in range(1, ts.num_provenances):
             p = ts.provenance(j)
-            timestamp[j] = p.timestamp
             record = json.loads(p.record)
             text_date = record["parameters"]["args"][2]
             date[j] = text_date
-
-            days_ago = self.time_zero_as_date - date[j]
+            try:
+                resources = record["resources"]
+                elapsed_time[j] = resources["elapsed_time"]
+                cpu_time[j] = resources["user_time"] + resources["sys_time"]
+                max_mem[j] = resources["max_memory"]
+            except KeyError:
+                warnings.warn("Missing required provenance fields")
+            days_ago = self.time_zero_as_date - date[j] + 1
             # Avoid division by zero
             num_samples[j] = max(1, self.num_samples_per_day[days_ago.astype(int)])
 
         keep = date >= np.array([start_date], dtype="datetime64[D]")
+        total_elapsed = datetime.timedelta(seconds=np.sum(elapsed_time))
+        total_cpu = datetime.timedelta(seconds=np.sum(cpu_time))
+        title = (
+            f"{humanize.naturaldelta(total_elapsed)} elapsed "
+            f"using {humanize.naturaldelta(total_cpu)} of CPU time "
+            f"(utilisation = {np.sum(cpu_time) / np.sum(elapsed_time):.2f})"
+        )
 
-        wall_time = np.append([0], np.diff(timestamp).astype(float))
-        ax[0].plot(date[keep], wall_time[keep] / 60)
-        ax[1].set_xlabel("Date")
+        max_mem /= 1024**3  # Convert to GiB
+        ax[0].set_title(title)
+        ax[0].plot(date[keep], elapsed_time[keep] / 60, label="elapsed time")
+        ax[-1].set_xlabel("Date")
+        ax_twin = ax[0].twinx()
+        ax_twin.plot(
+            date[keep], num_samples[keep], color="tab:red", alpha=0.5, label="samples"
+        )
+        ax_twin.set_ylabel("Num samples")
         ax[0].set_ylabel("Elapsed time (mins)")
-        ax[1].plot(date[keep], wall_time[keep] / num_samples[keep])
+        ax[0].legend()
+        ax_twin.legend()
+        ax[1].plot(date[keep], elapsed_time[keep] / num_samples[keep])
         ax[1].set_ylabel("Elapsed time per sample (s)")
+        ax[2].plot(date[keep], max_mem[keep])
+        ax[2].set_ylabel("Max memory (GiB)")
         return fig, ax
 
     def fixme_plot_recombinants_per_day(self):
