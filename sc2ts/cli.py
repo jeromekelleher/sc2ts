@@ -309,7 +309,7 @@ def initialise(
         )
 
     additional_problematic = np.unique(additional_problematic)
-    base_ts = sc2ts.initial_ts(additional_problematic.tolist())
+    base_ts = sc2ts.initial_ts(additional_problematic.tolist(), use_ucsc=False)
     add_provenance(base_ts, ts)
     logger.info(f"New base ts at {ts}")
     sc2ts.MatchDb.initialise(match_db)

@@ -22,7 +22,7 @@ class TestInitialise:
         )
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts()
+        other_ts = sc2ts.initial_ts(use_ucsc=False)
         other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
@@ -42,7 +42,7 @@ class TestInitialise:
         )
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts(additional_problematic_sites=additional)
+        other_ts = sc2ts.initial_ts(additional_problematic_sites=additional, use_ucsc=False)
         other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
