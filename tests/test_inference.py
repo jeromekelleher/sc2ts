@@ -57,97 +57,97 @@ def tmp_metadata_db(tmp_path, strains, date):
     return sc2ts.MetadataDb(db_path)
 
 
-@pytest.fixture
-def fx_recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store):
-    # Same as the recombinant_example_1() function above
-    strains = ["SRR11597188", "SRR11597163"]
-    left_a = fx_alignment_store[strains[0]]
-    right_a = fx_alignment_store[strains[1]]
-    # Recombine in the middle
-    bp = 10_000
-    h = left_a.copy()
-    h[bp:] = right_a[bp:]
-    alignments = {"frankentype": h}
-    local_as = tmp_alignment_store(tmp_path, alignments)
-    date = "2020-03-01"
-    metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
+# @pytest.fixture
+# def fx_recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store):
+#     # Same as the recombinant_example_1() function above
+#     strains = ["SRR11597188", "SRR11597163"]
+#     left_a = fx_alignment_store[strains[0]]
+#     right_a = fx_alignment_store[strains[1]]
+#     # Recombine in the middle
+#     bp = 10_000
+#     h = left_a.copy()
+#     h[bp:] = right_a[bp:]
+#     alignments = {"frankentype": h}
+#     local_as = tmp_alignment_store(tmp_path, alignments)
+#     date = "2020-03-01"
+#     metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
 
-    base_ts = fx_ts_map["2020-02-13"]
-    ts = sc2ts.extend(
-        alignment_store=local_as,
-        metadata_db=metadata_db,
-        base_ts=base_ts,
-        date=date,
-        num_mismatches=2,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
-    )
-    return ts
+#     base_ts = fx_ts_map["2020-02-13"]
+#     ts = sc2ts.extend(
+#         alignment_store=local_as,
+#         metadata_db=metadata_db,
+#         base_ts=base_ts,
+#         date=date,
+#         num_mismatches=2,
+#         match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+#     )
+#     return ts
 
 
-@pytest.fixture
-def fx_recombinant_example_2(tmp_path, fx_ts_map, fx_alignment_store):
+# @pytest.fixture
+# def fx_recombinant_example_2(tmp_path, fx_ts_map, fx_alignment_store):
 
-    # Pick a distinct strain to be the root of our two new haplotypes added
-    # on the first day.
-    root_strain = "SRR11597116"
-    a = fx_alignment_store[root_strain]
-    base_ts = fx_ts_map["2020-02-13"]
-    # This sequence has a bunch of Ns at the start, so we have to go inwards
-    # from them to make sure we're not masking them out.
-    start = np.where(a != "N")[0][1] + 7
-    left_a = a.copy()
-    left_a[start : start + 3] = "G"
+#     # Pick a distinct strain to be the root of our two new haplotypes added
+#     # on the first day.
+#     root_strain = "SRR11597116"
+#     a = fx_alignment_store[root_strain]
+#     base_ts = fx_ts_map["2020-02-13"]
+#     # This sequence has a bunch of Ns at the start, so we have to go inwards
+#     # from them to make sure we're not masking them out.
+#     start = np.where(a != "N")[0][1] + 7
+#     left_a = a.copy()
+#     left_a[start : start + 3] = "G"
 
-    end = np.where(a != "N")[0][-1] - 8
-    right_a = a.copy()
-    right_a[end - 3 : end] = "C"
+#     end = np.where(a != "N")[0][-1] - 8
+#     right_a = a.copy()
+#     right_a[end - 3 : end] = "C"
 
-    a[start : start + 3] = left_a[start : start + 3]
-    a[end - 3 : end] = right_a[end - 3 : end]
+#     a[start : start + 3] = left_a[start : start + 3]
+#     a[end - 3 : end] = right_a[end - 3 : end]
 
-    alignments = {"left": left_a, "right": right_a, "recombinant": a}
-    local_as = tmp_alignment_store(tmp_path, alignments)
+#     alignments = {"left": left_a, "right": right_a, "recombinant": a}
+#     local_as = tmp_alignment_store(tmp_path, alignments)
 
-    date = "2020-03-01"
-    metadata_db = tmp_metadata_db(tmp_path, ["left", "right"], date)
-    ts = sc2ts.extend(
-        alignment_store=local_as,
-        metadata_db=metadata_db,
-        base_ts=base_ts,
-        date=date,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
-    )
-    samples_strain = ts.metadata["sc2ts"]["samples_strain"]
-    assert samples_strain[-2:] == ["left", "right"]
-    assert ts.num_mutations == base_ts.num_mutations + 6
-    assert ts.num_nodes == base_ts.num_nodes + 2
-    assert ts.num_edges == base_ts.num_edges + 2
+#     date = "2020-03-01"
+#     metadata_db = tmp_metadata_db(tmp_path, ["left", "right"], date)
+#     ts = sc2ts.extend(
+#         alignment_store=local_as,
+#         metadata_db=metadata_db,
+#         base_ts=base_ts,
+#         date=date,
+#         match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+#     )
+#     samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+#     assert samples_strain[-2:] == ["left", "right"]
+#     assert ts.num_mutations == base_ts.num_mutations + 6
+#     assert ts.num_nodes == base_ts.num_nodes + 2
+#     assert ts.num_edges == base_ts.num_edges + 2
 
-    left_node = ts.samples()[-2]
-    right_node = ts.samples()[-1]
+#     left_node = ts.samples()[-2]
+#     right_node = ts.samples()[-1]
 
-    for j, mut_id in enumerate(np.where(ts.mutations_node == left_node)[0]):
-        mut = ts.mutation(mut_id)
-        assert mut.derived_state == "G"
-        assert ts.sites_position[mut.site] == start + j
+#     for j, mut_id in enumerate(np.where(ts.mutations_node == left_node)[0]):
+#         mut = ts.mutation(mut_id)
+#         assert mut.derived_state == "G"
+#         assert ts.sites_position[mut.site] == start + j
 
-    for j, mut_id in enumerate(np.where(ts.mutations_node == right_node)[0]):
-        mut = ts.mutation(mut_id)
-        assert mut.derived_state == "C"
-        assert ts.sites_position[mut.site] == end - 3 + j
+#     for j, mut_id in enumerate(np.where(ts.mutations_node == right_node)[0]):
+#         mut = ts.mutation(mut_id)
+#         assert mut.derived_state == "C"
+#         assert ts.sites_position[mut.site] == end - 3 + j
 
-    # Now run again with the recombinant of these two
-    date = "2020-03-02"
-    metadata_db = tmp_metadata_db(tmp_path, ["recombinant"], date)
-    rts = sc2ts.extend(
-        alignment_store=local_as,
-        metadata_db=metadata_db,
-        base_ts=ts,
-        date=date,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
-    )
+#     # Now run again with the recombinant of these two
+#     date = "2020-03-02"
+#     metadata_db = tmp_metadata_db(tmp_path, ["recombinant"], date)
+#     rts = sc2ts.extend(
+#         alignment_store=local_as,
+#         metadata_db=metadata_db,
+#         base_ts=ts,
+#         date=date,
+#         match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+#     )
 
-    return rts
+#     return rts
 
 
 def test_get_group_strains(fx_ts_map):
