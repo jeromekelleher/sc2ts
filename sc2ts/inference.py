@@ -482,14 +482,13 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
-def preprocess_worker(samples_md, alignment_store_path, keep_sites):
+def preprocess_worker(strains, alignment_store_path, keep_sites):
     # print("preprocess worker", samples_md)
     with alignments.AlignmentStore(alignment_store_path) as alignment_store:
         samples = []
-        for md in samples_md:
-            strain = md["strain"]
+        for strain in strains:
             alignment = alignment_store.get(strain, None)
-            sample = Sample(strain, metadata=md)
+            sample = Sample(strain)
             if alignment is not None:
                 a = alignment[keep_sites]
                 sample.haplotype = alignments.encode_alignment(a)
@@ -501,47 +500,28 @@ def preprocess_worker(samples_md, alignment_store_path, keep_sites):
 
 
 def preprocess(
-    samples_md,
-    base_ts,
+    strains,
     date,
-    alignment_store,
-    pango_lineage_key="pango",
+    alignment_store_path,
+    keep_sites=None,
     show_progress=False,
-    max_missing_sites=np.inf,
     num_workers=0,
 ):
     num_workers = max(1, num_workers)
-    keep_sites = base_ts.sites_position.astype(int)
-    splits = min(len(samples_md), 2 * num_workers)
-    work = np.array_split(samples_md, splits)
+    splits = min(len(strains), 2 * num_workers)
+    work = np.array_split(strains, splits)
     samples = []
 
-    bar = get_progress(samples_md, date, f"preprocess", show_progress)
+    bar = get_progress(strains, date, f"preprocess", show_progress)
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
-            executor.submit(preprocess_worker, w, alignment_store.path, keep_sites)
+            executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
             for w in work
         ]
         for future in concurrent.futures.as_completed(futures):
             for s in future.result():
                 bar.update()
-                if s.haplotype is None:
-                    logger.debug(f"No alignment stored for {s.strain}")
-                    continue
-                s.date = date
-                s.pango = s.metadata.get(pango_lineage_key, "PangoUnknown")
-                num_missing_sites = s.num_missing_sites
-                num_deletion_sites = s.num_deletion_sites
-                logger.debug(
-                    f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
-                    f"deletions={num_deletion_sites}"
-                )
-                if num_missing_sites <= max_missing_sites:
-                    samples.append(s)
-                else:
-                    logger.debug(
-                        f"Filter {s.strain}: missing={num_missing_sites} > {max_missing_sites}"
-                    )
+                samples.append(s)
     bar.close()
     return samples
 
@@ -587,16 +567,37 @@ def extend(
 
     logger.info(f"Got {len(metadata_matches)} metadata matches")
 
-    samples = preprocess(
-        metadata_matches,
-        base_ts,
-        date,
-        alignment_store,
-        pango_lineage_key="Viridian_pangolin",  # TODO parametrise
+    preprocessed_samples = preprocess(
+        strains=[md["strain"] for md in metadata_matches],
+        date=date,
+        alignment_store_path=alignment_store.path,
+        keep_sites=base_ts.sites_position.astype(int),
         show_progress=show_progress,
-        max_missing_sites=max_missing_sites,
         num_workers=num_threads,
     )
+    # FIXME parametrise
+    pango_lineage_key = "Viridian_pangolin"
+
+    samples = []
+    for s, md in zip(preprocessed_samples, metadata_matches):
+        if s.haplotype is None:
+            logger.debug(f"No alignment stored for {s.strain}")
+            continue
+        s.metadata = md
+        s.pango = md.get(pango_lineage_key, "Unknown")
+        s.date = date
+        num_missing_sites = s.num_missing_sites
+        num_deletion_sites = s.num_deletion_sites
+        logger.debug(
+            f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
+            f"deletions={num_deletion_sites}"
+        )
+        if num_missing_sites <= max_missing_sites:
+            samples.append(s)
+        else:
+            logger.debug(
+                f"Filter {s.strain}: missing={num_missing_sites} > {max_missing_sites}"
+            )
 
     if max_daily_samples is not None:
         if max_daily_samples < len(samples):
