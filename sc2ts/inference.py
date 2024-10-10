@@ -1510,3 +1510,31 @@ def add_root_edge(ts, flags=0):
     tables.edges.add_row(0, ts.sequence_length, parent=new_root, child=root)
     tables.nodes.time /= np.max(tables.nodes.time)
     return tables.tree_sequence()
+
+
+def get_group_strains(ts):
+    """
+    Returns the strain IDs for samples gathered by sample group ID.
+    """
+    groups = collections.defaultdict(list)
+    for u in ts.samples():
+        md = ts.node(u).metadata
+        group_id = md["sc2ts"].get("group_id", None)
+        if group_id is not None:
+            groups[group_id].append(md["strain"])
+    return groups
+
+
+def get_recombinant_strains(ts):
+    """
+    Returns a map of recombinant node ID to the strains originally associated
+    with it.
+    """
+    groups = get_group_strains(ts)
+    recombinants = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT > 0)[0]
+    ret = {}
+    for u in recombinants:
+        node = ts.node(u)
+        group_id = node.metadata["sc2ts"]["group_id"]
+        ret[u] = groups[group_id]
+    return ret
