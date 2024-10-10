@@ -24,19 +24,6 @@ from . import utils
 logger = logging.getLogger(__name__)
 
 
-def get_group_strains(ts):
-    """
-    Returns the strain IDs for samples gathered by sample group ID.
-    """
-    groups = collections.defaultdict(list)
-    for u in ts.samples():
-        md = ts.node(u).metadata
-        group_id = md["sc2ts"].get("group_id", None)
-        if group_id is not None:
-            groups[group_id].append(md["strain"])
-    return groups
-
-
 @dataclasses.dataclass
 class LineageDetails:
     """

@@ -187,14 +187,3 @@ class TestTreeInfo:
         assert isinstance(fig, matplotlib.figure.Figure)
         for ax in axes:
             assert isinstance(ax, matplotlib.axes.Axes)
-
-
-def test_get_group_strains(fx_ts_map):
-    ts = fx_ts_map["2020-02-13"]
-    groups = info.get_group_strains(ts)
-    assert len(groups) > 0
-    for group_id, strains in groups.items():
-        m = hashlib.md5()
-        for strain in sorted(strains):
-            m.update(strain.encode())
-        assert group_id == m.hexdigest()
