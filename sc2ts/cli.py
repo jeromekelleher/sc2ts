@@ -259,10 +259,14 @@ def add_provenance(ts, output_file):
 @click.argument("ts", type=click.Path(dir_okay=False))
 @click.argument("match_db", type=click.Path(dir_okay=False))
 @click.option(
-    "--additional-problematic-sites",
+    "--problematic-sites",
     default=None,
     type=click.Path(exists=True, dir_okay=False),
-    help="File containing the list of additional problematic sites to exclude.",
+    help=(
+        "File containing the list of problematic sites to exclude. "
+        "Note this is combined with the sites defined by --mask-flanks "
+        "and --mask-problematic-regions options"
+    ),
 )
 @click.option(
     "--mask-flanks",
@@ -277,39 +281,38 @@ def add_provenance(ts, output_file):
     "--mask-problematic-regions",
     is_flag=True,
     flag_value=True,
-    help=(
-        "If true, add the problematic regions problematic sites"
-    ),
+    help=("If true, add the problematic regions problematic sites"),
 )
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def initialise(
-    ts, match_db, additional_problematic_sites, mask_flanks, mask_problematic_regions, verbose, log_file
+    ts,
+    match_db,
+    problematic_sites,
+    mask_flanks,
+    mask_problematic_regions,
+    verbose,
+    log_file,
 ):
     """
     Initialise a new base tree sequence to begin inference.
     """
     setup_logging(verbose, log_file)
 
-    additional_problematic = np.array([], dtype=int)
-    if additional_problematic_sites is not None:
-        additional_problematic = np.loadtxt(
-            additional_problematic_sites, ndmin=1
-        ).astype(int)
-        logger.info(
-            f"Excluding additional {len(additional_problematic)} problematic sites"
-        )
+    problematic = np.array([], dtype=int)
+    if problematic_sites is not None:
+        problematic = np.loadtxt(problematic_sites, ndmin=1).astype(int)
+        logger.info(f"Loaded {len(problematic)} problematic sites")
     if mask_flanks:
-        additional_problematic = np.concatenate(
-            (core.get_flank_coordinates(), additional_problematic)
-        )
+        flanks = core.get_flank_coordinates()
+        logger.info(f"Masking {len(flanks)} sites in flanks")
+        problematic = np.concatenate((flanks, problematic))
     if mask_problematic_regions:
-        additional_problematic = np.concatenate(
-            (core.get_problematic_regions(), additional_problematic)
-        )
+        known_regions = core.get_problematic_regions()
+        logger.info(f"Masking {len(known_regions)} sites in known problematic regions")
+        problematic = np.concatenate((known_regions, problematic))
 
-    additional_problematic = np.unique(additional_problematic)
-    base_ts = sc2ts.initial_ts(additional_problematic.tolist(), use_ucsc=False)
+    base_ts = sc2ts.initial_ts(np.unique(problematic))
     add_provenance(base_ts, ts)
     logger.info(f"New base ts at {ts}")
     sc2ts.MatchDb.initialise(match_db)

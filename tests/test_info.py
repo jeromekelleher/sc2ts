@@ -34,7 +34,7 @@ class TestTallyLineages:
             "B.1.36.29",
         ]
         assert list(df["db_count"]) == [26, 15, 4, 4, 1, 3, 1, 1, 1]
-        assert list(df["arg_count"]) == [24, 15, 4, 3, 1, 1, 0, 0, 0]
+        assert list(df["arg_count"]) == [23, 15, 4, 3, 1, 1, 0, 0, 0]
 
 
 class TestCountMutations:
@@ -169,9 +169,9 @@ class TestCountMutations:
 class TestTreeInfo:
     def test_tree_info_values(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
-        assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 0, 560, 535]
-        assert list(ti.sites_num_missing_samples[:5]) == [4, 4, 4, 4, 4]
-        assert list(ti.sites_num_deletion_samples[:5]) == [0, 0, 0, 0, 0]
+        assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 121, 693, 667]
+        assert list(ti.sites_num_missing_samples[:5]) == [39] * 5
+        assert list(ti.sites_num_deletion_samples[:5]) == [0] * 5
 
     @pytest.mark.parametrize(
         "method",

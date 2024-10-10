@@ -54,10 +54,6 @@ class FastaReader(collections.abc.Mapping):
 data_path = pathlib.Path(__file__).parent / "data"
 
 
-def get_problematic_sites():
-    return np.loadtxt(data_path / "problematic_sites.txt", dtype=np.int64)
-
-
 def get_problematic_regions():
     """
     These regions have been reported to have highly recurrent or unusual
@@ -94,6 +90,16 @@ def get_flank_coordinates():
     return np.concatenate(
         (np.arange(1, start), np.arange(end, REFERENCE_SEQUENCE_LENGTH))
     )
+
+
+def get_masked_sites(ts):
+    """
+    Return the set of sites not used in the sequence.
+    """
+    unused = np.ones(int(ts.sequence_length), dtype=bool)
+    unused[ts.sites_position.astype(int)] = False
+    unused[0] = False
+    return np.where(unused)[0]
 
 
 @dataclasses.dataclass
