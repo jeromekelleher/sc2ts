@@ -1587,6 +1587,7 @@ class TreeInfo:
         position=None,
         collapse_tracked=None,
         remove_clones=None,
+        extra_tracked_nodes=None,
         *,
         pack_untracked_polytomies=True,
         time_scale="rank",
@@ -1611,6 +1612,10 @@ class TreeInfo:
         ts = tables.tree_sequence()
 
         tracked_nodes = self.pango_lineage_samples[lineage]
+        if extra_tracked_nodes is not None:
+            tn_set = set(tracked_nodes)
+            extra_tracked_nodes = [e for e in extra_tracked_nodes if e not in tn_set]
+            tracked_nodes.extend(extra_tracked_nodes)
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(
             list(
@@ -1697,6 +1702,10 @@ class TreeInfo:
             ".mut .lab {font-size: 10px}",
             ".y-axis .lab {font-size: 12px}",
         ]
+        if extra_tracked_nodes is not None:
+            styles.append(
+                "".join(f".n{u} > .sym {{fill: orange}}" for u in extra_tracked_nodes)
+            )
         if len(multiple_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in multiple_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in multiple_mutations)
