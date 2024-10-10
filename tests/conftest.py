@@ -113,18 +113,31 @@ def tmp_metadata_db(tmp_path, strains, date):
     return sc2ts.MetadataDb(db_path)
 
 
-def recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store):
-    # Same as the recombinant_example_1() function above
+def recombinant_alignments(alignment_store):
+    """
+    Generate some recombinant alignments from existing haplotypes
+    """
     strains = ["SRR11597188", "SRR11597163"]
-    left_a = fx_alignment_store[strains[0]]
-    right_a = fx_alignment_store[strains[1]]
+    left_a = alignment_store[strains[0]]
+    right_a = alignment_store[strains[1]]
     # Recombine in the middle
     bp = 10_000
     h = left_a.copy()
     h[bp:] = right_a[bp:]
-    alignments = {"frankentype": h}
+    alignments = {}
+    alignments["recombinant_example_1_0"] = h
+    h = h.copy()
+    mut_site = bp - 100
+    assert h[mut_site] != "C"
+    h[mut_site] = "C"
+    alignments["recombinant_example_1_1"] = h
+    return alignments
+
+
+def recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store):
+    alignments = recombinant_alignments(fx_alignment_store)
     local_as = tmp_alignment_store(tmp_path, alignments)
-    date = "2020-03-01"
+    date = "2020-02-15"
     metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
 
     base_ts = fx_ts_map["2020-02-13"]

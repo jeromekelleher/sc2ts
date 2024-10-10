@@ -5,10 +5,12 @@ import logging
 import platform
 import sys
 import contextlib
+import pathlib
 import dataclasses
 import datetime
 import time
 import os
+from typing import List
 
 import numpy as np
 import tqdm
@@ -22,7 +24,7 @@ import pandas as pd
 try:
     import resource
 except ImportError:
-    resource = None  # resource.getrusage absent on windows, so skip outputting max mem
+    resource = None  # resource module absent on windows, so skip outputting max mem
 
 import sc2ts
 from . import core
@@ -577,137 +579,136 @@ def examine_recombinant(work):
     # NOTE: this is needed because we have to have all the sites in the trees
     # for tsinfer matching to work in the reverse direction. There is the
     # possibility of subtle differences in the match path because of this.
-    # We probably won't offer this interface anyway for long, though, and
-    # the forward/backward in the inference
-    base_ts = sc2ts.pad_sites(base_ts)
-    with contextlib.ExitStack() as exit_stack:
-        alignment_store = exit_stack.enter_context(
-            sc2ts.AlignmentStore(work.alignments)
-        )
-        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(work.metadata))
-        metadata_matches = list(
-            metadata_db.query(f"SELECT * FROM samples WHERE strain=='{work.strain}'")
-        )
-        samples = sc2ts.preprocess(
-            metadata_matches,
-            base_ts,
-            metadata_matches[0]["date"],
-            alignment_store,
-            show_progress=False,
-        )
-        try:
-            sc2ts.match_recombinants(
-                samples,
-                base_ts,
-                num_mismatches=work.num_mismatches,
-                show_progress=False,
-                num_threads=0,
-            )
-        except Exception as e:
-            print("ERROR in matching", samples[0].strain)
-            raise e
+    # base_ts = sc2ts.pad_sites(base_ts)
+    print("examining", work)
+    samples = sc2ts.preprocess_worker(
+        [{"strain": strain} for strain in work.strains],
+        alignment_store_path=work.alignments,
+        keep_sites = base_ts.sites_position.astype(int)
+    )
+    for s in samples:
+        if s.haplotype is None:
+            raise ValueError(f"Alignment for {s.strain} not found")
+    # try:
+    #     sc2ts.match_recombinants(
+    #         samples,
+    #         base_ts,
+    #         num_mismatches=work.num_mismatches,
+    #         show_progress=False,
+    #         num_threads=0,
+    #     )
+    # except Exception as e:
+    #     print("ERROR in matching", samples[0].strain)
+    #     raise e
     return samples[0]
 
 
 @dataclasses.dataclass(frozen=True)
 class Work:
-    strain: str
+    strains: List[str]
     ts_path: str
+    date: str
     num_mismatches: int
     alignments: str
     metadata: str
-    sample: int
     recombinant: int
 
 
 @click.command()
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.argument("tsz_prefix")
-@click.argument("base_date")
-@click.argument("out_tsz")
+@click.argument("ts_prefix")
+@click.argument("base_ts")
+@click.argument("out_ts")
 @click.option("--num-mismatches", default=3, type=float, help="num-mismatches")
 @click.option("-v", "--verbose", count=True)
 def annotate_recombinants(
-    alignments, metadata, tsz_prefix, base_date, out_tsz, num_mismatches, verbose
+    alignments, metadata, ts_prefix, base_ts, out_ts, num_mismatches, verbose
 ):
     """
     Update recombinant nodes in the specified trees with additional
     information about the matching process.
     """
     setup_logging(verbose)
-    ts = tszip.load(tsz_prefix + base_date + ".ts.tsz")
+    ts = tszip.load(base_ts)
 
-    recomb_samples = sc2ts.utils.get_recombinant_samples(ts)
+    # recomb_samples = sc2ts.utils.get_recombinant_samples(ts)
+    recombinants = sc2ts.get_recombinant_strains(ts)
     mismatches = [num_mismatches]
 
     work = []
-    for recombinant, sample in recomb_samples.items():
-        md = ts.node(sample).metadata
-        date = md["date"]
-        previous_date = datetime.date.fromisoformat(date)
-        previous_date -= datetime.timedelta(days=1)
-        tsz_path = f"{tsz_prefix}{previous_date}.ts"
+    for recombinant, strains in recombinants.items():
+        md = ts.node(recombinant).metadata["sc2ts"]
+        date = md["date_added"]
+        # Usually it'll be the previous day, but there will be gaps
+        for offset in range(1, 30):
+            previous_date = datetime.date.fromisoformat(date)
+            previous_date -= datetime.timedelta(days=offset)
+            ts_path = pathlib.Path(f"{ts_prefix}{previous_date}.ts")
+            if ts_path.exists():
+                break
+        else:
+            raise ValueError("No matching path found for prefix")
         for num_mismatches in mismatches:
             work.append(
                 Work(
-                    strain=md["strain"],
-                    ts_path=tsz_path,
+                    ts_path=ts_path,
                     num_mismatches=num_mismatches,
                     alignments=alignments,
+                    date=f"{previous_date}",
                     metadata=metadata,
-                    sample=sample,
+                    strains=strains,
                     recombinant=recombinant,
                 )
             )
 
     results = {}
-    # for item in work:
-    #     sample = examine_recombinant(item)
-    #     results[item.recombinant] = sample
-    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-        future_to_work = {
-            executor.submit(examine_recombinant, item): item for item in work
-        }
+    for item in work:
+        samples = examine_recombinant(item)
+        results[item.recombinant] = samples
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+    #     future_to_work = {
+    #         executor.submit(examine_recombinant, item): item for item in work
+    #     }
 
-        bar = tqdm.tqdm(
-            concurrent.futures.as_completed(future_to_work), total=len(work)
-        )
-        for future in bar:
-            try:
-                data = future.result()
-            except Exception as exc:
-                print(f"Work item: {future_to_work[future]} raised exception!")
-                print(exc)
-            work = future_to_work[future]
-            results[work.recombinant] = data
+    #     bar = tqdm.tqdm(
+    #         concurrent.futures.as_completed(future_to_work), total=len(work)
+    #     )
+    #     for future in bar:
+    #         try:
+    #             data = future.result()
+    #         except Exception as exc:
+    #             print(f"Work item: {future_to_work[future]} raised exception!")
+    #             print(exc)
+    #         work = future_to_work[future]
+    #         results[work.recombinant] = data
 
-    tables = ts.dump_tables()
-    # This is probably very inefficient as we're writing back the metadata column
-    # many times
-    for recomb_node, sample in tqdm.tqdm(results.items(), desc="Updating metadata"):
-        row = tables.nodes[recomb_node]
+    # tables = ts.dump_tables()
+    # # This is probably very inefficient as we're writing back the metadata column
+    # # many times
+    # for recomb_node, sample in tqdm.tqdm(results.items(), desc="Updating metadata"):
+    #     row = tables.nodes[recomb_node]
 
-        hmm_md = [
-            {
-                "direction": "forward",
-                "path": [x.asdict() for x in sample.forward_path],
-                "mutations": [x.asdict() for x in sample.forward_mutations],
-            },
-            {
-                "direction": "reverse",
-                "path": [x.asdict() for x in sample.reverse_path],
-                "mutations": [x.asdict() for x in sample.reverse_mutations],
-            },
-        ]
-        d = row.metadata
-        d["sc2ts"] = {"hmm": hmm_md}
-        # print(json.dumps(hmm_md, indent=2))
-        tables.nodes[recomb_node] = row.replace(metadata=d)
+    #     hmm_md = [
+    #         {
+    #             "direction": "forward",
+    #             "path": [x.asdict() for x in sample.forward_path],
+    #             "mutations": [x.asdict() for x in sample.forward_mutations],
+    #         },
+    #         {
+    #             "direction": "reverse",
+    #             "path": [x.asdict() for x in sample.reverse_path],
+    #             "mutations": [x.asdict() for x in sample.reverse_mutations],
+    #         },
+    #     ]
+    #     d = row.metadata
+    #     d["sc2ts"] = {"hmm": hmm_md}
+    #     # print(json.dumps(hmm_md, indent=2))
+    #     tables.nodes[recomb_node] = row.replace(metadata=d)
 
-    ts = tables.tree_sequence()
-    logging.info("Compressing output")
-    tszip.compress(ts, out_tsz)
+    # ts = tables.tree_sequence()
+    # logging.info("Compressing output")
+    # tszip.compress(ts, out_tsz)
 
 
 @click.version_option(core.__version__)
