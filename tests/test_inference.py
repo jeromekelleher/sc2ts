@@ -25,7 +25,7 @@ def recombinant_example_1(ts_map):
         ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
         for strain in strains
     ]
-    assert nodes == [32, 46]
+    assert nodes == [31, 45]
     # Site positions
     # SRR11597188 36  [(871, 'G'), (3027, 'G'), (3787, 'T')]
     # SRR11597163 51  [(15324, 'T'), (29303, 'T')]
@@ -252,7 +252,7 @@ class TestRealData:
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
             metadata_db=fx_metadata_db,
-            base_ts=sc2ts.initial_ts(additional_problematic_sites=list(range(56, 61))),
+            base_ts=sc2ts.initial_ts(problematic_sites=list(range(56, 61))),
             date="2020-01-19",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
@@ -277,7 +277,7 @@ class TestRealData:
         assert ts.node(2).metadata["strain"] == "SRR11772659"
         assert list(ts.mutations_node) == [2, 2, 2]
         assert list(ts.mutations_time) == [0, 0, 0]
-        assert list(ts.mutations_site) == [8627, 17811, 27781]
+        assert list(ts.sites_position[ts.mutations_site]) == [8782, 18060, 28144]
         sc2ts_md = ts.node(2).metadata["sc2ts"]
         hmm_md = sc2ts_md["hmm_match"]
         assert len(hmm_md["mutations"]) == 3
@@ -286,12 +286,13 @@ class TestRealData:
             assert mut_md["site_position"] == ts.sites_position[mut.site]
             assert mut_md["inherited_state"] == ts.site(mut.site).ancestral_state
         assert hmm_md["path"] == [{"left": 0, "parent": 1, "right": 29904}]
-        assert sc2ts_md["num_missing_sites"] == 0
+        assert sc2ts_md["num_missing_sites"] == 121
         assert sc2ts_md["alignment_composition"] == {
-            "A": 8820,
-            "C": 5426,
-            "G": 5694,
-            "T": 9477,
+            "A": 8893,
+            "C": 5471,
+            "G": 5849,
+            "T": 9564,
+            "N": 121,
         }
         assert sum(sc2ts_md["alignment_composition"].values()) == ts.num_sites
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
@@ -341,7 +342,7 @@ class TestRealData:
     def test_2020_02_02_max_missing_sites(
         self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db
     ):
-        max_missing_sites = 2
+        max_missing_sites = 123
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
             metadata_db=fx_metadata_db,
@@ -383,7 +384,7 @@ class TestRealData:
             assert site.metadata["sc2ts"]["deletion_samples"] == 1
 
     @pytest.mark.parametrize(
-        ["strain", "num_missing"], [("SRR11597164", 1), ("SRR11597114", 278)]
+        ["strain", "num_missing"], [("SRR11597164", 122), ("SRR11597114", 402)]
     )
     def test_2020_02_02_deletion_sample(
         self,
@@ -394,7 +395,6 @@ class TestRealData:
     ):
         alignment = fx_alignment_store[strain]
         a = sc2ts.encode_alignment(alignment)
-        a[sc2ts.get_problematic_sites()] = -2
 
         missing_positions = np.where(a == -1)[0][1:]
         assert len(missing_positions) == num_missing
@@ -439,7 +439,7 @@ class TestRealData:
         assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
         assert rp_node.metadata["sc2ts"] == {
             "date_added": "2020-02-08",
-            "sites": [4918],
+            "sites": [5019],
         }
         ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
 
@@ -495,7 +495,6 @@ class TestRealData:
         ["strain", "num_deletions"],
         [
             ("SRR11597190", 3),
-            ("SRR11597174", 3),
             ("SRR11597164", 1),
             ("SRR11597218", 3),
         ],
@@ -506,9 +505,7 @@ class TestRealData:
         md = ts.node(u).metadata["sc2ts"]
         assert md["alignment_composition"]["-"] == num_deletions
 
-    @pytest.mark.parametrize(
-        "position", [1547, 3951, 3952, 3953, 7260, 7261, 7262, 29749, 29750, 29751]
-    )
+    @pytest.mark.parametrize("position", [1547, 3951, 3952, 3953, 29749, 29750, 29751])
     def test_deletion_tracking(self, fx_ts_map, position):
         ts = fx_ts_map[self.dates[-1]]
         site = ts.site(position=position)
@@ -540,12 +537,6 @@ class TestRealData:
                 "2020-01-30",
                 1,
                 ["SRR12162232", "SRR12162233", "SRR12162234", "SRR12162235"],
-            ),
-            (
-                "2f508c7ba05387dec0adbf2db4a7481a",
-                "2020-02-04",
-                1,
-                ["SRR11597174", "SRR11597188", "SRR11597136", "SRR11597175"],
             ),
         ],
     )
@@ -587,15 +578,15 @@ class TestRealData:
             "2020-02-01": {"nodes": 23, "mutations": 27},
             "2020-02-02": {"nodes": 28, "mutations": 39},
             "2020-02-03": {"nodes": 31, "mutations": 45},
-            "2020-02-04": {"nodes": 36, "mutations": 54},
-            "2020-02-05": {"nodes": 36, "mutations": 54},
-            "2020-02-06": {"nodes": 41, "mutations": 57},
-            "2020-02-07": {"nodes": 43, "mutations": 63},
-            "2020-02-08": {"nodes": 48, "mutations": 64},
-            "2020-02-09": {"nodes": 49, "mutations": 67},
-            "2020-02-10": {"nodes": 50, "mutations": 71},
-            "2020-02-11": {"nodes": 51, "mutations": 75},
-            "2020-02-13": {"nodes": 54, "mutations": 77},
+            "2020-02-04": {"nodes": 35, "mutations": 50},
+            "2020-02-05": {"nodes": 35, "mutations": 50},
+            "2020-02-06": {"nodes": 40, "mutations": 54},
+            "2020-02-07": {"nodes": 42, "mutations": 60},
+            "2020-02-08": {"nodes": 47, "mutations": 61},
+            "2020-02-09": {"nodes": 48, "mutations": 65},
+            "2020-02-10": {"nodes": 49, "mutations": 69},
+            "2020-02-11": {"nodes": 50, "mutations": 73},
+            "2020-02-13": {"nodes": 53, "mutations": 76},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]
@@ -702,14 +693,18 @@ class TestSyntheticAlignments:
         group_id = "67dca25667380a405f383e96e0399fcf"
         assert group_id == hashlib.md5(b"frankentype").hexdigest()
 
+        left_parent = 31
+        right_parent = 46
+        bp = 11083
+
         sample = ts.node(ts.samples()[-1])
         smd = sample.metadata["sc2ts"]
         assert smd["group_id"] == group_id
         assert smd["hmm_match"] == {
             "mutations": [],
             "path": [
-                {"left": 0, "parent": 32, "right": 15324},
-                {"left": 15324, "parent": 47, "right": 29904},
+                {"left": 0, "parent": left_parent, "right": bp},
+                {"left": bp, "parent": right_parent, "right": 29904},
             ],
         }
         assert smd["hmm_reruns"] == {}
@@ -723,11 +718,11 @@ class TestSyntheticAlignments:
         edges = ts.tables.edges[ts.edges_child == recomb_node.id]
         assert len(edges) == 2
         assert edges[0].left == 0
-        assert edges[0].right == 15324
-        assert edges[0].parent == 32
-        assert edges[1].left == 15324
+        assert edges[0].right == bp
+        assert edges[0].parent == left_parent
+        assert edges[1].left == bp
         assert edges[1].right == 29904
-        assert edges[1].parent == 47
+        assert edges[1].parent == right_parent
 
         edges = ts.tables.edges[ts.edges_parent == recomb_node.id]
         assert len(edges) == 1
@@ -752,14 +747,15 @@ class TestSyntheticAlignments:
         root_strain = "SRR11597116"
         a = fx_alignment_store[root_strain]
         base_ts = fx_ts_map["2020-02-13"]
-        end = int(base_ts.sites_position[-1])
         # This sequence has a bunch of Ns at the start, so we have to go inwards
         # from them to make sure we're not masking them out.
         start = np.where(a != "N")[0][1] + 7
         left_a = a.copy()
         left_a[start : start + 3] = "G"
+
+        end = np.where(a != "N")[0][-1] - 8
         right_a = a.copy()
-        right_a[end - 3 : end] = "A"
+        right_a[end - 3 : end] = "C"
 
         a[start : start + 3] = left_a[start : start + 3]
         a[end - 3 : end] = right_a[end - 3 : end]
@@ -792,7 +788,7 @@ class TestSyntheticAlignments:
 
         for j, mut_id in enumerate(np.where(ts.mutations_node == right_node)[0]):
             mut = ts.mutation(mut_id)
-            assert mut.derived_state == "A"
+            assert mut.derived_state == "C"
             assert ts.sites_position[mut.site] == end - 3 + j
 
         # Now run again with the recombinant of these two
@@ -813,8 +809,8 @@ class TestSyntheticAlignments:
         assert smd["hmm_match"] == {
             "mutations": [],
             "path": [
-                {"left": 0, "parent": 54, "right": 29800},
-                {"left": 29800, "parent": 55, "right": 29904},
+                {"left": 0, "parent": 53, "right": 29825},
+                {"left": 29825, "parent": 54, "right": 29904},
             ],
         }
 
@@ -844,7 +840,7 @@ class TestSyntheticAlignments:
 
 class TestMatchingDetails:
     @pytest.mark.parametrize(
-        ("strain", "parent"), [("SRR11597207", 35), ("ERR4205570", 48)]
+        ("strain", "parent"), [("SRR11597207", 34), ("ERR4205570", 47)]
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     def test_exact_matches(
@@ -877,7 +873,7 @@ class TestMatchingDetails:
     @pytest.mark.parametrize(
         ("strain", "parent", "position", "derived_state"),
         [
-            ("ERR4206593", 48, 26994, "T"),
+            ("ERR4206593", 47, 26994, "T"),
         ],
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
@@ -920,8 +916,8 @@ class TestMatchingDetails:
         fx_metadata_db,
         num_mismatches,
     ):
-        strain = "ERR4204459"
-        ts = fx_ts_map["2020-02-10"]
+        strain = "SRR11597164"
+        ts = fx_ts_map["2020-02-01"]
         samples = sc2ts.preprocess(
             [fx_metadata_db[strain]], ts, "2020-02-20", fx_alignment_store
         )
@@ -936,7 +932,7 @@ class TestMatchingDetails:
         )
         s = matches[0]
         assert len(s.path) == 1
-        assert s.path[0].parent == 5
+        assert s.path[0].parent == 1
         assert len(s.mutations) == 2
 
     def test_match_recombinant(self, fx_ts_map):
@@ -950,9 +946,9 @@ class TestMatchingDetails:
             rho=rho,
             num_threads=0,
         )
-        interval_right = 15324
-        left_parent = 32
-        right_parent = 47
+        interval_right = 11083
+        left_parent = 31
+        right_parent = 46
 
         m = matches[0]
         assert len(m.mutations) == 0
@@ -975,9 +971,9 @@ class TestMatchRecombinants:
             num_mismatches=2,
             num_threads=0,
         )
-        left_parent = 32
-        right_parent = 47
-        interval_right = 15324
+        left_parent = 31
+        right_parent = 46
+        interval_right = 11083
 
         m = s.hmm_reruns["forward"]
         assert len(m.mutations) == 0
@@ -1001,8 +997,8 @@ class TestMatchRecombinants:
         assert m.path[1].right == ts.sequence_length
 
         m = s.hmm_reruns["no_recombination"]
-        assert len(m.mutations) == 2
-        assert m.mutation_summary() == "[15324C>T, 29303C>T]"
+        assert len(m.mutations) == 3
+        assert m.mutation_summary() == "[11083T>G, 15324C>T, 29303C>T]"
         assert len(m.path) == 1
         assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
@@ -1025,4 +1021,4 @@ class TestMatchRecombinants:
         num_mutations = []
         for hmm_match in s.hmm_reruns.values():
             assert len(hmm_match.path) == 1
-            assert len(hmm_match.mutations) == 20595
+            assert len(hmm_match.mutations) == 20943

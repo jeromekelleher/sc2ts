@@ -22,27 +22,27 @@ class TestInitialise:
         )
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts(use_ucsc=False)
+        other_ts = sc2ts.initial_ts()
         other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
 
-    @pytest.mark.parametrize("additional", [[100], [100, 200]])
-    def test_additional_problematic_sites(self, tmp_path, additional):
+    @pytest.mark.parametrize("problematic", [[100], [100, 200]])
+    def test_problematic_sites(self, tmp_path, problematic):
         ts_path = tmp_path / "trees.ts"
         match_db_path = tmp_path / "match.db"
-        problematic_path = tmp_path / "additional_problematic.txt"
-        np.savetxt(problematic_path, additional)
+        problematic_path = tmp_path / "problematic.txt"
+        np.savetxt(problematic_path, problematic)
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
             f"initialise {ts_path} {match_db_path} "
-            f"--additional-problematic-sites {problematic_path}",
+            f"--problematic-sites {problematic_path}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts(additional_problematic_sites=additional, use_ucsc=False)
+        other_ts = sc2ts.initial_ts(problematic_sites=problematic)
         other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
@@ -58,10 +58,10 @@ class TestInitialise:
         )
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
-        sites = ts.metadata["sc2ts"]["additional_problematic_sites"]
+        sites = sc2ts.get_masked_sites(ts)
         # < 266 (leftmost coordinate of ORF1a)
         # > 29674 (rightmost coordinate of ORF10)
-        assert sites == list(range(1, 266)) + list(range(29675, 29904))
+        assert list(sites) == list(range(1, 266)) + list(range(29675, 29904))
 
     def test_mask_problematic_regions(self, tmp_path):
         ts_path = tmp_path / "trees.ts"
@@ -74,10 +74,10 @@ class TestInitialise:
         )
         assert result.exit_code == 0
         ts = tskit.load(ts_path)
-        sites = ts.metadata["sc2ts"]["additional_problematic_sites"]
+        sites = sc2ts.get_masked_sites(ts)
         # NTD: [21602-22472)
         # ORF8: [27894, 28260)
-        assert sites == list(range(21602, 22472)) + list(range(27894, 28260))
+        assert list(sites) == list(range(21602, 22472)) + list(range(27894, 28260))
 
     def test_provenance(self, tmp_path):
         ts_path = tmp_path / "trees.ts"
