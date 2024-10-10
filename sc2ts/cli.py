@@ -589,6 +589,7 @@ def examine_recombinant(work):
     for s in samples:
         if s.haplotype is None:
             raise ValueError(f"Alignment for {s.strain} not found")
+        print(s)
     # try:
     #     sc2ts.match_recombinants(
     #         samples,

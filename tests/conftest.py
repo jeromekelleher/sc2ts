@@ -134,21 +134,23 @@ def recombinant_alignments(alignment_store):
     return alignments
 
 
-def recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store):
+def recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store, as_path):
     alignments = recombinant_alignments(fx_alignment_store)
-    local_as = tmp_alignment_store(tmp_path, alignments)
-    date = "2020-02-15"
-    metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
 
-    base_ts = fx_ts_map["2020-02-13"]
-    ts = sc2ts.extend(
-        alignment_store=local_as,
-        metadata_db=metadata_db,
-        base_ts=base_ts,
-        date=date,
-        num_mismatches=2,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
-    )
+    with sc2ts.AlignmentStore(as_path, mode="rw") as local_as:
+        local_as.append(alignments)
+        date = "2020-02-15"
+        metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
+
+        base_ts = fx_ts_map["2020-02-13"]
+        ts = sc2ts.extend(
+            alignment_store=local_as,
+            metadata_db=metadata_db,
+            base_ts=base_ts,
+            date=date,
+            num_mismatches=2,
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
     return ts
 
 
@@ -221,7 +223,8 @@ def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_alignment_st
     cache_path = fx_data_cache / "recombinant_ex1.ts"
     if not cache_path.exists():
         print(f"Generating {cache_path}")
-        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store)
+        as_cache_path = fx_data_cache / "recombinant_ex1_alignments.db"
+        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store, as_cache_path)
         ts.dump(cache_path)
     return tskit.load(cache_path)
 
