@@ -1583,12 +1583,30 @@ class TreeInfo:
 
     def draw_pango_lineage_subtree(
         self,
-        lineage,
+        pango_lineage,
+        position=None,
+        *args,
+        **kwargs,
+    ):
+        """
+        Draw a subtree of the tree sequence containing only the samples from a given
+        Pango lineage, e.g. "B.1.1.7". This is a convenience function that calls
+        draw_subtree with the
+        appropriate set of samples. See that function for more details.
+        """
+        return self.draw_subtree(
+            tracked_pango=[pango_lineage], position=position, *args, **kwargs)
+
+    def draw_subtree(
+        self,
+        *,
+        tracked_pango=None,
+        tracked_strains=None,
+        tracked_samples=None,
         position=None,
         collapse_tracked=None,
         remove_clones=None,
-        extra_tracked_nodes=None,
-        *,
+        extra_tracked_samples=None,
         pack_untracked_polytomies=True,
         time_scale="rank",
         title=None,
@@ -1597,6 +1615,51 @@ class TreeInfo:
         style="",
         **kwargs,
     ):
+        """
+        Draw a subtree of the tree sequence at a given ``position``, focussed on the
+        samples specified by `tracked_pango`, `tracked_strains` and `tracked_samples`
+        (at least one must be specified, and all are combined into a single list).
+        Clades containing only untracked nodes are visually collapsed, and (by default)
+        untracked node lineages within polytomies are condensed into a dotted line.
+        Clades containing more than a certain proportion of tracked nodes can also be
+        collapsed (see the ``collapse_tracked`` parameter).
+        
+        Most parameters are passed directly to ``tskit.Tree.draw_svg()`` method, apart
+        from the following:
+        :param position int: The genomic position at which to draw the tree. If None,
+            the start of the spike protein is used.
+        :param tracked_pango list: A list of Pango lineages (e.g. ["B.1.1.7"])
+            to track in the tree.
+        :param tracked_strains list: A list of strains (e.g.
+            ``["ERR4413600", "ERR4460507"]``) to track in the tree.
+        :param tracked_samples list: A list of sample nodes to track in the tree.
+        :param collapse_tracked Union(float): Determine when to collapse clades
+            containing tracked nodes. If ``None`` (default), do not collapse
+            any such clades , otherwise only collapse them when they contain more
+            than a fraction `collapse_tracked` of tracked nodes.
+        :param remove_clones bool: Whether to remove samples that are clones of other
+            samples (i.e. that have no mutations above them). Currently unimplemented.
+        :param extra_tracked_samples list: Additional nodes to track in the tree, to
+            allow the context of the tracked nodes to be seen. By default, extra tracked
+            sample nodes are coloured differently to tracked nodes.
+        :param pack_untracked_polytomies bool: When a polytomy exists involving lineages
+            containing both tracked and untracked nodes, should the untracked lineages
+            be placed on the right, and condensed into a dotted line? Default: ``True``
+        :param mutation_labels dict: A dictionary mapping mutation IDs to labels. If not
+            provided, mutation labels are generated automatically, in the form
+            ``{inherited_state}{position}{derived_state}``, with counts added if there
+            are recurrent mutations.
+        :param time_scale str: As for the ``time_scale`` parameter of `draw_svg()`, but
+            defaults to "rank".
+
+        .. note::
+            By default, styles are set such that tracked pango / strain / sample nodes
+            are coloured in cyan, and extra tracked nodes in orange. Mutations seen only
+            once in the visualised tree are coloured in dark red, multiple mutations at
+            the same position are coloured in red, and mutations that are immediate
+            reversions of a mutation above them in the tree are coloured in magenta.
+        """
+
         if position is None:
             position = 21563  # pick the start of the spike
         if size is None:
@@ -1611,11 +1674,30 @@ class TreeInfo:
         tables.mutations.time = time
         ts = tables.tree_sequence()
 
-        tracked_nodes = self.pango_lineage_samples[lineage]
-        if extra_tracked_nodes is not None:
+        tracked_nodes = []
+        if tracked_pango is not None:
+            for lineage in tracked_pango:
+                tracked_nodes.extend(self.pango_lineage_samples[lineage])
+                if title is None:
+                    f"Sc2ts genealogy of {len(tracked_nodes)} {lineage} samples. "
+        if tracked_strains is not None:
+            for strain in tracked_strains:
+                tracked_nodes.append(self.strain_map[strain])
+        if tracked_samples is not None:
+            tracked_nodes.append(tracked_samples)
+        if len(tracked_nodes) == 0:
+            raise ValueError(
+                "No tracked nodes specified: you must provide one or more of "
+                "`tracked_pango`, `tracked_strains` or `tracked_samples`."
+            )
+        if title is None:
+            f"Sc2ts genealogy of {len(tracked_nodes)} samples. "
+        tracked_nodes = np.unique(tracked_nodes)
+
+        if extra_tracked_samples is not None:
             tn_set = set(tracked_nodes)
-            extra_tracked_nodes = [e for e in extra_tracked_nodes if e not in tn_set]
-            tracked_nodes.extend(extra_tracked_nodes)
+            extra_tracked_samples = [e for e in extra_tracked_samples if e not in tn_set]
+            tracked_nodes = np.concatenate((tracked_nodes, extra_tracked_samples))
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(
             list(
@@ -1624,17 +1706,16 @@ class TreeInfo:
                 )
             )
         )
+
         if title is None:
-            simplified_ts = ts.simplify(
-                order[np.where(ts.nodes_flags[order] & tskit.NODE_IS_SAMPLE)[0]]
-            )
-            num_trees = simplified_ts.num_trees
-            tree_pos = simplified_ts.at(position).index
-            title = (
-                f"Sc2ts genealogy of {len(tracked_nodes)} {lineage} samples "
-                f"at position {position} (tree {tree_pos}/{num_trees})"
-                # f" --- file: "  # TODO - show filename
-            )
+            title = f"Sc2ts genealogy of {len(tracked_nodes)} samples. "
+        simplified_ts = self.ts.simplify(
+            order[np.where(ts.nodes_flags[order] & tskit.NODE_IS_SAMPLE)[0]]
+        )
+        num_trees = simplified_ts.num_trees
+        tree_pos = simplified_ts.at(position).index
+        # TODO - show filename
+        title += f"Position {position} (tree {tree_pos}/{num_trees})"
 
         # Find the actually shown nodes (i.e. if polytomies are packed, we may not
         # see some tips. This is copied from tskit.drawing.SvgTree.assign_x_coordinates
@@ -1702,9 +1783,9 @@ class TreeInfo:
             ".mut .lab {font-size: 10px}",
             ".y-axis .lab {font-size: 12px}",
         ]
-        if extra_tracked_nodes is not None:
+        if extra_tracked_samples is not None:
             styles.append(
-                "".join(f".n{u} > .sym {{fill: orange}}" for u in extra_tracked_nodes)
+                "".join(f".n{u} > .sym {{fill: orange}}" for u in extra_tracked_samples)
             )
         if len(multiple_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in multiple_mutations)
