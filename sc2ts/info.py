@@ -1529,7 +1529,8 @@ class TreeInfo:
                 max_mem[j] = resources["max_memory"]
             except KeyError:
                 warnings.warn("Missing required provenance fields")
-            days_ago = self.time_zero_as_date - date[j] + 1
+            # The +3 is from lining up peaks by eye, not sure how it happens
+            days_ago = self.time_zero_as_date - date[j] + 3
             # Avoid division by zero
             num_samples[j] = max(1, self.num_samples_per_day[days_ago.astype(int)])
 
@@ -1697,7 +1698,7 @@ class TreeInfo:
             ".mut .lab, .mut.extra .lab{fill: darkred}",
             ".mut .sym, .mut.extra .sym{stroke: darkred}",
             ".background path {fill: white}",
-            ".lab.summary {font-size: 12px}", 
+            ".lab.summary {font-size: 12px}",
             ".polytomy {font-size: 10px}",
             ".mut .lab {font-size: 10px}",
             ".y-axis .lab {font-size: 12px}",
