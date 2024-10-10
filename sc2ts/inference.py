@@ -483,7 +483,7 @@ def check_base_ts(ts):
 
 
 def preprocess_worker(strains, alignment_store_path, keep_sites):
-    # print("preprocess worker", samples_md)
+    assert keep_sites is not None
     with alignments.AlignmentStore(alignment_store_path) as alignment_store:
         samples = []
         for strain in strains:
@@ -511,7 +511,6 @@ def preprocess(
     splits = min(len(strains), 2 * num_workers)
     work = np.array_split(strains, splits)
     samples = []
-
     bar = get_progress(strains, date, f"preprocess", show_progress)
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [

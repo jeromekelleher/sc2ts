@@ -710,6 +710,39 @@ def annotate_recombinants(
     tszip.compress(ts, out_tsz)
 
 
+@click.command()
+@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts", type=click.Path(exists=True, dir_okay=False))
+@click.argument("strains", nargs=-1)
+@click.option("--num-mismatches", default=3, type=float, help="num-mismatches")
+@click.option("-v", "--verbose", count=True)
+def run_match(alignments, ts, strains, num_mismatches, verbose):
+    """
+    Run matches for a specified set of strains, outputting details to stdout as JSON.
+    """
+    ts = tszip.load(ts)
+    samples = sc2ts.preprocess(
+        list(strains), "xx", alignments, keep_sites=ts.sites_position.astype(int)
+    )
+    for sample in samples:
+        if sample.haplotype is None:
+            raise ValueError(f"No alignment stored for {sample.strain}")
+    mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
+    matches = sc2ts.match_tsinfer(
+        samples=samples,
+        ts=ts,
+        mu=mu,
+        rho=rho,
+        # num_threads=num_threads,
+        show_progress=True,
+        # Maximum possible precision
+        likelihood_threshold=1e-200,
+        # mirror_coordinates=hmm_pass == "reverse",
+    )
+    for hmm_match, sample in zip(matches, samples):
+        print(sample.strain, hmm_match.summary())
+
+
 @click.version_option(core.__version__)
 @click.group()
 def cli():
@@ -730,4 +763,5 @@ cli.add_command(list_dates)
 cli.add_command(extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)
+cli.add_command(run_match)
 cli.add_command(tally_lineages)
