@@ -1,4 +1,5 @@
 import inspect
+import hashlib
 
 import pytest
 import numpy as np
