@@ -1587,6 +1587,7 @@ class TreeInfo:
         position=None,
         collapse_tracked=None,
         remove_clones=None,
+        extra_tracked_nodes=None,
         *,
         pack_untracked_polytomies=True,
         time_scale="rank",
@@ -1609,7 +1610,12 @@ class TreeInfo:
         time[:] = tskit.UNKNOWN_TIME
         tables.mutations.time = time
         ts = tables.tree_sequence()
+
         tracked_nodes = self.pango_lineage_samples[lineage]
+        if extra_tracked_nodes is not None:
+            tn_set = set(tracked_nodes)
+            extra_tracked_nodes = [e for e in extra_tracked_nodes if e not in tn_set]
+            tracked_nodes.extend(extra_tracked_nodes)
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(
             list(
@@ -1663,7 +1669,7 @@ class TreeInfo:
                 # TODO Viz the recurrent mutations
                 mut = ts.mutation(mut_id)
                 site = ts.site(mut.site)
-                if len(sites == site.id) > 1:
+                if np.sum(sites == site.id) > 1:
                     multiple_mutations.append(mut.id)
                 inherited_state = site.ancestral_state
                 if mut.parent >= 0:
@@ -1688,12 +1694,18 @@ class TreeInfo:
         # some default styles
         styles = [
             "".join(f".n{u} > .sym {{fill: cyan}}" for u in tracked_nodes),
-            ".lab.summary {font-size: 12px}",
+            ".mut .lab, .mut.extra .lab{fill: darkred}",
+            ".mut .sym, .mut.extra .sym{stroke: darkred}",
+            ".background path {fill: white}",
+            ".lab.summary {font-size: 12px}", 
             ".polytomy {font-size: 10px}",
             ".mut .lab {font-size: 10px}",
             ".y-axis .lab {font-size: 12px}",
-            ".mut .lab {fill: darkred} .mut .sym {stroke: darkred} .background path {fill: white}",
         ]
+        if extra_tracked_nodes is not None:
+            styles.append(
+                "".join(f".n{u} > .sym {{fill: orange}}" for u in extra_tracked_nodes)
+            )
         if len(multiple_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in multiple_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in multiple_mutations)
