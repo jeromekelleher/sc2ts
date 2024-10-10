@@ -1609,6 +1609,7 @@ class TreeInfo:
         time[:] = tskit.UNKNOWN_TIME
         tables.mutations.time = time
         ts = tables.tree_sequence()
+
         tracked_nodes = self.pango_lineage_samples[lineage]
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(
@@ -1663,7 +1664,7 @@ class TreeInfo:
                 # TODO Viz the recurrent mutations
                 mut = ts.mutation(mut_id)
                 site = ts.site(mut.site)
-                if len(sites == site.id) > 1:
+                if np.sum(sites == site.id) > 1:
                     multiple_mutations.append(mut.id)
                 inherited_state = site.ancestral_state
                 if mut.parent >= 0:
@@ -1688,11 +1689,13 @@ class TreeInfo:
         # some default styles
         styles = [
             "".join(f".n{u} > .sym {{fill: cyan}}" for u in tracked_nodes),
-            ".lab.summary {font-size: 12px}",
+            ".mut .lab, .mut.extra .lab{fill: darkred}",
+            ".mut .sym, .mut.extra .sym{stroke: darkred}",
+            ".background path {fill: white}",
+            ".lab.summary {font-size: 12px}", 
             ".polytomy {font-size: 10px}",
             ".mut .lab {font-size: 10px}",
             ".y-axis .lab {font-size: 12px}",
-            ".mut .lab {fill: darkred} .mut .sym {stroke: darkred} .background path {fill: white}",
         ]
         if len(multiple_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in multiple_mutations)
