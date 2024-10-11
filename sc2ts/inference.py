@@ -5,6 +5,7 @@ import datetime
 import dataclasses
 import collections
 import concurrent.futures
+import json
 import pickle
 import hashlib
 import sqlite3
@@ -56,7 +57,11 @@ class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
 
     def get(self, key, total):
         self.current_instance = get_progress(
-            None, title=self.date, phase=self.phase, show_progress=self.enabled, total=total
+            None,
+            title=self.date,
+            phase=self.phase,
+            show_progress=self.enabled,
+            total=total,
         )
         return self.current_instance
 
@@ -432,8 +437,8 @@ def match_samples(
             likelihood_threshold=likelihood_threshold,
             num_threads=num_threads,
             show_progress=show_progress,
-            date=date,
-            phase=f"match({k})",
+            progress_title=date,
+            progress_phase=f"match({k})",
         )
 
         exceeding_threshold = []
@@ -462,10 +467,9 @@ def match_samples(
         rho=rho,
         num_threads=num_threads,
         show_progress=show_progress,
-        date=date,
-        phase=f"match(F)",
+        progress_title=date,
+        progress_phase=f"match(F)",
     )
-    recombinants = []
     for sample, hmm_match in zip(run_batch, hmm_matches):
         sample.hmm_match = hmm_match
         cost = hmm_match.get_hmm_cost(num_mismatches)
@@ -1107,8 +1111,8 @@ def match_tsinfer(
     likelihood_threshold=None,
     num_threads=0,
     show_progress=False,
-    date=None,
-    phase=None,
+    progress_title=None,
+    progress_phase=None,
     mirror_coordinates=False,
 ):
     if len(samples) == 0:
@@ -1129,7 +1133,7 @@ def match_tsinfer(
         # we're interested in solving for exactly.
         likelihood_threshold = rho**2 * mu**5
 
-    pm = TsinferProgressMonitor(date, phase, enabled=show_progress)
+    pm = TsinferProgressMonitor(progress_title, progress_phase, enabled=show_progress)
 
     # This is just working around tsinfer's input checking logic. The actual value
     # we're incrementing by has no effect.
@@ -1263,6 +1267,7 @@ class HmmMatch:
         return "[" + ", ".join(str(mutation) for mutation in self.mutations) + "]"
 
 
+
 def get_match_info(ts, sample_paths, sample_mutations):
     tables = ts.tables
     assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
@@ -1289,7 +1294,10 @@ def get_match_info(ts, sample_paths, sample_mutations):
 
     matches = []
     for path, mutations in zip(sample_paths, sample_mutations):
-        sample_path = [PathSegment(*seg) for seg in path]
+        sample_path = [
+            PathSegment(int(left), int(right), int(parent))
+            for left, right, parent in path
+        ]
         sample_mutations = []
         for site_pos, derived_state in mutations:
             site_id = np.searchsorted(ts.sites_position, site_pos)
@@ -1312,7 +1320,7 @@ def get_match_info(ts, sample_paths, sample_mutations):
             assert inherited_state != derived_state
             sample_mutations.append(
                 MatchMutation(
-                    site_id=site_id,
+                    site_id=int(site_id),
                     site_position=int(site_pos),
                     derived_state=derived_state,
                     inherited_state=inherited_state,
