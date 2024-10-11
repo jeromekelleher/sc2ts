@@ -1685,7 +1685,7 @@ class TreeInfo:
             for strain in tracked_strains:
                 tracked_nodes.append(self.strain_map[strain])
         if tracked_samples is not None:
-            tracked_nodes.append(tracked_samples)
+            tracked_nodes.extend(tracked_samples)
         if len(tracked_nodes) == 0:
             raise ValueError(
                 "No tracked nodes specified: you must provide one or more of "
@@ -1714,7 +1714,7 @@ class TreeInfo:
             order[np.where(ts.nodes_flags[order] & tskit.NODE_IS_SAMPLE)[0]]
         )
         num_trees = simplified_ts.num_trees
-        tree_pos = simplified_ts.at(position).index
+        tree_pos = simplified_ts.at(position).index + 1
         # TODO - show filename
         title += f"Position {position} (tree {tree_pos}/{num_trees})"
 
