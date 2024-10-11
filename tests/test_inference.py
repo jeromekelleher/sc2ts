@@ -817,7 +817,6 @@ class TestMatchingDetails:
         self,
         fx_ts_map,
         fx_alignment_store,
-        fx_metadata_db,
         strain,
         parent,
         num_mismatches,
@@ -825,7 +824,6 @@ class TestMatchingDetails:
         ts = fx_ts_map["2020-02-10"]
         samples = sc2ts.preprocess(
             [strain],
-            "2020-02-20",
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
@@ -854,7 +852,6 @@ class TestMatchingDetails:
         self,
         fx_ts_map,
         fx_alignment_store,
-        fx_metadata_db,
         strain,
         parent,
         position,
@@ -864,7 +861,6 @@ class TestMatchingDetails:
         ts = fx_ts_map["2020-02-10"]
         samples = sc2ts.preprocess(
             [strain],
-            "2020-02-20",
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
@@ -889,14 +885,12 @@ class TestMatchingDetails:
         self,
         fx_ts_map,
         fx_alignment_store,
-        fx_metadata_db,
         num_mismatches,
     ):
         strain = "SRR11597164"
         ts = fx_ts_map["2020-02-01"]
         samples = sc2ts.preprocess(
             [strain],
-            "2020-02-20",
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )

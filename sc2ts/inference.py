@@ -31,7 +31,7 @@ MISSING = -1
 DELETION = core.ALLELES.index("-")
 
 
-def get_progress(iterable, date, phase, show_progress, total=None):
+def get_progress(iterable, title, phase, show_progress, total=None):
     bar_format = (
         "{desc:<22}{percentage:3.0f}%|{bar}"
         "| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]"
@@ -39,7 +39,7 @@ def get_progress(iterable, date, phase, show_progress, total=None):
     return tqdm.tqdm(
         iterable,
         total=total,
-        desc=f"{date}:{phase}",
+        desc=f"{title}:{phase}",
         disable=not show_progress,
         bar_format=bar_format,
         dynamic_ncols=True,
@@ -56,7 +56,7 @@ class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
 
     def get(self, key, total):
         self.current_instance = get_progress(
-            None, self.date, phase=self.phase, show_progress=self.enabled, total=total
+            None, title=self.date, phase=self.phase, show_progress=self.enabled, total=total
         )
         return self.current_instance
 
@@ -501,10 +501,10 @@ def preprocess_worker(strains, alignment_store_path, keep_sites):
 
 def preprocess(
     strains,
-    date,
     alignment_store_path,
     *,
     keep_sites,
+    progress_title="",
     show_progress=False,
     num_workers=0,
 ):
@@ -512,7 +512,7 @@ def preprocess(
     splits = min(len(strains), 2 * num_workers)
     work = np.array_split(strains, splits)
     samples = []
-    bar = get_progress(strains, date, f"preprocess", show_progress)
+    bar = get_progress(strains, progress_title, "preprocess", show_progress)
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
@@ -569,9 +569,9 @@ def extend(
 
     preprocessed_samples = preprocess(
         strains=[md["strain"] for md in metadata_matches],
-        date=date,
         alignment_store_path=alignment_store.path,
         keep_sites=base_ts.sites_position.astype(int),
+        progress_title=date,
         show_progress=show_progress,
         num_workers=num_threads,
     )
