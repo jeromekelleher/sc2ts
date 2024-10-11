@@ -104,6 +104,77 @@ class TestInitialise:
         assert "max_memory" in resources
 
 
+class TestRunMatch:
+
+    def test_single_defaults(self, tmp_path, fx_ts_map, fx_alignment_store):
+        strain = "ERR4206593"
+        ts = fx_ts_map["2020-02-04"]
+        ts_path = tmp_path / "ts.ts"
+        ts.dump(ts_path)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"run-match {fx_alignment_store.path} {ts_path} {strain}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        lines = result.stdout.splitlines()
+        assert len(lines) == 1
+        d = json.loads(lines[0])
+        assert d["strain"] == strain
+        assert d["num_mismatches"] == 3
+        assert d["direction"] == "forward"
+        assert len(d["match"]["path"]) == 1
+        assert len(d["match"]["mutations"]) == 5
+
+    def test_multi_defaults(self, tmp_path, fx_ts_map, fx_alignment_store):
+        copies = 10
+        strains = ["ERR4206593"] * 10
+        ts = fx_ts_map["2020-02-13"]
+        ts_path = tmp_path / "ts.ts"
+        ts.dump(ts_path)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"run-match {fx_alignment_store.path} {ts_path} " + " ".join(strains),
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        lines = result.stdout.splitlines()
+        assert len(lines) == copies
+        d = json.loads(lines[0])
+        assert d["strain"] == strains[0]
+        assert d["num_mismatches"] == 3
+        assert d["direction"] == "forward"
+        assert len(d["match"]["path"]) == 1
+        assert len(d["match"]["mutations"]) == 0
+        for line in lines[1:]:
+            d2 = json.loads(line)
+            assert d == d2
+
+    def test_single_options(self, tmp_path, fx_ts_map, fx_alignment_store):
+        strain = "ERR4206593"
+        ts = fx_ts_map["2020-02-04"]
+        ts_path = tmp_path / "ts.ts"
+        ts.dump(ts_path)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"run-match {fx_alignment_store.path} {ts_path} {strain}"
+            " --direction=reverse --num-mismatches=5 --num-threads=4",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        lines = result.stdout.splitlines()
+        assert len(lines) == 1
+        d = json.loads(lines[0])
+        assert d["strain"] == strain
+        assert d["num_mismatches"] == 5
+        assert d["direction"] == "reverse"
+        assert len(d["match"]["path"]) == 1
+        assert len(d["match"]["mutations"]) == 5
+
+
 class TestListDates:
     def test_defaults(self, fx_metadata_db):
         runner = ct.CliRunner(mix_stderr=False)

@@ -5,6 +5,7 @@ import datetime
 import dataclasses
 import collections
 import concurrent.futures
+import json
 import pickle
 import hashlib
 import sqlite3
@@ -31,7 +32,7 @@ MISSING = -1
 DELETION = core.ALLELES.index("-")
 
 
-def get_progress(iterable, date, phase, show_progress, total=None):
+def get_progress(iterable, title, phase, show_progress, total=None):
     bar_format = (
         "{desc:<22}{percentage:3.0f}%|{bar}"
         "| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]"
@@ -39,7 +40,7 @@ def get_progress(iterable, date, phase, show_progress, total=None):
     return tqdm.tqdm(
         iterable,
         total=total,
-        desc=f"{date}:{phase}",
+        desc=f"{title}:{phase}",
         disable=not show_progress,
         bar_format=bar_format,
         dynamic_ncols=True,
@@ -56,7 +57,11 @@ class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
 
     def get(self, key, total):
         self.current_instance = get_progress(
-            None, self.date, phase=self.phase, show_progress=self.enabled, total=total
+            None,
+            title=self.date,
+            phase=self.phase,
+            show_progress=self.enabled,
+            total=total,
         )
         return self.current_instance
 
@@ -432,8 +437,8 @@ def match_samples(
             likelihood_threshold=likelihood_threshold,
             num_threads=num_threads,
             show_progress=show_progress,
-            date=date,
-            phase=f"match({k})",
+            progress_title=date,
+            progress_phase=f"match({k})",
         )
 
         exceeding_threshold = []
@@ -462,10 +467,9 @@ def match_samples(
         rho=rho,
         num_threads=num_threads,
         show_progress=show_progress,
-        date=date,
-        phase=f"match(F)",
+        progress_title=date,
+        progress_phase=f"match(F)",
     )
-    recombinants = []
     for sample, hmm_match in zip(run_batch, hmm_matches):
         sample.hmm_match = hmm_match
         cost = hmm_match.get_hmm_cost(num_mismatches)
@@ -482,14 +486,13 @@ def check_base_ts(ts):
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
 
 
-def preprocess_worker(samples_md, alignment_store_path, keep_sites):
-    # print("preprocess worker", samples_md)
+def preprocess_worker(strains, alignment_store_path, keep_sites):
+    assert keep_sites is not None
     with alignments.AlignmentStore(alignment_store_path) as alignment_store:
         samples = []
-        for md in samples_md:
-            strain = md["strain"]
+        for strain in strains:
             alignment = alignment_store.get(strain, None)
-            sample = Sample(strain, metadata=md)
+            sample = Sample(strain)
             if alignment is not None:
                 a = alignment[keep_sites]
                 sample.haplotype = alignments.encode_alignment(a)
@@ -501,47 +504,28 @@ def preprocess_worker(samples_md, alignment_store_path, keep_sites):
 
 
 def preprocess(
-    samples_md,
-    base_ts,
-    date,
-    alignment_store,
-    pango_lineage_key="pango",
+    strains,
+    alignment_store_path,
+    *,
+    keep_sites,
+    progress_title="",
     show_progress=False,
-    max_missing_sites=np.inf,
     num_workers=0,
 ):
     num_workers = max(1, num_workers)
-    keep_sites = base_ts.sites_position.astype(int)
-    splits = min(len(samples_md), 2 * num_workers)
-    work = np.array_split(samples_md, splits)
+    splits = min(len(strains), 2 * num_workers)
+    work = np.array_split(strains, splits)
     samples = []
-
-    bar = get_progress(samples_md, date, f"preprocess", show_progress)
+    bar = get_progress(strains, progress_title, "preprocess", show_progress)
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
-            executor.submit(preprocess_worker, w, alignment_store.path, keep_sites)
+            executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
             for w in work
         ]
         for future in concurrent.futures.as_completed(futures):
             for s in future.result():
                 bar.update()
-                if s.haplotype is None:
-                    logger.debug(f"No alignment stored for {s.strain}")
-                    continue
-                s.date = date
-                s.pango = s.metadata.get(pango_lineage_key, "PangoUnknown")
-                num_missing_sites = s.num_missing_sites
-                num_deletion_sites = s.num_deletion_sites
-                logger.debug(
-                    f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
-                    f"deletions={num_deletion_sites}"
-                )
-                if num_missing_sites <= max_missing_sites:
-                    samples.append(s)
-                else:
-                    logger.debug(
-                        f"Filter {s.strain}: missing={num_missing_sites} > {max_missing_sites}"
-                    )
+                samples.append(s)
     bar.close()
     return samples
 
@@ -587,16 +571,37 @@ def extend(
 
     logger.info(f"Got {len(metadata_matches)} metadata matches")
 
-    samples = preprocess(
-        metadata_matches,
-        base_ts,
-        date,
-        alignment_store,
-        pango_lineage_key="Viridian_pangolin",  # TODO parametrise
+    preprocessed_samples = preprocess(
+        strains=[md["strain"] for md in metadata_matches],
+        alignment_store_path=alignment_store.path,
+        keep_sites=base_ts.sites_position.astype(int),
+        progress_title=date,
         show_progress=show_progress,
-        max_missing_sites=max_missing_sites,
         num_workers=num_threads,
     )
+    # FIXME parametrise
+    pango_lineage_key = "Viridian_pangolin"
+
+    samples = []
+    for s, md in zip(preprocessed_samples, metadata_matches):
+        if s.haplotype is None:
+            logger.debug(f"No alignment stored for {s.strain}")
+            continue
+        s.metadata = md
+        s.pango = md.get(pango_lineage_key, "Unknown")
+        s.date = date
+        num_missing_sites = s.num_missing_sites
+        num_deletion_sites = s.num_deletion_sites
+        logger.debug(
+            f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
+            f"deletions={num_deletion_sites}"
+        )
+        if num_missing_sites <= max_missing_sites:
+            samples.append(s)
+        else:
+            logger.debug(
+                f"Filter {s.strain}: missing={num_missing_sites} > {max_missing_sites}"
+            )
 
     if max_daily_samples is not None:
         if max_daily_samples < len(samples):
@@ -1106,8 +1111,8 @@ def match_tsinfer(
     likelihood_threshold=None,
     num_threads=0,
     show_progress=False,
-    date=None,
-    phase=None,
+    progress_title=None,
+    progress_phase=None,
     mirror_coordinates=False,
 ):
     if len(samples) == 0:
@@ -1128,7 +1133,7 @@ def match_tsinfer(
         # we're interested in solving for exactly.
         likelihood_threshold = rho**2 * mu**5
 
-    pm = TsinferProgressMonitor(date, phase, enabled=show_progress)
+    pm = TsinferProgressMonitor(progress_title, progress_phase, enabled=show_progress)
 
     # This is just working around tsinfer's input checking logic. The actual value
     # we're incrementing by has no effect.
@@ -1262,6 +1267,7 @@ class HmmMatch:
         return "[" + ", ".join(str(mutation) for mutation in self.mutations) + "]"
 
 
+
 def get_match_info(ts, sample_paths, sample_mutations):
     tables = ts.tables
     assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
@@ -1288,7 +1294,10 @@ def get_match_info(ts, sample_paths, sample_mutations):
 
     matches = []
     for path, mutations in zip(sample_paths, sample_mutations):
-        sample_path = [PathSegment(*seg) for seg in path]
+        sample_path = [
+            PathSegment(int(left), int(right), int(parent))
+            for left, right, parent in path
+        ]
         sample_mutations = []
         for site_pos, derived_state in mutations:
             site_id = np.searchsorted(ts.sites_position, site_pos)
@@ -1311,7 +1320,7 @@ def get_match_info(ts, sample_paths, sample_mutations):
             assert inherited_state != derived_state
             sample_mutations.append(
                 MatchMutation(
-                    site_id=site_id,
+                    site_id=int(site_id),
                     site_position=int(site_pos),
                     derived_state=derived_state,
                     inherited_state=inherited_state,

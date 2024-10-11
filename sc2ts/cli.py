@@ -710,6 +710,96 @@ def annotate_recombinants(
     tszip.compress(ts, out_tsz)
 
 
+@dataclasses.dataclass(frozen=True)
+class HmmRun:
+    strain: str
+    num_mismatches: int
+    direction: str
+    match: sc2ts.HmmMatch
+
+    def asdict(self):
+        d = dataclasses.asdict(self)
+        d["match"] = dataclasses.asdict(self.match)
+        return d
+
+    def asjson(self):
+        return json.dumps(self.asdict())
+
+
+@click.command()
+@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts", type=click.Path(exists=True, dir_okay=False))
+@click.argument("strains", nargs=-1)
+@click.option("--num-mismatches", default=3, type=int, help="num-mismatches")
+@click.option(
+    "--direction",
+    type=click.Choice(["forward", "reverse"]),
+    default="forward",
+    help="Direction to run HMM in",
+)
+@click.option(
+    "--num-threads",
+    default=0,
+    type=int,
+    help="Number of match threads (default to one)",
+)
+@click.option("--progress/--no-progress", default=True)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def run_match(
+    alignments,
+    ts,
+    strains,
+    num_mismatches,
+    direction,
+    num_threads,
+    progress,
+    verbose,
+    log_file,
+):
+    """
+    Run matches for a specified set of strains, outputting details to stdout as JSON.
+    """
+    setup_logging(verbose, log_file)
+    ts = tszip.load(ts)
+    if len(strains) == 0:
+        return
+    progress_title = "Match"
+    samples = sc2ts.preprocess(
+        list(strains),
+        alignments,
+        show_progress=progress,
+        progress_title=progress_title,
+        keep_sites=ts.sites_position.astype(int),
+        num_workers=num_threads,
+    )
+    for sample in samples:
+        if sample.haplotype is None:
+            raise ValueError(f"No alignment stored for {sample.strain}")
+    mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
+    matches = sc2ts.match_tsinfer(
+        samples=samples,
+        ts=ts,
+        mu=mu,
+        rho=rho,
+        num_threads=num_threads,
+        show_progress=progress,
+        progress_title=progress_title,
+        progress_phase="HMM",
+        # Maximum possible precision
+        likelihood_threshold=1e-200,
+        mirror_coordinates=direction == "reverse",
+    )
+    for hmm_match, sample in zip(matches, samples):
+        run = HmmRun(
+            strain=sample.strain,
+            num_mismatches=num_mismatches,
+            direction=direction,
+            match=hmm_match,
+        )
+        print(run.asjson())
+
+
 @click.version_option(core.__version__)
 @click.group()
 def cli():
@@ -730,4 +820,5 @@ cli.add_command(list_dates)
 cli.add_command(extend)
 cli.add_command(validate)
 cli.add_command(annotate_recombinants)
+cli.add_command(run_match)
 cli.add_command(tally_lineages)
