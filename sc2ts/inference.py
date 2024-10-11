@@ -341,7 +341,7 @@ def increment_time(date, ts):
 @dataclasses.dataclass
 class Sample:
     strain: str
-    date: str = "2020-01-01"
+    date: str = "1999-01-01"
     pango: str = "Unknown"
     metadata: Dict = dataclasses.field(default_factory=dict)
     alignment_composition: Dict = None
@@ -383,6 +383,7 @@ def pad_sites(ts):
     return tables.tree_sequence()
 
 
+# TODO remove this
 def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
