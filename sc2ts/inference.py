@@ -341,7 +341,7 @@ def increment_time(date, ts):
 @dataclasses.dataclass
 class Sample:
     strain: str
-    date: str = "2020-01-01"
+    date: str = "1999-01-01"
     pango: str = "Unknown"
     metadata: Dict = dataclasses.field(default_factory=dict)
     alignment_composition: Dict = None
