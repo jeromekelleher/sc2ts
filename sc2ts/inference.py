@@ -383,6 +383,7 @@ def pad_sites(ts):
     return tables.tree_sequence()
 
 
+# TODO remove this
 def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
