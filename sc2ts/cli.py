@@ -600,6 +600,11 @@ class MatchWork:
 
 
 def _match_worker(work):
+    msg = (
+        f"k={work.num_mismatches} n={len(work.samples)} "
+        f"{work.direction} {work.ts_path}"
+    )
+    logger.info(f"Start: {msg}")
     ts = tszip.load(work.ts_path)
     mu, rho = sc2ts.solve_num_mismatches(work.num_mismatches)
     matches = sc2ts.match_tsinfer(
@@ -623,6 +628,7 @@ def _match_worker(work):
                 match=hmm_match,
             )
         )
+    logger.info(f"Finish: {msg}")
     return runs
 
 

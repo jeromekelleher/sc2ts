@@ -980,6 +980,8 @@ def solve_num_mismatches(k):
     # print("r before", r)
     # Add a tiny bit of extra mass so that we deterministically recombine
     rho += rho * 0.1
+    # Don't let rho actually go to zero
+    rho = max(rho, 1e-200)
     return mu, rho
 
 
