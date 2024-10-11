@@ -503,7 +503,8 @@ def preprocess(
     strains,
     date,
     alignment_store_path,
-    keep_sites=None,
+    *,
+    keep_sites,
     show_progress=False,
     num_workers=0,
 ):
