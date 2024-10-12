@@ -496,6 +496,8 @@ def preprocess_worker(strains, alignment_store_path, keep_sites):
             sample = Sample(strain)
             if alignment is not None:
                 a = alignment[keep_sites]
+                # Quick hack
+                a[a == "-"] = "N"
                 sample.haplotype = alignments.encode_alignment(a)
                 # Need to do this here because encoding gets rid of
                 # ambiguous bases etc.
