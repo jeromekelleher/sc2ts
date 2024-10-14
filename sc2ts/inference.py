@@ -469,6 +469,7 @@ def match_samples(
         mu=mu,
         rho=rho,
         num_threads=num_threads,
+        deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
         progress_title=date,
         progress_phase=f"match(F)",
