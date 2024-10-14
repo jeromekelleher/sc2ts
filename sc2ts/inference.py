@@ -415,6 +415,7 @@ def match_samples(
     samples,
     *,
     base_ts,
+    deletions_as_missing=False,
     num_mismatches=None,
     show_progress=False,
     num_threads=None,
@@ -436,6 +437,7 @@ def match_samples(
             mu=mu,
             rho=rho,
             likelihood_threshold=likelihood_threshold,
+            deletions_as_missing=deletions_as_missing,
             num_threads=num_threads,
             show_progress=show_progress,
             progress_title=date,
@@ -467,6 +469,7 @@ def match_samples(
         mu=mu,
         rho=rho,
         num_threads=num_threads,
+        deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
         progress_title=date,
         progress_phase=f"match(F)",
@@ -542,6 +545,7 @@ def extend(
     hmm_cost_threshold=None,
     min_group_size=None,
     min_root_mutations=None,
+    deletions_as_missing=None,
     max_daily_samples=None,
     show_progress=False,
     retrospective_window=None,
@@ -561,6 +565,8 @@ def extend(
         retrospective_window = 30
     if max_missing_sites is None:
         max_missing_sites = np.inf
+    if deletions_as_missing is None:
+        deletions_as_missing = False
 
     check_base_ts(base_ts)
     logger.info(
@@ -626,6 +632,7 @@ def extend(
         samples,
         base_ts=base_ts,
         num_mismatches=num_mismatches,
+        deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
         num_threads=num_threads,
     )
@@ -658,7 +665,6 @@ def extend(
         date=date,
         min_group_size=min_group_size,
         min_different_dates=3,  # TODO parametrise
-        additional_group_metadata_keys=["Country"],  # TODO parametrise
         min_root_mutations=min_root_mutations,
         additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
@@ -1113,6 +1119,7 @@ def match_tsinfer(
     rho,
     *,
     likelihood_threshold=None,
+    deletions_as_missing=False,
     num_threads=0,
     show_progress=False,
     progress_title=None,
@@ -1122,6 +1129,9 @@ def match_tsinfer(
     if len(samples) == 0:
         return []
     genotypes = np.array([sample.haplotype for sample in samples], dtype=np.int8).T
+    if deletions_as_missing:
+        dels = np.where(genotypes == DELETION)[0]
+        genotypes[dels] = MISSING
     input_ts = ts
     if mirror_coordinates:
         ts = mirror_ts_coordinates(ts)

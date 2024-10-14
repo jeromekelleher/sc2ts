@@ -5,8 +5,13 @@ import tqdm
 from . import alignments
 from . import core
 
+MISSING = -1
+DELETION = core.ALLELES.index("-")
 
-def _validate_samples(ts, samples, alignment_store, show_progress):
+
+def _validate_samples(
+    ts, samples, alignment_store, deletions_as_missing, show_progress
+):
     strains = [ts.node(u).metadata["strain"] for u in samples]
     G = np.zeros((ts.num_sites, len(samples)), dtype=np.int8)
     keep_sites = ts.sites_position.astype(int)
@@ -34,12 +39,14 @@ def _validate_samples(ts, samples, alignment_store, show_progress):
     ) as bar:
         for var in bar:
             original = G[var.site.id]
-            non_missing = original != -1
+            if deletions_as_missing:
+                original[original == DELETION] = MISSING
+            non_missing = original != MISSING
             if not np.all(var.genotypes[non_missing] == original[non_missing]):
                 raise ValueError("Data mismatch")
 
 
-def validate(ts, alignment_store, show_progress=False):
+def validate(ts, alignment_store, deletions_as_missing=False, show_progress=False):
     """
     Check that all the samples in the specified tree sequence are correctly
     representing the original alignments.
@@ -53,8 +60,12 @@ def validate(ts, alignment_store, show_progress=False):
     ):
         chunk = samples[offset : offset + chunk_size]
         offset += chunk_size
-        _validate_samples(ts, chunk, alignment_store, show_progress)
+        _validate_samples(
+            ts, chunk, alignment_store, deletions_as_missing, show_progress
+        )
 
     if ts.num_samples % chunk_size != 0:
         chunk = samples[offset:]
-        _validate_samples(ts, chunk, alignment_store, show_progress)
+        _validate_samples(
+            ts, chunk, alignment_store, deletions_as_missing, show_progress
+        )

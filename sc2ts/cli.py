@@ -395,6 +395,12 @@ def summarise_base(ts, date, progress):
     help="Number of days in the past to reconsider potential matches",
 )
 @click.option(
+    "--deletions-as-missing/--no-deletions-as-missing",
+    default=True,
+    help="Treat all deletions as missing data when matching haplotypes",
+    show_default=True,
+)
+@click.option(
     "--max-daily-samples",
     default=None,
     type=int,
@@ -446,6 +452,7 @@ def extend(
     min_group_size,
     min_root_mutations,
     retrospective_window,
+    deletions_as_missing,
     max_daily_samples,
     max_missing_sites,
     num_threads,
@@ -488,6 +495,7 @@ def extend(
             min_group_size=min_group_size,
             min_root_mutations=min_root_mutations,
             retrospective_window=retrospective_window,
+            deletions_as_missing=deletions_as_missing,
             max_daily_samples=max_daily_samples,
             max_missing_sites=max_missing_sites,
             random_seed=random_seed,
@@ -504,8 +512,14 @@ def extend(
 @click.command()
 @click.argument("alignment_db")
 @click.argument("ts_file")
+@click.option(
+    "--deletions-as-missing/--no-deletions-as-missing",
+    default=True,
+    help="Treat all deletions as missing data when matching haplotypes",
+    show_default=True,
+)
 @click.option("-v", "--verbose", count=True)
-def validate(alignment_db, ts_file, verbose):
+def validate(alignment_db, ts_file, deletions_as_missing, verbose):
     """
     Check that the specified trees correctly encode alignments for samples.
     """
@@ -513,7 +527,7 @@ def validate(alignment_db, ts_file, verbose):
 
     ts = tszip.load(ts_file)
     with sc2ts.AlignmentStore(alignment_db) as alignment_store:
-        sc2ts.validate(ts, alignment_store, show_progress=True)
+        sc2ts.validate(ts, alignment_store, deletions_as_missing, show_progress=True)
 
 
 @click.command()
