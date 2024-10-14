@@ -664,7 +664,6 @@ def extend(
         date=date,
         min_group_size=min_group_size,
         min_different_dates=3,  # TODO parametrise
-        additional_group_metadata_keys=["Country"],  # TODO parametrise
         min_root_mutations=min_root_mutations,
         additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
