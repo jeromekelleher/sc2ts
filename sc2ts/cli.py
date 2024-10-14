@@ -512,8 +512,14 @@ def extend(
 @click.command()
 @click.argument("alignment_db")
 @click.argument("ts_file")
+@click.option(
+    "--deletions-as-missing/--no-deletions-as-missing",
+    default=True,
+    help="Treat all deletions as missing data when matching haplotypes",
+    show_default=True,
+)
 @click.option("-v", "--verbose", count=True)
-def validate(alignment_db, ts_file, verbose):
+def validate(alignment_db, ts_file, deletions_as_missing, verbose):
     """
     Check that the specified trees correctly encode alignments for samples.
     """
@@ -521,7 +527,7 @@ def validate(alignment_db, ts_file, verbose):
 
     ts = tszip.load(ts_file)
     with sc2ts.AlignmentStore(alignment_db) as alignment_store:
-        sc2ts.validate(ts, alignment_store, show_progress=True)
+        sc2ts.validate(ts, alignment_store, deletions_as_missing, show_progress=True)
 
 
 @click.command()
