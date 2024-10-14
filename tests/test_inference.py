@@ -405,25 +405,37 @@ class TestRealData:
         ["strain", "start", "length"],
         [("SRR11597164", 1547, 1), ("SRR11597190", 3951, 3)],
     )
-    @pytest.mark.parametrize("mask_deletions", [True, False])
+    @pytest.mark.parametrize("deletions_as_missing", [True, False])
     def test_2020_02_02_deletion_sample(
         self,
+        tmp_path,
+        fx_alignment_store,
+        fx_metadata_db,
         fx_ts_map,
         strain,
         start,
         length,
-        mask_deletions,
+        deletions_as_missing,
     ):
-        ts = fx_ts_map["2020-02-02"]
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            deletions_as_missing=deletions_as_missing,
+        )
         u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
         md = ts.node(u).metadata["sc2ts"]
         assert md["alignment_composition"]["-"] == length
         for j in range(length):
             site = ts.site(position=start + j)
-            assert len(site.mutations) == 1
+            assert len(site.mutations) == 0 if deletions_as_missing else 1
             for mut in site.mutations:
                 assert mut.node == u
                 assert mut.derived_state == "-"
+            # We pick the site up as somewhere with deletions regardless
+            # of deletions_as_missing
             assert site.metadata["sc2ts"]["deletion_samples"] == 1
 
     @pytest.mark.parametrize(
@@ -453,6 +465,27 @@ class TestRealData:
                 site.metadata["sc2ts"]["missing_samples"]
                 > site_prev.metadata["sc2ts"]["missing_samples"]
             )
+
+    @pytest.mark.parametrize("deletions_as_missing", [True, False])
+    def test_2020_02_02_deletions_as_missing(
+        self,
+        tmp_path,
+        fx_ts_map,
+        fx_alignment_store,
+        fx_metadata_db,
+        deletions_as_missing,
+    ):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            deletions_as_missing=deletions_as_missing,
+        )
+        ti = sc2ts.TreeInfo(ts, show_progress=False)
+        expected = 0 if deletions_as_missing else 4
+        assert np.sum(ti.mutations_derived_state == "-") == expected
 
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
         ts = sc2ts.extend(

@@ -395,8 +395,8 @@ def summarise_base(ts, date, progress):
     help="Number of days in the past to reconsider potential matches",
 )
 @click.option(
-    "--mask-deletions/--no-mask-deletions",
-    default=False,
+    "--deletions-as-missing/--no-deletions-as-missing",
+    default=True,
     help="Treat all deletions as missing data when matching haplotypes",
     show_default=True,
 )
@@ -452,7 +452,7 @@ def extend(
     min_group_size,
     min_root_mutations,
     retrospective_window,
-    mask_deletions,
+    deletions_as_missing,
     max_daily_samples,
     max_missing_sites,
     num_threads,
@@ -495,7 +495,7 @@ def extend(
             min_group_size=min_group_size,
             min_root_mutations=min_root_mutations,
             retrospective_window=retrospective_window,
-            mask_deletions=mask_deletions,
+            deletions_as_missing=deletions_as_missing,
             max_daily_samples=max_daily_samples,
             max_missing_sites=max_missing_sites,
             random_seed=random_seed,
