@@ -405,12 +405,14 @@ class TestRealData:
         ["strain", "start", "length"],
         [("SRR11597164", 1547, 1), ("SRR11597190", 3951, 3)],
     )
+    @pytest.mark.parametrize("mask_deletions", [True, False])
     def test_2020_02_02_deletion_sample(
         self,
         fx_ts_map,
         strain,
         start,
         length,
+        mask_deletions,
     ):
         ts = fx_ts_map["2020-02-02"]
         u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
@@ -427,7 +429,7 @@ class TestRealData:
     @pytest.mark.parametrize(
         ["strain", "num_missing"], [("SRR11597164", 122), ("SRR11597114", 402)]
     )
-    def test_2020_02_02_deletion_sample(
+    def test_2020_02_02_missing_sample(
         self,
         fx_ts_map,
         fx_alignment_store,
