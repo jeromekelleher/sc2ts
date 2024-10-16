@@ -47,9 +47,17 @@ def fx_metadata_db(fx_data_cache):
     return sc2ts.MetadataDb(cache_path)
 
 
+@pytest.fixture
+def fx_match_db(fx_data_cache):
+    cache_path = fx_data_cache / "match.db"
+    if not cache_path.exists():
+        sc2ts.MatchDb.initialise(cache_path)
+    return sc2ts.MatchDb(cache_path)
+
+
 # TODO make this a session fixture cacheing the tree sequences.
 @pytest.fixture
-def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store):
+def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_match_db):
     dates = [
         "2020-01-01",
         "2020-01-19",
@@ -77,14 +85,13 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store):
         # These sites are masked out in all alignments in the initial data
         # anyway; https://github.com/jeromekelleher/sc2ts/issues/282
         last_ts = sc2ts.initial_ts([56, 57, 58, 59, 60])
-        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
         for date in dates:
             last_ts = sc2ts.extend(
                 alignment_store=fx_alignment_store,
                 metadata_db=fx_metadata_db,
                 base_ts=last_ts,
                 date=date,
-                match_db=match_db,
+                match_db=fx_match_db,
             )
             print(
                 f"INFERRED {date} nodes={last_ts.num_nodes} mutations={last_ts.num_mutations}"

@@ -250,6 +250,17 @@ class TestRunRematchRecombinants:
         assert len(results["recombinant_example_1_1"]) == 4
 
 
+class TestInfoMatches:
+    def test_defaults(self, fx_match_db):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"info-matches {fx_match_db.path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+
 class TestListDates:
     def test_defaults(self, fx_metadata_db):
         runner = ct.CliRunner(mix_stderr=False)

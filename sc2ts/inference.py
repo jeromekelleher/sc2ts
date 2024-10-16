@@ -69,6 +69,7 @@ class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
+        self.path = path
         self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
         self.conn.row_factory = metadata.dict_factory
@@ -486,8 +487,9 @@ def check_base_ts(ts):
     md = ts.metadata
     assert "sc2ts" in md
     sc2ts_md = md["sc2ts"]
-    assert "date" in sc2ts_md
     assert len(sc2ts_md["samples_strain"]) == ts.num_samples
+    # Avoid parsing the metadata again to get the date.
+    return sc2ts_md["date"]
 
 
 def preprocess_worker(strains, alignment_store_path, keep_sites):
@@ -545,6 +547,7 @@ def extend(
     hmm_cost_threshold=None,
     min_group_size=None,
     min_root_mutations=None,
+    max_mutations_per_sample=None,
     deletions_as_missing=None,
     max_daily_samples=None,
     show_progress=False,
@@ -561,6 +564,8 @@ def extend(
         min_group_size = 10
     if min_root_mutations is None:
         min_root_mutations = 2
+    if max_mutations_per_sample is None:
+        mutations_per_sample = 100
     if retrospective_window is None:
         retrospective_window = 30
     if max_missing_sites is None:
@@ -568,10 +573,10 @@ def extend(
     if deletions_as_missing is None:
         deletions_as_missing = False
 
-    check_base_ts(base_ts)
+    previous_date = check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
-        f"mutations={base_ts.num_mutations};date={base_ts.metadata['sc2ts']['date']}"
+        f"mutations={base_ts.num_mutations};date={previous_date}"
     )
 
     metadata_matches = {md["strain"]: md for md in metadata_db.get(date)}
@@ -666,6 +671,7 @@ def extend(
         min_group_size=min_group_size,
         min_different_dates=3,  # TODO parametrise
         min_root_mutations=min_root_mutations,
+        max_mutations_per_sample=max_mutations_per_sample,
         additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="retro",
@@ -836,6 +842,7 @@ def add_matching_results(
     min_group_size=1,
     min_different_dates=1,
     min_root_mutations=0,
+    max_mutations_per_sample=np.inf,
     additional_node_flags=None,
     show_progress=False,
     additional_group_metadata_keys=list(),
@@ -901,13 +908,21 @@ def add_matching_results(
             assert poly_ts.num_samples == flat_ts.num_samples
             tree = poly_ts.first()
             num_root_mutations = np.sum(poly_ts.mutations_node == tree.root)
-            num_recurrent_mutations = np.sum(poly_ts.mutations_parent != -1)
             if num_root_mutations < min_root_mutations:
                 logger.debug(
                     f"Skipping root_mutations={num_root_mutations}: "
                     f"{group.summary()}"
                 )
                 continue
+            mutations_per_sample = poly_ts.num_mutations / poly_ts.num_samples
+            if mutations_per_sample > max_mutations_per_sample:
+                logger.debug(
+                    f"Skipping mutation_per_sample={mutations_per_sample}: exceeds threshold "
+                    f"{group.summary()}"
+                )
+                continue
+
+            num_recurrent_mutations = np.sum(poly_ts.mutations_parent != -1)
             attach_depth = max(tree.depth(u) for u in poly_ts.samples())
             nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
             logger.debug(
