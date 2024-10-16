@@ -527,6 +527,25 @@ class TestRealData:
         assert mutation.derived_state == "T"
         assert mutation.parent == -1
 
+    def test_2020_02_14_all_matches(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, fx_match_db
+    ):
+        date = "2020-02-14"
+        assert len(list(fx_metadata_db.get(date))) == 0
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-13"],
+            date="2020-02-15",
+            match_db=fx_match_db,
+            # This should allow everything in
+            min_root_mutations=0,
+            min_group_size=1,
+            min_different_dates=1,
+        )
+        print(ts)
+        # TODO testing something about this.
+
     @pytest.mark.parametrize("date", dates)
     def test_date_metadata(self, fx_ts_map, date):
         ts = fx_ts_map[date]
