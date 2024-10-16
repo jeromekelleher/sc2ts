@@ -186,3 +186,29 @@ class TestTreeInfo:
         assert isinstance(fig, matplotlib.figure.Figure)
         for ax in axes:
             assert isinstance(ax, matplotlib.axes.Axes)
+
+    def test_draw_pango_lineage_subtree(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        svg = ti.draw_pango_lineage_subtree("A")
+        svg2 = ti.draw_subtree(tracked_pango=["A"])
+        assert svg == svg2
+        assert svg.startswith("<svg")
+        for u in ti.pango_lineage_samples['A']:
+            assert f"node n{u}" in svg
+
+    def test_draw_subtree(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        samples = ti.ts.samples()[0:5]
+        svg = ti.draw_subtree(tracked_samples=samples)
+        assert svg.startswith("<svg")
+        for u in samples:
+            assert f"node n{u}" in svg
+
+
+class TestSampleGroupInfo:
+    def test_draw_svg(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        sg = list(ti.nodes_sample_group.keys())[0]
+        sg_info = ti.get_sample_group_info(sg)
+        svg = sg_info.draw_svg()
+        assert svg.startswith("<svg")
