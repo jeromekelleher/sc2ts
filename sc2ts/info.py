@@ -1614,6 +1614,7 @@ class TreeInfo:
         mutation_labels=None,
         size=None,
         style="",
+        symbol_size=4,
         **kwargs,
     ):
         """
@@ -1796,7 +1797,12 @@ class TreeInfo:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in reverted_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in reverted_mutations)
             styles.append(lab_css + "{fill: magenta}" + sym_css + "{stroke: magenta}")
-
+        # Recombination nodes as larger open circles
+        re_nodes = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT)[0]
+        styles.append(
+            ",".join([f".node.n{u} > .sym" for u in re_nodes]) +
+            f"{{r:{symbol_size/2*1.5:.2f}px; stroke:black; fill:white}}"
+        )
         return tree.draw_svg(
             time_scale=time_scale,
             y_axis=True,
@@ -1806,7 +1812,7 @@ class TreeInfo:
             order=order,
             mutation_labels=mutation_labels,
             all_edge_mutations=True,
-            symbol_size=4,
+            symbol_size=symbol_size,
             pack_untracked_polytomies=pack_untracked_polytomies,
             style="".join(styles) + style,
             **kwargs,
@@ -1893,6 +1899,7 @@ class SampleGroupInfo:
         highlight_universal_mutations=None,
         x_regions=None,
         node_labels=None,
+        symbol_size=3,
         **kwargs,
     ):
         """
@@ -2011,6 +2018,7 @@ class SampleGroupInfo:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in reverted_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in reverted_mutations)
             styles.append(lab_css + "{fill: magenta}" + sym_css + "{stroke: magenta}")
+        # mutations shared by all the samples (above their mrca)
         if len(universal_mutations) > 0:
             lab_css = ", ".join(f".mut.m{m} .lab" for m in universal_mutations)
             sym_css = ", ".join(f".mut.m{m} .sym" for m in universal_mutations)
@@ -2021,6 +2029,12 @@ class SampleGroupInfo:
                 lab_css + "{font-weight: bold}" + sym_css + "{stroke-width: 3}"
             )
             styles.append(sym_ax_css + "{stroke-width: 8}")
+        # recombination nodes in larger open white circles
+        re_nodes = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT)[0]
+        styles.append(
+            ",".join([f".node.n{u} > .sym" for u in re_nodes]) +
+            f"{{r: {symbol_size/2*1.5:.2f}px; stroke: black; fill: white}}"
+        )
         svg = self.ts.draw_svg(
             size=size,
             time_scale=time_scale,
@@ -2029,6 +2043,7 @@ class SampleGroupInfo:
             y_ticks=y_ticks,
             node_labels=node_labels,
             style="".join(styles) + style,
+            symbol_size=symbol_size,
             **kwargs,
         )
 
