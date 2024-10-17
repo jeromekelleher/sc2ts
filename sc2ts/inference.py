@@ -976,7 +976,7 @@ def add_matching_results(
                 continue
             if tqm.mean_mutations_per_sample > max_mutations_per_sample:
                 logger.debug(
-                    f"Skipping mutation_per_sample={tqm.mutations_per_sample}: exceeds threshold "
+                    f"Skipping mutation_per_sample={tqm.mean_mutations_per_sample}: exceeds threshold "
                     f"{group.summary()}"
                 )
                 continue
