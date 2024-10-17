@@ -388,6 +388,16 @@ def summarise_base(ts, date, progress):
     help="Minimum number of shared mutations for reconsidered sample groups",
 )
 @click.option(
+    "--max-mutations-per-sample",
+    default=10,
+    show_default=True,
+    type=int,
+    help=(
+        "Maximum average number of mutations per sample in an inferred retrospective "
+        "group tree"
+    ),
+)
+@click.option(
     "--retrospective-window",
     default=30,
     show_default=True,
@@ -451,6 +461,7 @@ def extend(
     hmm_cost_threshold,
     min_group_size,
     min_root_mutations,
+    max_mutations_per_sample,
     retrospective_window,
     deletions_as_missing,
     max_daily_samples,
@@ -494,6 +505,7 @@ def extend(
             hmm_cost_threshold=hmm_cost_threshold,
             min_group_size=min_group_size,
             min_root_mutations=min_root_mutations,
+            max_mutations_per_sample=max_mutations_per_sample,
             retrospective_window=retrospective_window,
             deletions_as_missing=deletions_as_missing,
             max_daily_samples=max_daily_samples,

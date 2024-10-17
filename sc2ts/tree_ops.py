@@ -216,6 +216,7 @@ def infer_binary(ts):
                 node=mut.node,
                 derived_state=mut.derived_state,
             )
+    tables.compute_mutation_parents()
     new_ts = tables.tree_sequence()
     # print(new_ts.draw_text())
     return new_ts
@@ -245,6 +246,9 @@ def trim_branches(ts):
         tables.edges.add_row(0, ts.sequence_length, parent=p, child=c)
 
     tables.sort()
+    # FIXME not sure this compute_mutation_parents is needed, check
+    tables.build_index()
+    tables.compute_mutation_parents()
     # Get rid of unreferenced nodes
     tables.simplify()
     return tables.tree_sequence()
