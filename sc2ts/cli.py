@@ -325,11 +325,14 @@ def initialise(
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.option("--counts/--no-counts", default=False)
 @click.option(
-    "--after", default="1900-01-01", help="show dates after the specified value"
+    "--after", default="1900-01-01", help="show dates equal to or after the specified value"
+)
+@click.option(
+    "--before", default="3000-01-01", help="show dates before the specified value"
 )
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def list_dates(metadata, counts, after, verbose, log_file):
+def list_dates(metadata, counts, after, before, verbose, log_file):
     """
     List the dates included in specified metadataDB
     """
@@ -337,7 +340,7 @@ def list_dates(metadata, counts, after, verbose, log_file):
     with sc2ts.MetadataDb(metadata) as metadata_db:
         counter = metadata_db.date_sample_counts()
         for k in counter:
-            if k > after:
+            if after <= k < before:
                 if counts:
                     print(k, counter[k], sep="\t")
                 else:
