@@ -693,6 +693,9 @@ def update_top_level_metadata(ts, date, retro_groups):
         samples_strain.append(node.metadata["strain"])
     md["sc2ts"]["samples_strain"] = samples_strain
     existing_retro_groups = md["sc2ts"].get("retro_groups", [])
+    if isinstance(existing_retro_groups, dict):
+        # Hack to implement metadata format change
+        existing_retro_groups = []
     for group in retro_groups:
         d = group.tree_quality_metrics.asdict()
         d["group_id"] = group.sample_hash
