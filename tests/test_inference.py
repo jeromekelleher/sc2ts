@@ -543,8 +543,19 @@ class TestRealData:
             min_group_size=1,
             min_different_dates=1,
         )
-        print(ts)
-        # TODO testing something about this.
+        retro_groups = ts.metadata["sc2ts"]["retro_groups"]
+        assert len(retro_groups) == 6
+        assert retro_groups[0] == {
+            "dates": ["2020-01-29"],
+            "depth": 1,
+            "group_id": "92312b65f8ec1eaf12de8218db67e737",
+            "num_mutations": 19,
+            "num_nodes": 2,
+            "num_recurrent_mutations": 0,
+            "num_root_mutations": 0,
+            "pango_lineages": ["A.5"],
+            "strains": ["SRR15736313"],
+        }
 
     @pytest.mark.parametrize("date", dates)
     def test_date_metadata(self, fx_ts_map, date):

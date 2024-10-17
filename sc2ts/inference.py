@@ -281,7 +281,7 @@ def initial_ts(problematic_sites=list()):
             "date": core.REFERENCE_DATE,
             "samples_strain": [core.REFERENCE_STRAIN],
             "num_exact_matches": {},
-            "retro_groups": {},
+            "retro_groups": [],
         }
     }
 
@@ -692,9 +692,11 @@ def update_top_level_metadata(ts, date, retro_groups):
         node = ts.node(u)
         samples_strain.append(node.metadata["strain"])
     md["sc2ts"]["samples_strain"] = samples_strain
-    existing_retro_groups = md["sc2ts"].get("retro_groups", {})
+    existing_retro_groups = md["sc2ts"].get("retro_groups", [])
     for group in retro_groups:
-        existing_retro_groups[group.sample_hash] = group.tree_quality_metrics.asjson()
+        d = group.tree_quality_metrics.asdict()
+        d["group_id"] = group.sample_hash
+        existing_retro_groups.append(d)
     md["sc2ts"]["retro_groups"] = existing_retro_groups
     tables.metadata = md
     return tables.tree_sequence()
@@ -806,10 +808,6 @@ class GroupTreeQualityMetrics:
 
     def asdict(self):
         return dataclasses.asdict(self)
-
-    def asjson(self):
-        print(self.asdict())
-        return json.dumps(self.asdict())
 
     @property
     def num_samples(self):
