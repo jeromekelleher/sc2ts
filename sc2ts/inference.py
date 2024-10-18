@@ -117,7 +117,7 @@ class MatchDb:
     def close(self):
         self.conn.close()
 
-    def add(self, samples, date, num_mismatches):
+    def add(self, samples, date, num_mismatches, show_progress=False):
         """
         Adds the specified matched samples to this MatchDb.
         """
@@ -128,10 +128,11 @@ class MatchDb:
             """
         data = []
         hmm_cost = np.zeros(len(samples))
-        for j, sample in enumerate(samples):
+        bar = get_progress(
+            enumerate(samples), date, "update mdb", show_progress, total=len(samples)
+        )
+        for j, sample in bar:
             assert sample.date == date
-            # FIXME we want to be more selective about what we're storing
-            # here, as we're including the alignment too.
             pkl = pickle.dumps(sample)
             # BZ2 compressing drops this by ~10X, so worth it.
             pkl_compressed = bz2.compress(pkl)
@@ -647,7 +648,7 @@ def extend(
             num_threads=num_threads,
         )
 
-        match_db.add(samples, date, num_mismatches)
+        match_db.add(samples, date, num_mismatches, show_progress)
         match_db.create_mask_table(base_ts)
 
         ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
