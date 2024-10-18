@@ -401,6 +401,16 @@ def summarise_base(ts, date, progress):
     ),
 )
 @click.option(
+    "--max-recurrent-mutations",
+    default=10,
+    show_default=True,
+    type=int,
+    help=(
+        "Maximum number of recurrent mutations in an inferred retrospective "
+        "group tree"
+    ),
+)
+@click.option(
     "--retrospective-window",
     default=30,
     show_default=True,
@@ -465,6 +475,7 @@ def extend(
     min_group_size,
     min_root_mutations,
     max_mutations_per_sample,
+    max_recurrent_mutations,
     retrospective_window,
     deletions_as_missing,
     max_daily_samples,
@@ -509,6 +520,7 @@ def extend(
             min_group_size=min_group_size,
             min_root_mutations=min_root_mutations,
             max_mutations_per_sample=max_mutations_per_sample,
+            max_recurrent_mutations=max_recurrent_mutations,
             retrospective_window=retrospective_window,
             deletions_as_missing=deletions_as_missing,
             max_daily_samples=max_daily_samples,

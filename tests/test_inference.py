@@ -1,5 +1,6 @@
 import collections
 import hashlib
+import logging
 
 import numpy as np
 import numpy.testing as nt
@@ -555,7 +556,99 @@ class TestRealData:
             "num_root_mutations": 0,
             "pango_lineages": ["A.5"],
             "strains": ["SRR15736313"],
+            "date_added": "2020-02-15",
         }
+
+    def test_2020_02_14_skip_recurrent(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, fx_match_db,
+        caplog,
+    ):
+        date = "2020-02-14"
+        assert len(list(fx_metadata_db.get(date))) == 0
+        caplog.set_level(logging.DEBUG)
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-13"],
+            date="2020-02-15",
+            match_db=fx_match_db,
+            # This should allow everything in but exclude on max_recurrent
+            min_root_mutations=0,
+            min_group_size=1,
+            min_different_dates=1,
+            max_recurrent_mutations=-1,
+        )
+        retro_groups = ts.metadata["sc2ts"]["retro_groups"]
+        assert len(retro_groups) == 0
+        assert "Skipping num_recurrent_mutations=0 exceeds threshold" in caplog.text
+
+    def test_2020_02_14_skip_max_mutations(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, fx_match_db,
+        caplog,
+    ):
+        date = "2020-02-14"
+        assert len(list(fx_metadata_db.get(date))) == 0
+        caplog.set_level(logging.DEBUG)
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-13"],
+            date="2020-02-15",
+            match_db=fx_match_db,
+            min_root_mutations=0,
+            min_group_size=1,
+            min_different_dates=1,
+            max_recurrent_mutations=100,
+            # This should allow everything in but exclude on max_mtuations
+            max_mutations_per_sample=-1,
+        )
+        retro_groups = ts.metadata["sc2ts"]["retro_groups"]
+        assert len(retro_groups) == 0
+        assert "Skipping mean_mutations_per_sample=1.0 exceeds threshold" in caplog.text
+
+    def test_2020_02_14_skip_root_mutations(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, fx_match_db,
+        caplog,
+    ):
+        date = "2020-02-14"
+        assert len(list(fx_metadata_db.get(date))) == 0
+        caplog.set_level(logging.DEBUG)
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-13"],
+            date="2020-02-15",
+            match_db=fx_match_db,
+            # This should allow everything in but exclude on min_root_mutations
+            min_root_mutations=100,
+            min_group_size=1,
+            min_different_dates=1,
+        )
+        retro_groups = ts.metadata["sc2ts"]["retro_groups"]
+        assert len(retro_groups) == 0
+        assert "Skipping root_mutations=0 < threshold" in caplog.text
+
+    def test_2020_02_14_skip_group_size(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, fx_match_db,
+        caplog,
+    ):
+        date = "2020-02-14"
+        assert len(list(fx_metadata_db.get(date))) == 0
+        caplog.set_level(logging.DEBUG)
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-13"],
+            date="2020-02-15",
+            match_db=fx_match_db,
+            min_root_mutations=0,
+            # This should allow everything in but exclude on group size
+            min_group_size=100,
+            min_different_dates=1,
+        )
+        retro_groups = ts.metadata["sc2ts"]["retro_groups"]
+        assert len(retro_groups) == 0
+        assert "Skipping size=" in caplog.text
 
     @pytest.mark.parametrize("date", dates)
     def test_date_metadata(self, fx_ts_map, date):

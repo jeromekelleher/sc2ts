@@ -550,6 +550,7 @@ def extend(
     min_root_mutations=None,
     min_different_dates=None,
     max_mutations_per_sample=None,
+    max_recurrent_mutations=None,
     deletions_as_missing=None,
     max_daily_samples=None,
     show_progress=False,
@@ -568,6 +569,8 @@ def extend(
         min_root_mutations = 2
     if max_mutations_per_sample is None:
         max_mutations_per_sample = 100
+    if max_recurrent_mutations is None:
+        max_recurrent_mutations = 100
     if min_different_dates is None:
         min_different_dates = 3
     if retrospective_window is None:
@@ -673,12 +676,15 @@ def extend(
         min_different_dates=min_different_dates,
         min_root_mutations=min_root_mutations,
         max_mutations_per_sample=max_mutations_per_sample,
+        max_recurrent_mutations=max_recurrent_mutations,
         additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="retro",
     )
     for group in groups:
-        logger.warning(f"Add retro group {dict(group.pango_count)}: {group.tree_quality_metrics.summary()}")
+        logger.warning(
+            f"Add retro group {dict(group.pango_count)}: {group.tree_quality_metrics.summary()}"
+        )
     return update_top_level_metadata(ts, date, groups)
 
 
@@ -800,6 +806,7 @@ class GroupTreeQualityMetrics:
     """
     Set of metrics used to assess the quality of an in inferred sample group tree.
     """
+
     strains: List[str]
     pango_lineages: List[str]
     dates: List[str]
@@ -808,6 +815,7 @@ class GroupTreeQualityMetrics:
     num_mutations: int
     num_recurrent_mutations: int
     depth: int
+    date_added: str
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -879,7 +887,7 @@ class SampleGroup:
             f"strains={self.strains}"
         )
 
-    def add_tree_quality_metrics(self, ts):
+    def add_tree_quality_metrics(self, ts, date):
         tree = ts.first()
         assert ts.num_trees == 1
         self.tree_quality_metrics = GroupTreeQualityMetrics(
@@ -891,6 +899,7 @@ class SampleGroup:
             num_root_mutations=int(np.sum(ts.mutations_node == tree.root)),
             num_recurrent_mutations=int(np.sum(ts.mutations_parent != -1)),
             depth=max(tree.depth(u) for u in ts.samples()),
+            date_added=date,
         )
         return self.tree_quality_metrics
 
@@ -904,6 +913,7 @@ def add_matching_results(
     min_different_dates=1,
     min_root_mutations=0,
     max_mutations_per_sample=np.inf,
+    max_recurrent_mutations=np.inf,
     additional_node_flags=None,
     show_progress=False,
     additional_group_metadata_keys=list(),
@@ -967,17 +977,23 @@ def add_matching_results(
                 binary_ts = tree_ops.infer_binary(flat_ts)
                 poly_ts = tree_ops.trim_branches(binary_ts)
             assert poly_ts.num_samples == flat_ts.num_samples
-            tqm = group.add_tree_quality_metrics(poly_ts)
+            tqm = group.add_tree_quality_metrics(poly_ts, date)
             if tqm.num_root_mutations < min_root_mutations:
                 logger.debug(
-                    f"Skipping root_mutations={tqm.num_root_mutations}: "
+                    f"Skipping root_mutations={tqm.num_root_mutations} < threshold "
                     f"{group.summary()}"
                 )
                 continue
             if tqm.mean_mutations_per_sample > max_mutations_per_sample:
                 logger.debug(
-                    f"Skipping mutation_per_sample={tqm.mean_mutations_per_sample}: exceeds threshold "
-                    f"{group.summary()}"
+                    f"Skipping mean_mutations_per_sample={tqm.mean_mutations_per_sample} "
+                    f"exceeds threshold {group.summary()}"
+                )
+                continue
+            if tqm.num_recurrent_mutations > max_recurrent_mutations:
+                logger.debug(
+                    f"Skipping num_recurrent_mutations={tqm.num_recurrent_mutations} "
+                    f"exceeds threshold: {group.summary()}"
                 )
                 continue
             nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
