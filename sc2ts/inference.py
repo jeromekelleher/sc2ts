@@ -117,7 +117,7 @@ class MatchDb:
     def close(self):
         self.conn.close()
 
-    def add(self, samples, date, num_mismatches):
+    def add(self, samples, date, num_mismatches, show_progress=False):
         """
         Adds the specified matched samples to this MatchDb.
         """
@@ -128,10 +128,11 @@ class MatchDb:
             """
         data = []
         hmm_cost = np.zeros(len(samples))
-        for j, sample in enumerate(samples):
+        bar = get_progress(
+            enumerate(samples), date, "update mdb", show_progress, total=len(samples)
+        )
+        for j, sample in bar:
             assert sample.date == date
-            # FIXME we want to be more selective about what we're storing
-            # here, as we're including the alignment too.
             pkl = pickle.dumps(sample)
             # BZ2 compressing drops this by ~10X, so worth it.
             pkl_compressed = bz2.compress(pkl)
@@ -275,12 +276,16 @@ def initial_ts(problematic_sites=list()):
     tables.reference_sequence.data = reference
 
     tables.metadata_schema = tskit.MetadataSchema(base_schema)
-    # TODO gene annotations to top level
     tables.metadata = {
         "sc2ts": {
             "date": core.REFERENCE_DATE,
             "samples_strain": [core.REFERENCE_STRAIN],
-            "num_exact_matches": {},
+            "exact_matches": {
+                "pango": {},
+                "date": {},
+                "node": {},
+            },
+            "num_samples_processed": {},
             "retro_groups": [],
         }
     }
@@ -647,7 +652,7 @@ def extend(
             num_threads=num_threads,
         )
 
-        match_db.add(samples, date, num_mismatches)
+        match_db.add(samples, date, num_mismatches, show_progress)
         match_db.create_mask_table(base_ts)
 
         ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
@@ -683,12 +688,13 @@ def extend(
     )
     for group in groups:
         logger.warning(
-            f"Add retro group {dict(group.pango_count)}: {group.tree_quality_metrics.summary()}"
+            f"Add retro group {dict(group.pango_count)}: "
+            f"{group.tree_quality_metrics.summary()}"
         )
-    return update_top_level_metadata(ts, date, groups)
+    return update_top_level_metadata(ts, date, groups, len(samples))
 
 
-def update_top_level_metadata(ts, date, retro_groups):
+def update_top_level_metadata(ts, date, retro_groups, num_samples):
     tables = ts.dump_tables()
     md = tables.metadata
     md["sc2ts"]["date"] = date
@@ -698,6 +704,7 @@ def update_top_level_metadata(ts, date, retro_groups):
         node = ts.node(u)
         samples_strain.append(node.metadata["strain"])
     md["sc2ts"]["samples_strain"] = samples_strain
+    md["sc2ts"]["num_samples_processed"][date] = num_samples
     existing_retro_groups = md["sc2ts"].get("retro_groups", [])
     if isinstance(existing_retro_groups, dict):
         # Hack to implement metadata format change
@@ -769,14 +776,15 @@ def add_exact_matches(match_db, ts, date):
         logger.info(f"No exact matches on {date}")
         return ts
     logger.info(f"Update ARG with {len(samples)} exact matches for {date}")
-    nodes_num_exact_matches = np.zeros(ts.num_nodes, dtype=int)
     pango_counts = collections.Counter()
+    node_counts = collections.Counter()
     for sample in samples:
         assert len(sample.hmm_match.path) == 1
         assert len(sample.hmm_match.mutations) == 0
         parent = sample.hmm_match.path[0].parent
         logger.debug(f"Increment exact match {sample.strain}->{parent}")
-        nodes_num_exact_matches[parent] += 1
+        # JSON treats dictionary keys as strings
+        node_counts[str(parent)] += 1
         pango_counts[sample.pango] += 1
         # node_id = add_sample_to_tables(
         #     sample,
@@ -785,19 +793,16 @@ def add_exact_matches(match_db, ts, date):
         # )
         # logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
         # tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
-    logger.info(f"Updating exact match counts: {dict(pango_counts)}")
     tables = ts.dump_tables()
-    for u in np.where(nodes_num_exact_matches > 0)[0]:
-        row = tables.nodes[u]
-        md = row.metadata
-        if "num_exact_matches" not in md["sc2ts"]:
-            md["sc2ts"]["num_exact_matches"] = 0
-        md["sc2ts"]["num_exact_matches"] += int(nodes_num_exact_matches[u])
-        tables.nodes[u] = row.replace(metadata=md)
     md = tables.metadata
-    pango_counts.update(md["sc2ts"]["num_exact_matches"])
-    md["sc2ts"]["num_exact_matches"] = dict(pango_counts)
+    exact_matches_md = md["sc2ts"]["exact_matches"]
+    exact_matches_md["date"][date] = sum(pango_counts.values())
+    pango_counts.update(exact_matches_md["pango"])
+    exact_matches_md["pango"] = dict(pango_counts)
+    node_counts.update(exact_matches_md["node"])
+    exact_matches_md["node"] = dict(node_counts)
     tables.metadata = md
+    logger.info(f"Updated exact match counts: {dict(pango_counts)}")
     return tables.tree_sequence()
 
 

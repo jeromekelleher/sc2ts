@@ -87,7 +87,7 @@ class MetadataDb(collections.abc.Mapping):
         with self.conn:
             for row in self.conn.execute(sql):
                 date = row["date"]
-                if len(date) == 10 and date.startswith("20"):
+                if date is not None and len(date) == 10 and date.startswith("20"):
                     counts[date] = row["COUNT(*)"]
         return counts
 

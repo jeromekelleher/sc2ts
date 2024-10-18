@@ -294,7 +294,7 @@ class TestRealData:
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
             metadata_db=fx_metadata_db,
-            base_ts=sc2ts.initial_ts(problematic_sites=list(range(56, 61))),
+            base_ts=fx_ts_map[self.dates[0]],
             date="2020-01-19",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
@@ -348,8 +348,8 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 5
-        assert ts.metadata["sc2ts"]["num_exact_matches"] == {"B": 2}
-        assert ts.node(5).metadata["sc2ts"]["num_exact_matches"] == 2
+        assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"B": 2}
+        assert ts.metadata["sc2ts"]["exact_matches"]["node"] == {"5": 2}
         ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
 
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
@@ -361,8 +361,9 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 22
-        assert ts.metadata["sc2ts"]["num_exact_matches"] == {"A": 2, "B": 2}
+        assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
+
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
 
     @pytest.mark.parametrize("max_samples", range(1, 6))
@@ -704,14 +705,15 @@ class TestRealData:
 
     def test_exact_match_count(self, fx_ts_map):
         ts = fx_ts_map[self.dates[-1]]
-        exact_matches = 0
-        for node in list(ts.nodes()):
-            md = node.metadata["sc2ts"]
-            if "num_exact_matches" in md:
-                k = md["num_exact_matches"]
-                assert k > 0
-                exact_matches += k
-        assert sum(ts.metadata["sc2ts"]["num_exact_matches"].values()) == exact_matches
+        # exact_matches = 0
+        md = ts.metadata["sc2ts"]["exact_matches"]
+        nodes_num_exact_matches = md["node"]
+        by_date = md["date"]
+        by_pango = md["pango"]
+        total = sum(nodes_num_exact_matches.values())
+        assert total == sum(by_pango.values())
+        assert total == sum(by_date.values())
+        assert total == 8
 
     @pytest.mark.parametrize(
         ["strain", "num_deletions"],
@@ -825,10 +827,9 @@ class TestRealData:
     )
     def test_exact_matches(self, fx_ts_map, strain, parent):
         ts = fx_ts_map[self.dates[-1]]
-        assert strain not in ts.metadata["sc2ts"]["samples_strain"]
-        md = ts.node(parent).metadata["sc2ts"]
-        assert "num_exact_matches" in md
-        assert md["num_exact_matches"] > 1
+        md = ts.metadata["sc2ts"]
+        assert strain not in md["samples_strain"]
+        assert md["exact_matches"]["node"][str(parent)] >= 1
 
 
 class TestSyntheticAlignments:
@@ -855,15 +856,15 @@ class TestSyntheticAlignments:
         assert ts.num_nodes == base_ts.num_nodes
 
         assert (
-            sum(ts.metadata["sc2ts"]["num_exact_matches"].values())
-            == sum(base_ts.metadata["sc2ts"]["num_exact_matches"].values()) + 2
+            sum(ts.metadata["sc2ts"]["exact_matches"]["pango"].values())
+            == sum(base_ts.metadata["sc2ts"]["exact_matches"]["pango"].values()) + 2
         )
         samples = ts.samples()
         samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        node_count = ts.metadata["sc2ts"]["exact_matches"]["node"]
         for strain, fake_strain in zip(strains, fake_strains):
             node = samples[samples_strain.index(strain)]
-            smd = ts.node(node).metadata["sc2ts"]
-            assert smd["num_exact_matches"] == 1
+            assert node_count[str(node)] == 1
 
     def test_recombinant_example_1(self, fx_ts_map, fx_recombinant_example_1):
         base_ts = fx_ts_map["2020-02-13"]
