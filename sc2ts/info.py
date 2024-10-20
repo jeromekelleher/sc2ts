@@ -141,7 +141,7 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     md = ts.metadata["sc2ts"]
     date = md["date"]
     # Take the exact matches into account also.
-    counter = collections.Counter(md["num_exact_matches"])
+    counter = collections.Counter(md["exact_matches"]["pango"])
     key = "Viridian_pangolin"
     iterator = tqdm.tqdm(
         ts.samples()[1:],
