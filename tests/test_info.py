@@ -193,7 +193,7 @@ class TestTreeInfo:
         svg2 = ti.draw_subtree(tracked_pango=["A"])
         assert svg == svg2
         assert svg.startswith("<svg")
-        for u in ti.pango_lineage_samples['A']:
+        for u in ti.pango_lineage_samples["A"]:
             assert f"node n{u}" in svg
 
     def test_draw_subtree(self, fx_ti_2020_02_13):
@@ -203,6 +203,11 @@ class TestTreeInfo:
         assert svg.startswith("<svg")
         for u in samples:
             assert f"node n{u}" in svg
+
+    def test_resources_summary(self, fx_ti_2020_02_13):
+        df = fx_ti_2020_02_13.resources_summary()
+        assert df.shape[0] == 20
+        assert np.all(df.date.str.startswith("2020"))
 
 
 class TestSampleGroupInfo:

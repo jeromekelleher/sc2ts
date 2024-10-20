@@ -141,7 +141,7 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     md = ts.metadata["sc2ts"]
     date = md["date"]
     # Take the exact matches into account also.
-    counter = collections.Counter(md["num_exact_matches"])
+    counter = collections.Counter(md["exact_matches"]["pango"])
     key = "Viridian_pangolin"
     iterator = tqdm.tqdm(
         ts.samples()[1:],
@@ -873,6 +873,21 @@ class TreeInfo:
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
         )
 
+    def samples_summary(self):
+        data = []
+        md = self.ts.metadata["sc2ts"]
+        for days_ago in np.arange(self.num_samples_per_day.shape[0]):
+            date = str(self.time_zero_as_date - days_ago)
+            data.append(
+                {
+                    "date": self.time_zero_as_date - days_ago,
+                    "samples_in_arg": self.num_samples_per_day[days_ago],
+                    "samples_processed": md["num_samples_processed"].get(date, 0),
+                    "exact_matches": md["exact_matches"]["date"].get(date, 0),
+                }
+            )
+        return pd.DataFrame(data)
+
     def recombinants_summary(self):
         data = []
         for u in self.recombinants:
@@ -1501,86 +1516,91 @@ class TreeInfo:
         ax.set_ylabel("Overlapping deletions")
         return fig, [ax]
 
-    def plot_samples_per_day(self):
-        fig, ax = self._wide_plot(1, 1)
-        t = np.arange(self.num_samples_per_day.shape[0])
-        ax.plot(self.time_zero_as_date - t, self.num_samples_per_day)
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Number of samples")
-        return fig, [ax]
+    def plot_samples_per_day(self, start_date="2020-04-01"):
+        df = self.samples_summary()
+        df = df[df.date >= start_date]
+        fig, (ax1, ax2) = self._wide_plot(2, height=6, sharex=True)
+
+        ax1.plot(df.date, df.samples_in_arg, label="In ARG")
+        ax1.plot(df.date, df.samples_processed, label="Processed")
+        ax1.plot(df.date, df.exact_matches, label="Exact matches")
+
+        ax2.plot(
+            df.date,
+            df.samples_in_arg / df.samples_processed,
+            label="Fraction processed in ARG",
+        )
+        ax2.plot(
+            df.date,
+            df.exact_matches / df.samples_processed,
+            label="Fraction processed exact matches",
+        )
+        excluded = df.samples_processed - df.exact_matches - df.samples_in_arg
+        ax2.plot(df.date, excluded / df.samples_processed, label="Fraction excluded")
+        ax2.set_xlabel("Date")
+        ax1.set_ylabel("Number of samples")
+        ax1.legend()
+        ax2.legend()
+        return fig, [ax1, ax2]
 
     def plot_resources(self, start_date="2020-04-01"):
         ts = self.ts
         fig, ax = self._wide_plot(3, height=8, sharex=True)
-        elapsed_time = np.zeros(ts.num_provenances)
-        cpu_time = np.zeros(ts.num_provenances)
-        max_mem = np.zeros(ts.num_provenances)
-        date = np.zeros(ts.num_provenances, dtype="datetime64[D]")
-        num_samples = np.zeros(ts.num_provenances, dtype=int)
-        for j in range(1, ts.num_provenances):
-            p = ts.provenance(j)
-            record = json.loads(p.record)
-            text_date = record["parameters"]["args"][2]
-            date[j] = text_date
-            try:
-                resources = record["resources"]
-                elapsed_time[j] = resources["elapsed_time"]
-                cpu_time[j] = resources["user_time"] + resources["sys_time"]
-                max_mem[j] = resources["max_memory"]
-            except KeyError:
-                warnings.warn("Missing required provenance fields")
-            # The +3 is from lining up peaks by eye, not sure how it happens
-            days_ago = self.time_zero_as_date - date[j] + 3
-            # Avoid division by zero
-            num_samples[j] = max(1, self.num_samples_per_day[days_ago.astype(int)])
 
-        keep = date >= np.array([start_date], dtype="datetime64[D]")
-        total_elapsed = datetime.timedelta(seconds=np.sum(elapsed_time))
-        total_cpu = datetime.timedelta(seconds=np.sum(cpu_time))
+        dfs = self.samples_summary().set_index("date")
+        df = self.resources_summary().set_index("date")
+        # Should be able to do this with join, but I failed
+        df["samples_in_arg"] = dfs.loc[df.index]["samples_in_arg"]
+        df["samples_processed"] = dfs.loc[df.index]["samples_processed"]
+
+        df = df[df.index >= start_date]
+        df["cpu_time"] = df.user_time + df.sys_time
+        x = np.array(df.index, dtype="datetime64[D]")
+
+        total_elapsed = datetime.timedelta(seconds=np.sum(df.elapsed_time))
+        total_cpu = datetime.timedelta(seconds=np.sum(df.cpu_time))
         title = (
             f"{humanize.naturaldelta(total_elapsed)} elapsed "
             f"using {humanize.naturaldelta(total_cpu)} of CPU time "
-            f"(utilisation = {np.sum(cpu_time) / np.sum(elapsed_time):.2f})"
+            f"(utilisation = {np.sum(df.cpu_time) / np.sum(df.elapsed_time):.2f})"
         )
 
-        max_mem /= 1024**3  # Convert to GiB
+        # df.max_mem /= 1024**3  # Convert to GiB
         ax[0].set_title(title)
-        ax[0].plot(date[keep], elapsed_time[keep] / 60, label="elapsed time")
+        ax[0].plot(x, df.elapsed_time / 60, label="elapsed time")
         ax[-1].set_xlabel("Date")
         ax_twin = ax[0].twinx()
         ax_twin.plot(
-            date[keep], num_samples[keep], color="tab:red", alpha=0.5, label="samples"
+            x, df.samples_processed, color="tab:red", alpha=0.5, label="samples"
         )
-        ax_twin.set_ylabel("Num samples")
+        ax_twin.set_ylabel("Samples processed")
         ax[0].set_ylabel("Elapsed time (mins)")
         ax[0].legend()
         ax_twin.legend()
-        ax[1].plot(date[keep], elapsed_time[keep] / num_samples[keep])
+        ax[1].plot(x, df.elapsed_time / df.samples_processed)
         ax[1].set_ylabel("Elapsed time per sample (s)")
-        ax[2].plot(date[keep], max_mem[keep])
+        ax[2].plot(x, df.max_memory / 1024**3)
         ax[2].set_ylabel("Max memory (GiB)")
         return fig, ax
 
-    def fixme_plot_recombinants_per_day(self):
-        counter = collections.Counter()
-        for u in self.recombinants:
-            date = np.datetime64(self.nodes_metadata[u]["date_added"])
-            counter[date] += 1
-
-        samples_per_day = np.zeros(len(counter))
-        sample_date = self.nodes_date[self.ts.samples()]
-        for j, date in enumerate(counter.keys()):
-            samples_per_day[j] = np.sum(sample_date == date)
-        x = np.array(list(counter.keys()))
-        y = np.array(list(counter.values()))
-
-        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8))
-        ax1.plot(x, y)
-        ax2.plot(x, y / samples_per_day)
-        ax2.set_xlabel("Date")
-        ax1.set_ylabel("Number of recombinant samples")
-        ax2.set_ylabel("Fraction of samples recombinant")
-        ax2.set_ylim(0, 0.01)
+    def resources_summary(self):
+        ts = self.ts
+        data = []
+        dates = sorted(list(ts.metadata["sc2ts"]["num_samples_processed"].keys()))
+        assert len(dates) == ts.num_provenances - 1
+        for j in range(1, ts.num_provenances):
+            p = ts.provenance(j)
+            record = json.loads(p.record)
+            try:
+                # Just double checking that this is the same date the provenance is for
+                # when using production data from CLI (test fixtures don't have this).
+                text_date = record["parameters"]["args"][2]
+                assert text_date == dates[j - 1]
+            except IndexError:
+                pass
+            resources = record["resources"]
+            data.append({"date": dates[j - 1], **resources})
+        return pd.DataFrame(data)
 
     def draw_pango_lineage_subtree(
         self,
@@ -1596,7 +1616,8 @@ class TreeInfo:
         appropriate set of samples. See that function for more details.
         """
         return self.draw_subtree(
-            tracked_pango=[pango_lineage], position=position, *args, **kwargs)
+            tracked_pango=[pango_lineage], position=position, *args, **kwargs
+        )
 
     def draw_subtree(
         self,
@@ -1625,7 +1646,7 @@ class TreeInfo:
         untracked node lineages within polytomies are condensed into a dotted line.
         Clades containing more than a certain proportion of tracked nodes can also be
         collapsed (see the ``collapse_tracked`` parameter).
-        
+
         Most parameters are passed directly to ``tskit.Tree.draw_svg()`` method, apart
         from the following:
         :param position int: The genomic position at which to draw the tree. If None,
@@ -1698,7 +1719,9 @@ class TreeInfo:
 
         if extra_tracked_samples is not None:
             tn_set = set(tracked_nodes)
-            extra_tracked_samples = [e for e in extra_tracked_samples if e not in tn_set]
+            extra_tracked_samples = [
+                e for e in extra_tracked_samples if e not in tn_set
+            ]
             tracked_nodes = np.concatenate((tracked_nodes, extra_tracked_samples))
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(
@@ -1800,8 +1823,8 @@ class TreeInfo:
         # Recombination nodes as larger open circles
         re_nodes = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT)[0]
         styles.append(
-            ",".join([f".node.n{u} > .sym" for u in re_nodes]) +
-            f"{{r:{symbol_size/2*1.5:.2f}px; stroke:black; fill:white}}"
+            ",".join([f".node.n{u} > .sym" for u in re_nodes])
+            + f"{{r:{symbol_size/2*1.5:.2f}px; stroke:black; fill:white}}"
         )
         return tree.draw_svg(
             time_scale=time_scale,
@@ -2032,8 +2055,8 @@ class SampleGroupInfo:
         # recombination nodes in larger open white circles
         re_nodes = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT)[0]
         styles.append(
-            ",".join([f".node.n{u} > .sym" for u in re_nodes]) +
-            f"{{r: {symbol_size/2*1.5:.2f}px; stroke: black; fill: white}}"
+            ",".join([f".node.n{u} > .sym" for u in re_nodes])
+            + f"{{r: {symbol_size/2*1.5:.2f}px; stroke: black; fill: white}}"
         )
         svg = self.ts.draw_svg(
             size=size,
