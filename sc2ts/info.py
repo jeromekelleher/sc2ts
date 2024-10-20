@@ -1542,8 +1542,7 @@ class TreeInfo:
         ax2.legend()
         return fig, [ax1, ax2]
 
-    # Tests don't pass because we're not storing resources
-    def fix_tests_plot_resources(self, start_date="2020-04-01"):
+    def plot_resources(self, start_date="2020-04-01"):
         ts = self.ts
         fig, ax = self._wide_plot(3, height=8, sharex=True)
 
@@ -1553,7 +1552,6 @@ class TreeInfo:
         df["samples_in_arg"] = dfs.loc[df.index]["samples_in_arg"]
         df["samples_processed"] = dfs.loc[df.index]["samples_processed"]
 
-        # df = resources_summary(self)
         df = df[df.index >= start_date]
         df["cpu_time"] = df.user_time + df.sys_time
         x = np.array(df.index, dtype="datetime64[D]")
@@ -1587,13 +1585,20 @@ class TreeInfo:
     def resources_summary(self):
         ts = self.ts
         data = []
+        dates = sorted(list(ts.metadata["sc2ts"]["num_samples_processed"].keys()))
+        assert len(dates) == ts.num_provenances - 1
         for j in range(1, ts.num_provenances):
             p = ts.provenance(j)
             record = json.loads(p.record)
-            text_date = record["parameters"]["args"][2]
-
+            try:
+                # Just double checking that this is the same date the provenance is for
+                # when using production data from CLI (test fixtures don't have this).
+                text_date = record["parameters"]["args"][2]
+                assert text_date == dates[j - 1]
+            except IndexError:
+                pass
             resources = record["resources"]
-            data.append({"date": text_date, **resources})
+            data.append({"date": dates[j - 1], **resources})
         return pd.DataFrame(data)
 
     def fixme_plot_recombinants_per_day(self):

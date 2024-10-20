@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import sc2ts
+from sc2ts import cli
 
 
 @pytest.fixture
@@ -85,7 +86,11 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_ma
         # These sites are masked out in all alignments in the initial data
         # anyway; https://github.com/jeromekelleher/sc2ts/issues/282
         last_ts = sc2ts.initial_ts([56, 57, 58, 59, 60])
+        cache_path = fx_data_cache / "initial.ts"
+        cli.add_provenance(last_ts, cache_path)
         for date in dates:
+            # Load the ts from file to get the provenance data
+            last_ts = tskit.load(cache_path)
             last_ts = sc2ts.extend(
                 alignment_store=fx_alignment_store,
                 metadata_db=fx_metadata_db,
@@ -97,7 +102,9 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_ma
                 f"INFERRED {date} nodes={last_ts.num_nodes} mutations={last_ts.num_mutations}"
             )
             cache_path = fx_data_cache / f"{date}.ts"
-            last_ts.dump(cache_path)
+            # The values recorded for resources are nonsense here, but at least it's
+            # something to use for tests
+            cli.add_provenance(last_ts, cache_path)
     return {date: tskit.load(fx_data_cache / f"{date}.ts") for date in dates}
 
 
