@@ -473,7 +473,7 @@ def match_samples(
         ts=base_ts,
         mu=mu,
         rho=rho,
-        num_threads=num_threads,
+        num_threads=num_threads // 2,  # FIXME! temporary hack to enable big inference
         deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
         progress_title=date,
