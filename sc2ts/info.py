@@ -1516,8 +1516,9 @@ class TreeInfo:
         ax.set_ylabel("Overlapping deletions")
         return fig, [ax]
 
-    def plot_samples_per_day(self):
+    def plot_samples_per_day(self, start_date="2020-04-01"):
         df = self.samples_summary()
+        df = df[df.date >= start_date]
         fig, (ax1, ax2) = self._wide_plot(2, height=6, sharex=True)
 
         ax1.plot(df.date, df.samples_in_arg, label="In ARG")
@@ -1600,27 +1601,6 @@ class TreeInfo:
             resources = record["resources"]
             data.append({"date": dates[j - 1], **resources})
         return pd.DataFrame(data)
-
-    def fixme_plot_recombinants_per_day(self):
-        counter = collections.Counter()
-        for u in self.recombinants:
-            date = np.datetime64(self.nodes_metadata[u]["date_added"])
-            counter[date] += 1
-
-        samples_per_day = np.zeros(len(counter))
-        sample_date = self.nodes_date[self.ts.samples()]
-        for j, date in enumerate(counter.keys()):
-            samples_per_day[j] = np.sum(sample_date == date)
-        x = np.array(list(counter.keys()))
-        y = np.array(list(counter.values()))
-
-        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8))
-        ax1.plot(x, y)
-        ax2.plot(x, y / samples_per_day)
-        ax2.set_xlabel("Date")
-        ax1.set_ylabel("Number of recombinant samples")
-        ax2.set_ylabel("Fraction of samples recombinant")
-        ax2.set_ylim(0, 0.01)
 
     def draw_pango_lineage_subtree(
         self,
