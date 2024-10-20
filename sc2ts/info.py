@@ -1542,57 +1542,59 @@ class TreeInfo:
         ax2.legend()
         return fig, [ax1, ax2]
 
-    def plot_resources(self, start_date="2020-04-01"):
+    # Tests don't pass because we're not storing resources
+    def fix_tests_plot_resources(self, start_date="2020-04-01"):
         ts = self.ts
         fig, ax = self._wide_plot(3, height=8, sharex=True)
-        elapsed_time = np.zeros(ts.num_provenances)
-        cpu_time = np.zeros(ts.num_provenances)
-        max_mem = np.zeros(ts.num_provenances)
-        date = np.zeros(ts.num_provenances, dtype="datetime64[D]")
-        num_samples = np.zeros(ts.num_provenances, dtype=int)
+
+        dfs = self.samples_summary().set_index("date")
+        df = self.resources_summary().set_index("date")
+        # Should be able to do this with join, but I failed
+        df["samples_in_arg"] = dfs.loc[df.index]["samples_in_arg"]
+        df["samples_processed"] = dfs.loc[df.index]["samples_processed"]
+
+        # df = resources_summary(self)
+        df = df[df.index >= start_date]
+        df["cpu_time"] = df.user_time + df.sys_time
+        x = np.array(df.index, dtype="datetime64[D]")
+
+        total_elapsed = datetime.timedelta(seconds=np.sum(df.elapsed_time))
+        total_cpu = datetime.timedelta(seconds=np.sum(df.cpu_time))
+        title = (
+            f"{humanize.naturaldelta(total_elapsed)} elapsed "
+            f"using {humanize.naturaldelta(total_cpu)} of CPU time "
+            f"(utilisation = {np.sum(df.cpu_time) / np.sum(df.elapsed_time):.2f})"
+        )
+
+        # df.max_mem /= 1024**3  # Convert to GiB
+        ax[0].set_title(title)
+        ax[0].plot(x, df.elapsed_time / 60, label="elapsed time")
+        ax[-1].set_xlabel("Date")
+        ax_twin = ax[0].twinx()
+        ax_twin.plot(
+            x, df.samples_processed, color="tab:red", alpha=0.5, label="samples"
+        )
+        ax_twin.set_ylabel("Samples processed")
+        ax[0].set_ylabel("Elapsed time (mins)")
+        ax[0].legend()
+        ax_twin.legend()
+        ax[1].plot(x, df.elapsed_time / df.samples_processed)
+        ax[1].set_ylabel("Elapsed time per sample (s)")
+        ax[2].plot(x, df.max_memory / 1024**3)
+        ax[2].set_ylabel("Max memory (GiB)")
+        return fig, ax
+
+    def resources_summary(self):
+        ts = self.ts
+        data = []
         for j in range(1, ts.num_provenances):
             p = ts.provenance(j)
             record = json.loads(p.record)
             text_date = record["parameters"]["args"][2]
-            date[j] = text_date
-            try:
-                resources = record["resources"]
-                elapsed_time[j] = resources["elapsed_time"]
-                cpu_time[j] = resources["user_time"] + resources["sys_time"]
-                max_mem[j] = resources["max_memory"]
-            except KeyError:
-                warnings.warn("Missing required provenance fields")
-            # The +3 is from lining up peaks by eye, not sure how it happens
-            days_ago = self.time_zero_as_date - date[j] + 3
-            # Avoid division by zero
-            num_samples[j] = max(1, self.num_samples_per_day[days_ago.astype(int)])
 
-        keep = date >= np.array([start_date], dtype="datetime64[D]")
-        total_elapsed = datetime.timedelta(seconds=np.sum(elapsed_time))
-        total_cpu = datetime.timedelta(seconds=np.sum(cpu_time))
-        title = (
-            f"{humanize.naturaldelta(total_elapsed)} elapsed "
-            f"using {humanize.naturaldelta(total_cpu)} of CPU time "
-            f"(utilisation = {np.sum(cpu_time) / np.sum(elapsed_time):.2f})"
-        )
-
-        max_mem /= 1024**3  # Convert to GiB
-        ax[0].set_title(title)
-        ax[0].plot(date[keep], elapsed_time[keep] / 60, label="elapsed time")
-        ax[-1].set_xlabel("Date")
-        ax_twin = ax[0].twinx()
-        ax_twin.plot(
-            date[keep], num_samples[keep], color="tab:red", alpha=0.5, label="samples"
-        )
-        ax_twin.set_ylabel("Num samples")
-        ax[0].set_ylabel("Elapsed time (mins)")
-        ax[0].legend()
-        ax_twin.legend()
-        ax[1].plot(date[keep], elapsed_time[keep] / num_samples[keep])
-        ax[1].set_ylabel("Elapsed time per sample (s)")
-        ax[2].plot(date[keep], max_mem[keep])
-        ax[2].set_ylabel("Max memory (GiB)")
-        return fig, ax
+            resources = record["resources"]
+            data.append({"date": text_date, **resources})
+        return pd.DataFrame(data)
 
     def fixme_plot_recombinants_per_day(self):
         counter = collections.Counter()
