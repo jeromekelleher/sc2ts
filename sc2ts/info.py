@@ -873,6 +873,21 @@ class TreeInfo:
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
         )
 
+    def samples_summary(self):
+        data = []
+        md = self.ts.metadata["sc2ts"]
+        for days_ago in np.arange(self.num_samples_per_day.shape[0]):
+            date = str(self.time_zero_as_date - days_ago)
+            data.append(
+                {
+                    "date": self.time_zero_as_date - days_ago,
+                    "samples_in_arg": self.num_samples_per_day[days_ago],
+                    "samples_processed": md["num_samples_processed"].get(date, 0),
+                    "exact_matches": md["exact_matches"]["date"].get(date, 0),
+                }
+            )
+        return pd.DataFrame(data)
+
     def recombinants_summary(self):
         data = []
         for u in self.recombinants:
@@ -1502,12 +1517,30 @@ class TreeInfo:
         return fig, [ax]
 
     def plot_samples_per_day(self):
-        fig, ax = self._wide_plot(1, 1)
-        t = np.arange(self.num_samples_per_day.shape[0])
-        ax.plot(self.time_zero_as_date - t, self.num_samples_per_day)
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Number of samples")
-        return fig, [ax]
+        df = self.samples_summary()
+        fig, (ax1, ax2) = self._wide_plot(2, height=6, sharex=True)
+
+        ax1.plot(df.date, df.samples_in_arg, label="In ARG")
+        ax1.plot(df.date, df.samples_processed, label="Processed")
+        ax1.plot(df.date, df.exact_matches, label="Exact matches")
+
+        ax2.plot(
+            df.date,
+            df.samples_in_arg / df.samples_processed,
+            label="Fraction processed in ARG",
+        )
+        ax2.plot(
+            df.date,
+            df.exact_matches / df.samples_processed,
+            label="Fraction processed exact matches",
+        )
+        excluded = df.samples_processed - df.exact_matches - df.samples_in_arg
+        ax2.plot(df.date, excluded / df.samples_processed, label="Fraction excluded")
+        ax2.set_xlabel("Date")
+        ax1.set_ylabel("Number of samples")
+        ax1.legend()
+        ax2.legend()
+        return fig, [ax1, ax2]
 
     def plot_resources(self, start_date="2020-04-01"):
         ts = self.ts
@@ -1596,7 +1629,8 @@ class TreeInfo:
         appropriate set of samples. See that function for more details.
         """
         return self.draw_subtree(
-            tracked_pango=[pango_lineage], position=position, *args, **kwargs)
+            tracked_pango=[pango_lineage], position=position, *args, **kwargs
+        )
 
     def draw_subtree(
         self,
@@ -1625,7 +1659,7 @@ class TreeInfo:
         untracked node lineages within polytomies are condensed into a dotted line.
         Clades containing more than a certain proportion of tracked nodes can also be
         collapsed (see the ``collapse_tracked`` parameter).
-        
+
         Most parameters are passed directly to ``tskit.Tree.draw_svg()`` method, apart
         from the following:
         :param position int: The genomic position at which to draw the tree. If None,
@@ -1698,7 +1732,9 @@ class TreeInfo:
 
         if extra_tracked_samples is not None:
             tn_set = set(tracked_nodes)
-            extra_tracked_samples = [e for e in extra_tracked_samples if e not in tn_set]
+            extra_tracked_samples = [
+                e for e in extra_tracked_samples if e not in tn_set
+            ]
             tracked_nodes = np.concatenate((tracked_nodes, extra_tracked_samples))
         tree = ts.at(position, tracked_samples=tracked_nodes)
         order = np.array(
@@ -1800,8 +1836,8 @@ class TreeInfo:
         # Recombination nodes as larger open circles
         re_nodes = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT)[0]
         styles.append(
-            ",".join([f".node.n{u} > .sym" for u in re_nodes]) +
-            f"{{r:{symbol_size/2*1.5:.2f}px; stroke:black; fill:white}}"
+            ",".join([f".node.n{u} > .sym" for u in re_nodes])
+            + f"{{r:{symbol_size/2*1.5:.2f}px; stroke:black; fill:white}}"
         )
         return tree.draw_svg(
             time_scale=time_scale,
@@ -2032,8 +2068,8 @@ class SampleGroupInfo:
         # recombination nodes in larger open white circles
         re_nodes = np.where(ts.nodes_flags & core.NODE_IS_RECOMBINANT)[0]
         styles.append(
-            ",".join([f".node.n{u} > .sym" for u in re_nodes]) +
-            f"{{r: {symbol_size/2*1.5:.2f}px; stroke: black; fill: white}}"
+            ",".join([f".node.n{u} > .sym" for u in re_nodes])
+            + f"{{r: {symbol_size/2*1.5:.2f}px; stroke: black; fill: white}}"
         )
         svg = self.ts.draw_svg(
             size=size,
