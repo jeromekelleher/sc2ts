@@ -492,10 +492,8 @@ class TreeInfo:
         self.nodes_metadata = {}
         self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
-        last_sample = ts.node(samples[-1])
 
-        self.nodes_date[last_sample.id] = last_sample.metadata["date"]
-        self.time_zero_as_date = self.nodes_date[last_sample.id]
+        self.time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
         self.earliest_pango_lineage = {}
         self.pango_lineage_samples = collections.defaultdict(list)
 
