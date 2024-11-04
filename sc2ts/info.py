@@ -739,35 +739,24 @@ class TreeInfo:
 
     def _node_summary(self, u, child_mutations=True):
         md = self.nodes_metadata[u]
-        qc_map = {"good": "0", "mediocre": "1"}
-        qc_fields = [
-            "qc.missingData.status",
-            "qc.frameShifts.status",
-            "qc.mixedSites.status",
-            "qc.stopCodons.status",
-        ]
-        qc = ""
-        for qc_type in qc_fields:
-            status = "-"  # missing
-            if qc_type in md:
-                status = qc_map[md[qc_type]]
-            qc += status
         flags = self.ts.nodes_flags[u]
         strain = ""
         if (flags & tskit.NODE_IS_SAMPLE) != 0:
             strain = md["strain"]
-        elif flags == 1 << 21:
-            if "overlap" in md:
-                strain = f"Overlap {len(md['overlap'])} mut {len(md['sibs'])} sibs"
-            else:
-                strain = "Overlap debug missing"
-        elif flags == 1 << 22:
-            if "sites" in md:
-                strain = f"Push {len(md['sites'])} reversions"
-            else:
-                strain = "Push debug missing"
-        elif "date_added" in md:
-            strain = f"Added {md['date_added']}"
+        else:
+            md = md["sc2ts"]
+            if flags == 1 << 21:
+                if "overlap" in md:
+                    strain = f"Overlap {len(md['overlap'])} mut {len(md['sibs'])} sibs"
+                else:
+                    strain = "Overlap debug missing"
+            elif flags == 1 << 22:
+                if "sites" in md:
+                    strain = f"Push {len(md['sites'])} reversions"
+                else:
+                    strain = "Push debug missing"
+            elif "group_id" in md:
+                strain = md["group_id"]
 
         pango = md.get(self.pango_source, None)
         imputed_pango = md.get("Imputed_" + self.pango_source, None)
@@ -787,7 +776,6 @@ class TreeInfo:
             "children": np.sum(self.ts.edges_parent == u),
             "descendants": self.nodes_max_descendant_samples[u],
             "date": self.nodes_date[u],
-            "qc": qc,
             **self._node_mutation_summary(u, child_mutations=child_mutations),
         }
 
