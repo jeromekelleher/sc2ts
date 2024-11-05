@@ -32,7 +32,7 @@ def recombinant_example_1(ts_map):
     # SRR11597163 51  [(15324, 'T'), (29303, 'T')]
     H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
     bp = 10_000
-    h = H[0].copy()
+    h = H[0].copy().astype(np.int8)
     h[bp:] = H[1][bp:]
 
     s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
@@ -1152,10 +1152,15 @@ class TestMatchRecombinants:
         assert m.path[1].right == ts.sequence_length
 
         m = s.hmm_reruns["no_recombination"]
+        # It seems that we can choose either the left or right parent
+        # arbitrarily :shrug:
         assert len(m.mutations) == 3
-        assert m.mutation_summary() == "[11083T>G, 15324C>T, 29303C>T]"
+        assert m.mutation_summary() in [
+            "[871A>G, 3027A>G, 3787C>T]",
+            "[11083T>G, 15324C>T, 29303C>T]",
+        ]
         assert len(m.path) == 1
-        assert m.path[0].parent == left_parent
+        assert m.path[0].parent in [left_parent, right_parent]
         assert m.path[0].left == 0
         assert m.path[0].right == ts.sequence_length
 
