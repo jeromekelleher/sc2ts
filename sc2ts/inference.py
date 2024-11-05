@@ -4,7 +4,7 @@ import logging
 import datetime
 import dataclasses
 import collections
-import concurrent.futures
+import concurrent.futures as cf
 import json
 import pickle
 import hashlib
@@ -514,12 +514,12 @@ def preprocess(
     work = np.array_split(strains, splits)
     samples = []
     bar = get_progress(strains, progress_title, "preprocess", show_progress)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+    with cf.ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
             for w in work
         ]
-        for future in concurrent.futures.as_completed(futures):
+        for future in cf.as_completed(futures):
             for s in future.result():
                 bar.update()
                 samples.append(s)
@@ -1209,58 +1209,76 @@ def match_tsinfer(
         # TMP
         likelihood_threshold = rho**2 * mu**5
 
-    matcher = _tsinfer.AncestorMatcher(
-        tsb,
-        recombination=np.full(ts.num_sites, rho),
-        mismatch=np.full(ts.num_sites, mu),
-        likelihood_threshold=likelihood_threshold,
-    )
-
-    hmm_matches = {}
-    for sample in samples:
-        h = sample.haplotype.copy()
-        if mirror_coordinates:
-            h = h[::-1]
-        if deletions_as_missing:
-            h[h == DELETION] = MISSING
+    def match_worker(h):
+        logger.debug("Start match worker")
+        matcher = _tsinfer.AncestorMatcher(
+            tsb,
+            recombination=np.full(ts.num_sites, rho),
+            mismatch=np.full(ts.num_sites, mu),
+            likelihood_threshold=likelihood_threshold,
+        )
+        logger.debug("matcher built")
         is_missing = h == MISSING
         m = np.full(len(h), MISSING, dtype=np.int8)
         match_path = matcher.find_path(h, 0, len(h), m)
+        logger.debug("find_path done")
         # Mask out the imputed sites
         m[is_missing] = MISSING
+        return match_path, h, m
 
-        path = []
-        for left, right, parent in zip(*match_path):
+    bar = get_progress(samples, progress_title, "match", show_progress)
+
+    with cf.ThreadPoolExecutor(max_workers=max(num_threads, 1)) as executor:
+        future_to_sample = {}
+        for sample in samples:
+            h = sample.haplotype.copy()
             if mirror_coordinates:
-                left_pos = mirror(int(coord_map[right]), L)
-                right_pos = mirror(int(coord_map[left]), L)
+                h = h[::-1]
+            if deletions_as_missing:
+                h[h == DELETION] = MISSING
+
+            future = executor.submit(match_worker, h)
+            future_to_sample[future] = sample
+
+        hmm_matches = {}
+        for future in cf.as_completed(future_to_sample):
+            match_path, h, m = future.result()
+            sample = future_to_sample[future]
+
+            path = []
+            for left, right, parent in zip(*match_path):
+                if mirror_coordinates:
+                    left_pos = mirror(int(coord_map[right]), L)
+                    right_pos = mirror(int(coord_map[left]), L)
+                else:
+                    left_pos = int(coord_map[left])
+                    right_pos = int(coord_map[right])
+                path.append(PathSegment(left_pos, right_pos, int(parent)))
+
+            if mirror_coordinates:
+                h = h[::-1]
+                m = m[::-1]
             else:
-                left_pos = int(coord_map[left])
-                right_pos = int(coord_map[right])
-            path.append(PathSegment(left_pos, right_pos, int(parent)))
+                # tsinfer returns the path right-to-left, which we reverse
+                # if matching forwards
+                path = path[::-1]
 
-        if mirror_coordinates:
-            h = h[::-1]
-            m = m[::-1]
-        else:
-            # tsinfer returns the path right-to-left, which we reverse
-            # if matching forwards
-            path = path[::-1]
-
-        mutations = []
-        for site_id in np.where(h != m)[0]:
-            site_pos = ts.sites_position[site_id]
-            derived_state = core.ALLELES[h[site_id]]
-            inherited_state = core.ALLELES[m[site_id]]
-            mutations.append(
-                MatchMutation(
-                    site_id=int(site_id),
-                    site_position=int(site_pos),
-                    derived_state=derived_state,
-                    inherited_state=inherited_state,
+            mutations = []
+            for site_id in np.where(h != m)[0]:
+                site_pos = ts.sites_position[site_id]
+                derived_state = core.ALLELES[h[site_id]]
+                inherited_state = core.ALLELES[m[site_id]]
+                mutations.append(
+                    MatchMutation(
+                        site_id=int(site_id),
+                        site_position=int(site_pos),
+                        derived_state=derived_state,
+                        inherited_state=inherited_state,
+                    )
                 )
-            )
-        hmm_matches[sample.strain] = HmmMatch(path, mutations)
+            hmm_matches[sample.strain] = HmmMatch(path, mutations)
+            bar.update()
+        bar.close()
 
     return hmm_matches
 
