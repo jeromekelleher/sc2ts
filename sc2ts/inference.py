@@ -49,23 +49,6 @@ def get_progress(iterable, title, phase, show_progress, total=None):
     )
 
 
-# class TsinferProgressMonitor(tsinfer.progress.ProgressMonitor):
-#     def __init__(self, date, phase, *args, **kwargs):
-#         self.date = date
-#         self.phase = phase
-#         super().__init__(*args, **kwargs)
-
-#     def get(self, key, total):
-#         self.current_instance = get_progress(
-#             None,
-#             title=self.date,
-#             phase=self.phase,
-#             show_progress=self.enabled,
-#             total=total,
-#         )
-#         return self.current_instance
-
-
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
@@ -1087,14 +1070,6 @@ def solve_num_mismatches(k, num_alleles=5):
     return mu, rho
 
 
-# Work around tsinfer's reshuffling of the allele indexes
-def unshuffle_allele_index(index, ancestral_state):
-    A = core.ALLELES
-    as_index = A.index(ancestral_state)
-    alleles = ancestral_state + A[:as_index] + A[as_index + 1 :]
-    return alleles[index]
-
-
 def is_full_span(tree, u):
     """
     Returns true if the edge in which the specified node is a child
@@ -1153,149 +1128,6 @@ def delete_immediate_reversion_nodes(ts, attach_nodes):
     tables.build_index()
     logger.debug(f"Deleted {len(nodes_to_delete)} immediate reversion nodes")
     return tables.tree_sequence()
-
-
-# NOTE: could definitely do better here by using int encoding instead of
-# strings, and then njit
-@numba.jit(forceobj=True)
-def get_indexes_of(array, values):
-    n = array.shape[0]
-    out = np.zeros(n, dtype=np.int64)
-    for j in range(n):
-        out[j] = values.index(array[j])
-    return out
-
-
-def convert_tsinfer_sample_data(ts, genotypes):
-    """
-    Doing this directly using using tsinfer's APIs was very slow because
-    of all the error checking etc going on. This circumvents the process.
-    """
-    alleles = tuple(core.ALLELES)
-    sd = tsinfer.SampleData(sequence_length=ts.sequence_length, compressor=None)
-    # for site, site_genotypes in zip(ts.sites(), genotypes):
-    #     sd.add_site(
-    #         site.position,
-    #         site_genotypes,
-    #         alleles=alleles,
-    #         ancestral_allele=alleles.index(site.ancestral_state),
-    #     )
-
-    # Let the API add one site to get the basic stuff in there.
-    sd.add_site(
-        0,
-        genotypes[0],
-        alleles=alleles,
-    )
-    sd.finalise()
-
-    ancestral_state = ts.tables.sites.ancestral_state.view("S1").astype(str)
-    ancestral_allele = get_indexes_of(ancestral_state, alleles)
-
-    def resize_copy(array, new_size):
-        x = array[0]
-        array.resize(new_size)
-        array[:] = [x] * new_size
-
-    data = zarr.open(store=sd.data.store)
-    data["sites/position"] = ts.sites_position
-    data["sites/time"] = np.zeros_like(ts.sites_position)
-    data["sites/genotypes"] = genotypes
-    data["sites/alleles"] = [alleles] * ts.num_sites
-    data["sites/ancestral_allele"] = ancestral_allele
-    resize_copy(data["sites/metadata"], ts.num_sites)
-    return sd
-
-
-def match_tsinfer_old(
-    samples,
-    ts,
-    mu,
-    rho,
-    *,
-    likelihood_threshold=None,
-    deletions_as_missing=False,
-    num_threads=0,
-    show_progress=False,
-    progress_title=None,
-    progress_phase=None,
-    mirror_coordinates=False,
-):
-    if len(samples) == 0:
-        return []
-    genotypes = np.array([sample.haplotype for sample in samples], dtype=np.int8).T
-    if deletions_as_missing:
-        dels = np.where(genotypes == DELETION)[0]
-        genotypes[dels] = MISSING
-    input_ts = ts
-    if mirror_coordinates:
-        ts = mirror_ts_coordinates(ts)
-        genotypes = genotypes[::-1]
-
-    sd = convert_tsinfer_sample_data(ts, genotypes)
-
-    L = int(ts.sequence_length)
-    ls_recomb = np.full(ts.num_sites - 1, rho)
-    ls_mismatch = np.full(ts.num_sites, mu)
-    if likelihood_threshold is None:
-        # Let's say a double break with 5 mutations is the most unlikely thing
-        # we're interested in solving for exactly.
-        likelihood_threshold = rho**2 * mu**5
-
-    pm = TsinferProgressMonitor(progress_title, progress_phase, enabled=show_progress)
-
-    # This is just working around tsinfer's input checking logic. The actual value
-    # we're incrementing by has no effect.
-    tables = ts.dump_tables()
-    tables.nodes.time += 1
-    tables.mutations.time += 1
-    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-    ts = tables.tree_sequence()
-    del tables
-
-    manager = Matcher(
-        sd,
-        ts,
-        allow_multiallele=True,
-        recombination=ls_recomb,
-        mismatch=ls_mismatch,
-        progress_monitor=pm,
-        num_threads=num_threads,
-        likelihood_threshold=likelihood_threshold,
-    )
-    results = manager.run_match(np.arange(sd.num_samples))
-
-    coord_map = np.append(ts.sites_position, [L]).astype(int)
-    coord_map[0] = 0
-
-    sample_paths = []
-    sample_mutations = []
-    for node_id, sample in enumerate(samples, ts.num_nodes):
-        path = []
-        for left, right, parent in zip(*results.get_path(node_id)):
-            if mirror_coordinates:
-                left_pos = mirror(int(coord_map[right]), L)
-                right_pos = mirror(int(coord_map[left]), L)
-            else:
-                left_pos = int(coord_map[left])
-                right_pos = int(coord_map[right])
-            path.append((left_pos, right_pos, int(parent)))
-        path.sort()
-        sample_paths.append(path)
-
-        mutations = []
-        for site_id, derived_state in zip(*results.get_mutations(node_id)):
-            site_pos = ts.sites_position[site_id]
-            if mirror_coordinates:
-                site_pos = mirror(site_pos, L - 1)
-            derived_state = unshuffle_allele_index(
-                derived_state, ancestral_state[site_id]
-            )
-            mutations.append((site_pos, derived_state))
-        mutations.sort()
-        sample_mutations.append(mutations)
-
-    return get_match_info(input_ts, sample_paths, sample_mutations)
 
 
 def make_tsb(ts, mirror_coordinates=False):
@@ -1411,9 +1243,8 @@ def match_tsinfer(
         for site_id in np.where(h != m)[0]:
             site_pos = ts.sites_position[site_id]
             derived_state = core.ALLELES[h[site_id]]
-            # TODO use this!
-            # inherited_state = core.ALLELES[m[site_id]]
-            mutations.append((site_pos, derived_state))
+            inherited_state = core.ALLELES[m[site_id]]
+            mutations.append((site_pos, derived_state, inherited_state))
         mutations.sort()
         sample_mutations.append(mutations)
 
@@ -1529,7 +1360,7 @@ def get_match_info(ts, sample_paths, sample_mutations):
             for left, right, parent in path
         ]
         sample_mutations = []
-        for site_pos, derived_state in mutations:
+        for site_pos, derived_state, _inherited_state in mutations:
             site_id = np.searchsorted(ts.sites_position, site_pos)
             assert ts.sites_position[site_id] == site_pos
             seg = [seg for seg in sample_path if seg.contains(site_pos)][0]
@@ -1548,6 +1379,9 @@ def get_match_info(ts, sample_paths, sample_mutations):
                     is_immediate_reversion = closest_mutation.node == seg.parent
 
             assert inherited_state != derived_state
+            # Sanity check that the inherited_state we get from doing the match
+            # is the same as the inherited_state we compute here.
+            assert inherited_state == _inherited_state
             sample_mutations.append(
                 MatchMutation(
                     site_id=int(site_id),
@@ -1560,38 +1394,6 @@ def get_match_info(ts, sample_paths, sample_mutations):
             )
         matches.append(HmmMatch(sample_path, sample_mutations))
     return matches
-
-
-# class Matcher(tsinfer.SampleMatcher):
-#     """
-#     NOTE: this is using undocumented internal APIs as a way of accessing
-#     tsinfer's Li and Stephens matching engine. There are some awkward
-#     workaround involved in dealing with tsinfer's internal representation
-#     of the data, which are tightly coupled to implementation details within
-#     tsinfer.
-
-#     This implementation will be swapped out for tskit's LS engine in the
-#     near future, using fully documented and supported APIs.
-#     """
-
-#     def _match_samples(self, sample_indexes):
-#         # Some hacks here to work around the fact that tsinfer does a bunch
-#         # of stuff we don't want here. All we want are the matched paths and
-#         # mutations.
-#         num_samples = len(sample_indexes)
-#         self.match_progress = self.progress_monitor.get("ms_match", num_samples)
-#         if self.num_threads <= 0:
-#             self._SampleMatcher__match_samples_single_threaded(sample_indexes)
-#         else:
-#             self._SampleMatcher__match_samples_multi_threaded(sample_indexes)
-#         self.match_progress.close()
-
-#     def run_match(self, samples):
-#         builder = self.tree_sequence_builder
-#         for sd_id in samples:
-#             self.sample_id_map[sd_id] = builder.add_node(0)
-#         self._match_samples(samples)
-#         return self.results
 
 
 def attach_tree(
