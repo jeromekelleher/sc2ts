@@ -381,7 +381,7 @@ def match_recombinants(
     mu, rho = solve_num_mismatches(num_mismatches)
     for hmm_pass in ["forward", "reverse", "no_recombination"]:
         logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
-        matches = match_tsinfer(
+        hmm_matches = match_tsinfer(
             samples=samples,
             ts=base_ts,
             mu=mu,
@@ -392,13 +392,9 @@ def match_recombinants(
             likelihood_threshold=1e-200,
             mirror_coordinates=hmm_pass == "reverse",
         )
-        for hmm_match, sample in zip(matches, samples):
-            sample.hmm_reruns[hmm_pass] = hmm_match
 
-    for sample in samples:
-        # We may want to try to improve the location of the breakpoints
-        # later. For now, just log the info.
-        logger.info(f"Recombinant: {sample.summary()}")
+        for sample in samples:
+            sample.hmm_reruns[hmm_pass] = hmm_matches[sample.strain]
 
 
 def match_samples(
@@ -437,7 +433,8 @@ def match_samples(
         )
 
         exceeding_threshold = []
-        for sample, hmm_match in zip(run_batch, hmm_matches):
+        for sample in run_batch:
+            hmm_match = hmm_matches[sample.strain]
             cost = hmm_match.get_hmm_cost(num_mismatches)
             logger.debug(
                 f"HMM@k={k}: {sample.strain} hmm_cost={cost} match={hmm_match.summary()}"
@@ -466,7 +463,8 @@ def match_samples(
         progress_title=date,
         progress_phase=f"match(F)",
     )
-    for sample, hmm_match in zip(run_batch, hmm_matches):
+    for sample in run_batch:
+        hmm_match = hmm_matches[sample.strain]
         sample.hmm_match = hmm_match
         cost = hmm_match.get_hmm_cost(num_mismatches)
         # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
@@ -638,6 +636,8 @@ def extend(
             show_progress=show_progress,
             num_threads=num_threads,
         )
+
+        characterise_match_mutations(base_ts, samples)
 
         match_db.add(samples, date, num_mismatches, show_progress)
         match_db.create_mask_table(base_ts)
@@ -919,6 +919,10 @@ def add_matching_results(
     site_deletion_samples = np.zeros(ts.num_sites, dtype=int)
     num_samples = 0
     for sample in match_db.get(where_clause):
+        assert all(mut.is_reversion is not None for mut in sample.hmm_match.mutations)
+        assert all(
+            mut.is_immediate_reversion is not None for mut in sample.hmm_match.mutations
+        )
         path = tuple(sample.hmm_match.path)
         immediate_reversions = tuple(
             (mut.site_id, mut.derived_state)
@@ -1211,8 +1215,8 @@ def match_tsinfer(
         mismatch=np.full(ts.num_sites, mu),
         likelihood_threshold=likelihood_threshold,
     )
-    sample_paths = []
-    sample_mutations = []
+
+    hmm_matches = {}
     for sample in samples:
         h = sample.haplotype.copy()
         if mirror_coordinates:
@@ -1222,6 +1226,9 @@ def match_tsinfer(
         is_missing = h == MISSING
         m = np.full(len(h), MISSING, dtype=np.int8)
         match_path = matcher.find_path(h, 0, len(h), m)
+        # Mask out the imputed sites
+        m[is_missing] = MISSING
+
         path = []
         for left, right, parent in zip(*match_path):
             if mirror_coordinates:
@@ -1230,25 +1237,32 @@ def match_tsinfer(
             else:
                 left_pos = int(coord_map[left])
                 right_pos = int(coord_map[right])
-            path.append((left_pos, right_pos, int(parent)))
-        path.sort()
-        sample_paths.append(path)
+            path.append(PathSegment(left_pos, right_pos, int(parent)))
 
-        # Mask out the imputed sites
-        m[is_missing] = MISSING
         if mirror_coordinates:
             h = h[::-1]
             m = m[::-1]
+        else:
+            # tsinfer returns the path right-to-left, which we reverse
+            # if matching forwards
+            path = path[::-1]
+
         mutations = []
         for site_id in np.where(h != m)[0]:
             site_pos = ts.sites_position[site_id]
             derived_state = core.ALLELES[h[site_id]]
             inherited_state = core.ALLELES[m[site_id]]
-            mutations.append((site_pos, derived_state, inherited_state))
-        mutations.sort()
-        sample_mutations.append(mutations)
+            mutations.append(
+                MatchMutation(
+                    site_id=int(site_id),
+                    site_position=int(site_pos),
+                    derived_state=derived_state,
+                    inherited_state=inherited_state,
+                )
+            )
+        hmm_matches[sample.strain] = HmmMatch(path, mutations)
 
-    return get_match_info(ts, sample_paths, sample_mutations)
+    return hmm_matches
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1268,14 +1282,14 @@ class PathSegment:
         }
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class MatchMutation:
     site_id: int
     site_position: int
     derived_state: str
     inherited_state: str
-    is_reversion: bool
-    is_immediate_reversion: bool
+    is_reversion: bool = None
+    is_immediate_reversion: bool = None
 
     def __str__(self):
         return f"{int(self.site_position)}{self.inherited_state}>{self.derived_state}"
@@ -1329,12 +1343,11 @@ class HmmMatch:
         return "[" + ", ".join(str(mutation) for mutation in self.mutations) + "]"
 
 
-def get_match_info(ts, sample_paths, sample_mutations):
-    tables = ts.tables
-    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-    del tables
-
+def characterise_match_mutations(ts, samples):
+    """
+    Update the hmm matches for each of the samples in place so that we characterise
+    reversions and immediate_reversions.
+    """
     tree = ts.first()
     cache = {}
 
@@ -1349,51 +1362,40 @@ def get_match_info(ts, sample_paths, sample_mutations):
             closest = None
             if u != -1:
                 closest = mutations[u]
-            cache[(node, site_id)] = closest
+            cache[(node, site_id)] = site.ancestral_state, closest
 
         return cache[(node, site_id)]
 
-    matches = []
-    for path, mutations in zip(sample_paths, sample_mutations):
-        sample_path = [
-            PathSegment(int(left), int(right), int(parent))
-            for left, right, parent in path
-        ]
-        sample_mutations = []
-        for site_pos, derived_state, _inherited_state in mutations:
-            site_id = np.searchsorted(ts.sites_position, site_pos)
-            assert ts.sites_position[site_id] == site_pos
-            seg = [seg for seg in sample_path if seg.contains(site_pos)][0]
-            closest_mutation = get_closest_mutation(seg.parent, site_id)
-            inherited_state = ancestral_state[site_id]
-            is_reversion = False
-            is_immediate_reversion = False
+    # Note: this algorithm is pretty dumb - we should sort all the mutations by
+    # left coordinate and do this in a single pass through the trees.
+    num_mutations = 0
+    for sample in samples:
+        for mutation in sample.hmm_match.mutations:
+            num_mutations += 1
+            node = None
+            for seg in sample.hmm_match.path:
+                if seg.left <= mutation.site_position < seg.right:
+                    node = seg.parent
+                    break
+            assert node is not None
+
+            ancestral_state, closest_mutation = get_closest_mutation(
+                node, mutation.site_id
+            )
+            mutation.is_reversion = False
+            mutation.is_immediate_reversion = False
             if closest_mutation is not None:
                 inherited_state = closest_mutation.derived_state
-                parent_inherited_state = ancestral_state[site_id]
+                parent_inherited_state = ancestral_state
                 if closest_mutation.parent != -1:
                     grandparent_mutation = ts.mutation(closest_mutation.parent)
                     parent_inherited_state = grandparent_mutation.derived_state
-                is_reversion = parent_inherited_state == derived_state
-                if is_reversion:
-                    is_immediate_reversion = closest_mutation.node == seg.parent
-
-            assert inherited_state != derived_state
-            # Sanity check that the inherited_state we get from doing the match
-            # is the same as the inherited_state we compute here.
-            assert inherited_state == _inherited_state
-            sample_mutations.append(
-                MatchMutation(
-                    site_id=int(site_id),
-                    site_position=int(site_pos),
-                    derived_state=derived_state,
-                    inherited_state=inherited_state,
-                    is_reversion=is_reversion,
-                    is_immediate_reversion=is_immediate_reversion,
-                )
-            )
-        matches.append(HmmMatch(sample_path, sample_mutations))
-    return matches
+                mutation.is_reversion = parent_inherited_state == mutation.derived_state
+                if mutation.is_reversion:
+                    mutation.is_immediate_reversion = (
+                        closest_mutation.node == seg.parent
+                    )
+    logger.debug(f"Characterised {num_mutations}")
 
 
 def attach_tree(

@@ -325,7 +325,9 @@ def initialise(
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.option("--counts/--no-counts", default=False)
 @click.option(
-    "--after", default="1900-01-01", help="show dates equal to or after the specified value"
+    "--after",
+    default="1900-01-01",
+    help="show dates equal to or after the specified value",
 )
 @click.option(
     "--before", default="3000-01-01", help="show dates before the specified value"
@@ -660,13 +662,13 @@ def _match_worker(work):
         mirror_coordinates=work.direction == "reverse",
     )
     runs = []
-    for hmm_match, sample in zip(matches, work.samples):
+    for sample in work.samples:
         runs.append(
             HmmRun(
                 strain=sample.strain,
                 num_mismatches=work.num_mismatches,
                 direction=work.direction,
-                match=hmm_match,
+                match=matches[sample.strain],
             )
         )
     logger.info(f"Finish: {msg}")
@@ -738,12 +740,12 @@ def run_match(
         likelihood_threshold=1e-200,
         mirror_coordinates=direction == "reverse",
     )
-    for hmm_match, sample in zip(matches, samples):
+    for strain in strains:
         run = HmmRun(
-            strain=sample.strain,
+            strain=strain,
             num_mismatches=num_mismatches,
             direction=direction,
-            match=hmm_match,
+            match=matches[strain],
         )
         print(run.asjson())
 

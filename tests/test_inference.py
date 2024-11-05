@@ -113,7 +113,7 @@ class TestInitialTs:
 
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
-        return sc2ts.inference.match_tsinfer(
+        matches = sc2ts.inference.match_tsinfer(
             samples=samples,
             ts=ts,
             mu=0.125,
@@ -121,6 +121,7 @@ class TestMatchTsinfer:
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
+        return [matches[sample.strain] for sample in samples]
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
@@ -1018,7 +1019,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu**num_mismatches - 1e-12,
             num_threads=0,
         )
-        s = matches[0]
+        s = matches[strain]
         assert len(s.mutations) == 0
         assert len(s.path) == 1
         assert s.path[0].parent == parent
@@ -1055,7 +1056,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu - 1e-5,
             num_threads=0,
         )
-        s = matches[0]
+        s = matches[strain]
         assert len(s.mutations) == 1
         assert s.mutations[0].site_position == position
         assert s.mutations[0].derived_state == derived_state
@@ -1085,7 +1086,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu**2 - 1e-12,
             num_threads=0,
         )
-        s = matches[0]
+        s = matches[strain]
         assert len(s.path) == 1
         assert s.path[0].parent == 1
         assert len(s.mutations) == 2
@@ -1105,7 +1106,7 @@ class TestMatchingDetails:
         left_parent = 31
         right_parent = 46
 
-        m = matches[0]
+        m = matches[s.strain]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
         assert m.path[0].parent == left_parent
@@ -1144,9 +1145,9 @@ class TestMatchRecombinants:
         m = s.hmm_reruns["reverse"]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
-        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_left
+        assert m.path[0].parent == left_parent
         assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_left
         assert m.path[1].right == ts.sequence_length
