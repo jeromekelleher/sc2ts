@@ -1159,8 +1159,8 @@ class TestMatchRecombinants:
         # arbitrarily :shrug:
         assert len(m.mutations) == 3
         assert m.mutation_summary() in [
-            "[871A>G, 3027A>G, 3787C>T]",
-            "[11083T>G, 15324C>T, 29303C>T]",
+            "[A871G, A3027G, C3787T]",
+            "[T11083G, C15324T, C29303T]",
         ]
         assert len(m.path) == 1
         assert m.path[0].parent in [left_parent, right_parent]

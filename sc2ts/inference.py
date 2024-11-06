@@ -1316,7 +1316,7 @@ class MatchMutation:
     is_immediate_reversion: bool = None
 
     def __str__(self):
-        return f"{int(self.site_position)}{self.inherited_state}>{self.derived_state}"
+        return f"{self.inherited_state}{int(self.site_position)}{self.derived_state}"
 
     def asdict(self):
         return {
