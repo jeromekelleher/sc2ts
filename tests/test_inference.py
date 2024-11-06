@@ -118,6 +118,7 @@ class TestMatchTsinfer:
             ts=ts,
             mu=0.125,
             rho=0,
+            likelihood_threshold=1e-200,
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
@@ -1100,6 +1101,7 @@ class TestMatchingDetails:
             ts=ts,
             mu=mu,
             rho=rho,
+            likelihood_threshold=1e-200,
             num_threads=0,
         )
         interval_right = 11083
