@@ -736,8 +736,8 @@ def run_match(
         show_progress=progress,
         progress_title=progress_title,
         progress_phase="HMM",
-        # # Maximum possible precision
-        # likelihood_threshold=1e-200,
+        # Maximum possible precision
+        likelihood_threshold=1e-200,
         mirror_coordinates=direction == "reverse",
     )
     for strain in strains:
