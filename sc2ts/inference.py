@@ -360,6 +360,8 @@ class Sample:
         return s
 
 
+# TODO not clear if we still need this as mirroring is done differently now.
+# Remove if we don't have any issues with running the HMM in reverse
 def pad_sites(ts):
     """
     Fill in missing sites with the reference state.
@@ -378,24 +380,20 @@ def pad_sites(ts):
 def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
-    # NOTE: Not passing num_alleles since this function will be removed.
-    mu, rho = solve_num_mismatches(num_mismatches)
     for hmm_pass in ["forward", "reverse", "no_recombination"]:
         logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
-        hmm_matches = match_tsinfer(
+        match_tsinfer(
             samples=samples,
             ts=base_ts,
-            mu=mu,
-            rho=1e-30 if hmm_pass == "no_recombination" else rho,
+            num_mismatches=1000 if hmm_pass == "no_recombination" else num_mismatches,
+            mismatch_threshold=100,
             num_threads=num_threads,
             show_progress=show_progress,
-            # Maximum possible precision
-            likelihood_threshold=1e-200,
             mirror_coordinates=hmm_pass == "reverse",
         )
 
         for sample in samples:
-            sample.hmm_reruns[hmm_pass] = hmm_matches[sample.strain]
+            sample.hmm_reruns[hmm_pass] = sample.hmm_match
 
 
 def match_samples(
@@ -410,22 +408,13 @@ def match_samples(
 ):
     run_batch = samples
 
-    num_alleles = 4 if deletions_as_missing else 5
-    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
-
     for k in range(2):
-        # To catch k mismatches we need a likelihood threshold of mu**k
-        likelihood_threshold = mu**k - 1e-15
-        # print(k, likelihood_threshold)
-        logger.info(
-            f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}"
-        )
-        hmm_matches = match_tsinfer(
+        logger.info(f"Running match={k} batch of {len(run_batch)}")
+        match_tsinfer(
             samples=run_batch,
             ts=base_ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=likelihood_threshold,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=k,
             deletions_as_missing=deletions_as_missing,
             num_threads=num_threads,
             show_progress=show_progress,
@@ -435,12 +424,7 @@ def match_samples(
 
         exceeding_threshold = []
         for sample in run_batch:
-            hmm_match = hmm_matches[sample.strain]
-            sample.hmm_match = hmm_match
-            cost = hmm_match.get_hmm_cost(num_mismatches)
-            logger.debug(
-                f"HMM@k={k}: {sample.strain} hmm_cost={cost} match={hmm_match.summary()}"
-            )
+            cost = sample.hmm_match.get_hmm_cost(num_mismatches)
             if cost > k + 1:
                 exceeding_threshold.append(sample)
 
@@ -452,23 +436,16 @@ def match_samples(
         run_batch = exceeding_threshold
 
     logger.info(f"Running final batch of {len(run_batch)} at high precision")
-    hmm_matches = match_tsinfer(
+    match_tsinfer(
         samples=run_batch,
         ts=base_ts,
-        mu=mu,
-        rho=rho,
+        num_mismatches=num_mismatches,
         num_threads=num_threads // 2,  # FIXME! temporary hack to enable big inference
         deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
         progress_title=date,
         progress_phase=f"match(F)",
     )
-    for sample in run_batch:
-        hmm_match = hmm_matches[sample.strain]
-        sample.hmm_match = hmm_match
-        cost = hmm_match.get_hmm_cost(num_mismatches)
-        # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
-        logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
     return samples
 
 
@@ -1134,7 +1111,7 @@ def delete_immediate_reversion_nodes(ts, attach_nodes):
     return tables.tree_sequence()
 
 
-def make_tsb(ts, mirror_coordinates=False):
+def make_tsb(ts, num_alleles, mirror_coordinates=False):
     if mirror_coordinates:
         # TODO inline this conversion here because we're doing an additional
         # sort
@@ -1153,9 +1130,8 @@ def make_tsb(ts, mirror_coordinates=False):
     )
     del tables
 
-    num_alleles = np.full(ts.num_sites, len(core.ALLELES), dtype=np.uint64)
     tsb = _tsinfer.TreeSequenceBuilder(
-        num_alleles=num_alleles,
+        num_alleles=np.full(ts.num_sites, num_alleles, dtype=np.uint64),
         max_nodes=ts.num_nodes,
         max_edges=ts.num_edges,
         ancestral_state=ancestral_state,
@@ -1194,10 +1170,9 @@ def make_tsb(ts, mirror_coordinates=False):
 def match_tsinfer(
     samples,
     ts,
-    mu,
-    rho,
     *,
-    likelihood_threshold=None,
+    num_mismatches,
+    mismatch_threshold=None,
     deletions_as_missing=False,
     num_threads=0,
     show_progress=False,
@@ -1205,20 +1180,18 @@ def match_tsinfer(
     progress_phase=None,
     mirror_coordinates=False,
 ):
-    tsb, coord_map = make_tsb(ts, mirror_coordinates)
+
+    num_alleles = 4 if deletions_as_missing else 5
+    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
+
+    tsb, coord_map = make_tsb(ts, num_alleles, mirror_coordinates)
 
     def match_worker(strain, h, likelihood_threshold):
-        before = time.thread_time()
         matcher = _tsinfer.AncestorMatcher(
             tsb,
             recombination=np.full(ts.num_sites, rho),
             mismatch=np.full(ts.num_sites, mu),
             likelihood_threshold=likelihood_threshold,
-        )
-        duration = time.thread_time() - before
-        logger.debug(
-            f"Matcher built for {strain} in {duration:.3f}s at "
-            f"likelihood_threshold={likelihood_threshold}"
         )
         is_missing = h == MISSING
         m = np.full(len(h), MISSING, dtype=np.int8)
@@ -1250,8 +1223,8 @@ def match_tsinfer(
         hmm_match = HmmMatch(path, mutations, likelihood=likelihood)
 
         logger.debug(
-            f"Found path len={path_len} and muts={num_muts} Lik={likelihood:.2g} "
-            f"for {strain} in {duration:.3f}s "
+            f"Found path len={path_len} and muts={num_muts} L={likelihood:.2g} "
+            f"(L_t={likelihood_threshold:.2g}) for {strain} in {duration:.3f}s "
             f"mean_tb_size={matcher.mean_traceback_size:.1f} "
             f"match_mem={humanize.naturalsize(matcher.total_memory, binary=True)}"
         )
@@ -1268,25 +1241,29 @@ def match_tsinfer(
                 h = h[::-1]
             if deletions_as_missing:
                 h[h == DELETION] = MISSING
-            lt = likelihood_threshold
-            if likelihood_threshold is None:
+            if mismatch_threshold is not None:
+                # Likelihood threshold is slightly less than k mutations
+                likelihood_threshold = mu**mismatch_threshold * 0.99
+            else:
                 assert sample.hmm_match is not None
-                lt = sample.hmm_match.likelihood
-            future = executor.submit(match_worker, sample.strain, h, lt)
+                likelihood_threshold = sample.hmm_match.likelihood
+            future = executor.submit(match_worker, sample.strain, h, likelihood_threshold)
             future_to_sample[future] = sample
 
-        hmm_matches = {}
         for future in cf.as_completed(future_to_sample):
             raw_hmm_match = future.result()
             sample = future_to_sample[future]
-            hmm_matches[sample.strain] = raw_hmm_match.translate_coordinates(
+            sample.hmm_match = raw_hmm_match.translate_coordinates(
                 coord_map, mirror_coordinates, ts.sites_position
+            )
+            cost = sample.hmm_match.get_hmm_cost(num_mismatches)
+            logger.debug(
+                f"HMM@T={mismatch_threshold}: {sample.strain} "
+                f"hmm_cost={cost} match={sample.hmm_match.summary()}"
             )
             bar.update()
         bar.close()
 
-    # NOTE: we should just update and return the samples here
-    return hmm_matches
 
 
 @dataclasses.dataclass(frozen=True)

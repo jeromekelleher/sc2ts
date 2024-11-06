@@ -113,16 +113,15 @@ class TestInitialTs:
 
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
-        matches = sc2ts.inference.match_tsinfer(
+        sc2ts.inference.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=0.125,
-            rho=0,
-            likelihood_threshold=1e-200,
+            num_mismatches=3,
+            mismatch_threshold=20,
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
-        return [matches[sample.strain] for sample in samples]
+        return [s.hmm_match for s in samples]
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
@@ -441,6 +440,27 @@ class TestRealData:
             # We pick the site up as somewhere with deletions regardless
             # of deletions_as_missing
             assert site.metadata["sc2ts"]["deletion_samples"] == 1
+
+    @pytest.mark.parametrize("deletions_as_missing", [True, False])
+    def test_2020_02_03_deletions_as_missing(
+        self,
+        tmp_path,
+        fx_alignment_store,
+        fx_metadata_db,
+        fx_ts_map,
+        deletions_as_missing,
+    ):
+        base_ts = fx_ts_map["2020-02-02"]
+        assert ord("-") in base_ts.tables.mutations.derived_state
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=base_ts,
+            date="2020-02-03",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            deletions_as_missing=deletions_as_missing,
+        )
+        ts.tables.assert_equals(fx_ts_map["2020-02-03"].tables, ignore_provenance=True)
 
     @pytest.mark.parametrize(
         ["strain", "num_missing"], [("SRR11597164", 122), ("SRR11597114", 402)]
@@ -1011,16 +1031,14 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=mu**num_mismatches - 1e-12,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=num_mismatches,
             num_threads=0,
         )
-        s = matches[strain]
+        s = samples[0].hmm_match
         assert len(s.mutations) == 0
         assert len(s.path) == 1
         assert s.path[0].parent == parent
@@ -1048,16 +1066,13 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=mu - 1e-5,
-            num_threads=0,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=1,
         )
-        s = matches[strain]
+        s = samples[0].hmm_match
         assert len(s.mutations) == 1
         assert s.mutations[0].site_position == position
         assert s.mutations[0].derived_state == derived_state
@@ -1078,16 +1093,13 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=mu**2 - 1e-12,
-            num_threads=0,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=2,
         )
-        s = matches[strain]
+        s = samples[0].hmm_match
         assert len(s.path) == 1
         assert s.path[0].parent == 1
         assert len(s.mutations) == 2
@@ -1095,20 +1107,17 @@ class TestMatchingDetails:
     def test_match_recombinant(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
 
-        mu, rho = sc2ts.solve_num_mismatches(2)
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=[s],
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=1e-200,
-            num_threads=0,
+            num_mismatches=2,
+            mismatch_threshold=10,
         )
         interval_right = 11083
         left_parent = 31
         right_parent = 46
 
-        m = matches[s.strain]
+        m = s.hmm_match
         assert len(m.mutations) == 0
         assert len(m.path) == 2
         assert m.path[0].parent == left_parent
