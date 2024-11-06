@@ -1208,17 +1208,11 @@ def match_tsinfer(
     tsb, coord_map = make_tsb(ts, mirror_coordinates)
 
     def match_worker(strain, h, likelihood_threshold):
-        before = time.thread_time()
         matcher = _tsinfer.AncestorMatcher(
             tsb,
             recombination=np.full(ts.num_sites, rho),
             mismatch=np.full(ts.num_sites, mu),
             likelihood_threshold=likelihood_threshold,
-        )
-        duration = time.thread_time() - before
-        logger.debug(
-            f"Matcher built for {strain} in {duration:.3f}s at "
-            f"likelihood_threshold={likelihood_threshold}"
         )
         is_missing = h == MISSING
         m = np.full(len(h), MISSING, dtype=np.int8)
@@ -1250,8 +1244,8 @@ def match_tsinfer(
         hmm_match = HmmMatch(path, mutations, likelihood=likelihood)
 
         logger.debug(
-            f"Found path len={path_len} and muts={num_muts} Lik={likelihood:.2g} "
-            f"for {strain} in {duration:.3f}s "
+            f"Found path len={path_len} and muts={num_muts} L={likelihood:.2g} "
+            f"(L_t={likelihood_threshold:.2g}) for {strain} in {duration:.3f}s "
             f"mean_tb_size={matcher.mean_traceback_size:.1f} "
             f"match_mem={humanize.naturalsize(matcher.total_memory, binary=True)}"
         )
