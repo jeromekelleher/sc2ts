@@ -360,6 +360,8 @@ class Sample:
         return s
 
 
+# TODO not clear if we still need this as mirroring is done differently now.
+# Remove if we don't have any issues with running the HMM in reverse
 def pad_sites(ts):
     """
     Fill in missing sites with the reference state.
@@ -378,19 +380,15 @@ def pad_sites(ts):
 def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
-    # NOTE: Not passing num_alleles since this function will be removed.
-    mu, rho = solve_num_mismatches(num_mismatches)
     for hmm_pass in ["forward", "reverse", "no_recombination"]:
         logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
         hmm_matches = match_tsinfer(
             samples=samples,
             ts=base_ts,
-            mu=mu,
-            rho=1e-30 if hmm_pass == "no_recombination" else rho,
+            num_mismatches=1000 if hmm_pass == "no_recombination" else num_mismatches,
+            mismatch_threshold=100,
             num_threads=num_threads,
             show_progress=show_progress,
-            # Maximum possible precision
-            likelihood_threshold=1e-200,
             mirror_coordinates=hmm_pass == "reverse",
         )
 
@@ -410,22 +408,13 @@ def match_samples(
 ):
     run_batch = samples
 
-    num_alleles = 4 if deletions_as_missing else 5
-    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
-
     for k in range(2):
-        # To catch k mismatches we need a likelihood threshold of mu**k
-        likelihood_threshold = mu**k - 1e-15
-        # print(k, likelihood_threshold)
-        logger.info(
-            f"Running match={k} batch of {len(run_batch)} at threshold={likelihood_threshold}"
-        )
+        logger.info(f"Running match={k} batch of {len(run_batch)}")
         hmm_matches = match_tsinfer(
             samples=run_batch,
             ts=base_ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=likelihood_threshold,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=k,
             deletions_as_missing=deletions_as_missing,
             num_threads=num_threads,
             show_progress=show_progress,
@@ -455,8 +444,7 @@ def match_samples(
     hmm_matches = match_tsinfer(
         samples=run_batch,
         ts=base_ts,
-        mu=mu,
-        rho=rho,
+        num_mismatches=num_mismatches,
         num_threads=num_threads // 2,  # FIXME! temporary hack to enable big inference
         deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
@@ -1134,7 +1122,7 @@ def delete_immediate_reversion_nodes(ts, attach_nodes):
     return tables.tree_sequence()
 
 
-def make_tsb(ts, mirror_coordinates=False):
+def make_tsb(ts, num_alleles, mirror_coordinates=False):
     if mirror_coordinates:
         # TODO inline this conversion here because we're doing an additional
         # sort
@@ -1153,9 +1141,8 @@ def make_tsb(ts, mirror_coordinates=False):
     )
     del tables
 
-    num_alleles = np.full(ts.num_sites, len(core.ALLELES), dtype=np.uint64)
     tsb = _tsinfer.TreeSequenceBuilder(
-        num_alleles=num_alleles,
+        num_alleles=np.full(ts.num_sites, num_alleles, dtype=np.uint64),
         max_nodes=ts.num_nodes,
         max_edges=ts.num_edges,
         ancestral_state=ancestral_state,
@@ -1194,10 +1181,9 @@ def make_tsb(ts, mirror_coordinates=False):
 def match_tsinfer(
     samples,
     ts,
-    mu,
-    rho,
     *,
-    likelihood_threshold=None,
+    num_mismatches,
+    mismatch_threshold=None,
     deletions_as_missing=False,
     num_threads=0,
     show_progress=False,
@@ -1205,7 +1191,11 @@ def match_tsinfer(
     progress_phase=None,
     mirror_coordinates=False,
 ):
-    tsb, coord_map = make_tsb(ts, mirror_coordinates)
+
+    num_alleles = 4 if deletions_as_missing else 5
+    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
+
+    tsb, coord_map = make_tsb(ts, num_alleles, mirror_coordinates)
 
     def match_worker(strain, h, likelihood_threshold):
         matcher = _tsinfer.AncestorMatcher(
@@ -1262,11 +1252,13 @@ def match_tsinfer(
                 h = h[::-1]
             if deletions_as_missing:
                 h[h == DELETION] = MISSING
-            lt = likelihood_threshold
-            if likelihood_threshold is None:
+            if mismatch_threshold is not None:
+                # Likelihood threshold is slightly less than k mutations
+                likelihood_threshold = mu**mismatch_threshold * 0.99
+            else:
                 assert sample.hmm_match is not None
-                lt = sample.hmm_match.likelihood
-            future = executor.submit(match_worker, sample.strain, h, lt)
+                likelihood_threshold = sample.hmm_match.likelihood
+            future = executor.submit(match_worker, sample.strain, h, likelihood_threshold)
             future_to_sample[future] = sample
 
         hmm_matches = {}

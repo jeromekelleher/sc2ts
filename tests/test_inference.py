@@ -116,9 +116,8 @@ class TestMatchTsinfer:
         matches = sc2ts.inference.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=0.125,
-            rho=0,
-            likelihood_threshold=1e-200,
+            num_mismatches=3,
+            mismatch_threshold=20,
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
@@ -1011,13 +1010,11 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
         matches = sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=mu**num_mismatches - 1e-12,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=num_mismatches,
             num_threads=0,
         )
         s = matches[strain]
@@ -1052,10 +1049,8 @@ class TestMatchingDetails:
         matches = sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=mu - 1e-5,
-            num_threads=0,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=1,
         )
         s = matches[strain]
         assert len(s.mutations) == 1
@@ -1078,14 +1073,11 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
         matches = sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=mu**2 - 1e-12,
-            num_threads=0,
+            num_mismatches=num_mismatches,
+            mismatch_threshold=2,
         )
         s = matches[strain]
         assert len(s.path) == 1
@@ -1095,14 +1087,11 @@ class TestMatchingDetails:
     def test_match_recombinant(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
 
-        mu, rho = sc2ts.solve_num_mismatches(2)
         matches = sc2ts.match_tsinfer(
             samples=[s],
             ts=ts,
-            mu=mu,
-            rho=rho,
-            likelihood_threshold=1e-200,
-            num_threads=0,
+            num_mismatches=2,
+            mismatch_threshold=10,
         )
         interval_right = 11083
         left_parent = 31

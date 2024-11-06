@@ -649,16 +649,14 @@ def _match_worker(work):
     )
     logger.info(f"Start: {msg}")
     ts = tszip.load(work.ts_path)
-    mu, rho = sc2ts.solve_num_mismatches(work.num_mismatches)
     matches = sc2ts.match_tsinfer(
         samples=work.samples,
         ts=ts,
-        mu=mu,
-        rho=rho,
+        num_mismatches=work.num_mismatches,
+        mismatch_threshold=100,
+        deletions_as_missing=False,
         num_threads=0,
         show_progress=False,
-        # Maximum possible precision
-        likelihood_threshold=1e-200,
         mirror_coordinates=work.direction == "reverse",
     )
     runs = []
@@ -726,18 +724,17 @@ def run_match(
         if sample.haplotype is None:
             raise ValueError(f"No alignment stored for {sample.strain}")
 
-    mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
     matches = sc2ts.match_tsinfer(
         samples=samples,
         ts=ts,
-        mu=mu,
-        rho=rho,
+        num_mismatches=num_mismatches,
+        deletions_as_missing=False,
+        # TODO make this a CLI param
+        mismatch_threshold=100,
         num_threads=num_threads,
         show_progress=progress,
         progress_title=progress_title,
         progress_phase="HMM",
-        # Maximum possible precision
-        likelihood_threshold=1e-200,
         mirror_coordinates=direction == "reverse",
     )
     for strain in strains:
