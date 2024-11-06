@@ -105,7 +105,7 @@ class TestInitialise:
         assert "max_memory" in resources
 
 
-class TestRunMatch:
+class TestMatch:
 
     def test_single_defaults(self, tmp_path, fx_ts_map, fx_alignment_store):
         strain = "ERR4206593"
@@ -115,7 +115,7 @@ class TestRunMatch:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"run-match {fx_alignment_store.path} {ts_path} {strain}",
+            f"match {fx_alignment_store.path} {ts_path} {strain}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -137,7 +137,7 @@ class TestRunMatch:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"run-match {fx_alignment_store.path} {ts_path} " + " ".join(strains),
+            f"match {fx_alignment_store.path} {ts_path} " + " ".join(strains),
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -161,7 +161,7 @@ class TestRunMatch:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"run-match {fx_alignment_store.path} {ts_path} {strain}"
+            f"match {fx_alignment_store.path} {ts_path} {strain}"
             " --direction=reverse --num-mismatches=5 --num-threads=4",
             " --no-deletions-as-missing",
             catch_exceptions=False,
@@ -188,7 +188,7 @@ class TestRunRematchRecombinants:
         pattern = str(fx_data_cache) + "/{}.ts"
         runner = ct.CliRunner(mix_stderr=False)
         cmd = (
-            f"run-rematch-recombinants {as_path} {ts_path} {pattern} "
+            f"rematch-recombinants {as_path} {ts_path} {pattern} "
             f"--num-threads={num_threads}"
         )
         result = runner.invoke(
@@ -212,7 +212,6 @@ class TestRunRematchRecombinants:
 
         assert len(results["recombinant_example_1_0"]) == 2
         assert len(results["recombinant_example_1_1"]) == 2
-
 
 
 class TestInfoMatches:

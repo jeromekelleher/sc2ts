@@ -676,7 +676,7 @@ def _match_worker(work):
     return runs
 
 
-@click.command()
+@click.command(name="match")
 @click.argument("alignments_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("strains", nargs=-1)
@@ -704,7 +704,7 @@ def _match_worker(work):
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def run_match(
+def _match(
     alignments_path,
     ts_path,
     strains,
@@ -792,7 +792,7 @@ def find_previous_date_path(date, path_pattern):
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def run_rematch_recombinants(
+def rematch_recombinants(
     alignments,
     ts,
     path_pattern,
@@ -893,6 +893,6 @@ cli.add_command(initialise)
 cli.add_command(list_dates)
 cli.add_command(extend)
 cli.add_command(validate)
-cli.add_command(run_match)
-cli.add_command(run_rematch_recombinants)
+cli.add_command(_match)
+cli.add_command(rematch_recombinants)
 cli.add_command(tally_lineages)
