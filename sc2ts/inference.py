@@ -1206,11 +1206,7 @@ def match_tsinfer(
     tsb, coord_map = make_tsb(ts, mirror_coordinates)
     L = int(ts.sequence_length)
 
-    if likelihood_threshold is None:
-        # TMP
-        likelihood_threshold = rho**2 * mu**5
-
-    def match_worker(strain, h):
+    def match_worker(strain, h, likelihood_threshold):
         before = time.thread_time()
         matcher = _tsinfer.AncestorMatcher(
             tsb,
@@ -1239,7 +1235,11 @@ def match_tsinfer(
             f"mean_tb_size={matcher.mean_traceback_size:.1f} "
             f"match_mem={humanize.naturalsize(matcher.total_memory, binary=True)}"
         )
-        return match_path, h, m
+        return match_path, h, m, likelihood
+
+    def adaptive_match_worker(strain, h):
+        match_path, h, m, likelihood = match_worker(strain, h, mu**5)
+        return match_worker(strain, h, likelihood)
 
     bar = get_progress(samples, progress_title, "match", show_progress)
 
@@ -1252,12 +1252,17 @@ def match_tsinfer(
             if deletions_as_missing:
                 h[h == DELETION] = MISSING
 
-            future = executor.submit(match_worker, sample.strain, h)
+            if likelihood_threshold is None:
+                future = executor.submit(adaptive_match_worker, sample.strain, h)
+            else:
+                future = executor.submit(
+                    match_worker, sample.strain, h, likelihood_threshold
+                )
             future_to_sample[future] = sample
 
         hmm_matches = {}
         for future in cf.as_completed(future_to_sample):
-            match_path, h, m = future.result()
+            match_path, h, m, _ = future.result()
             sample = future_to_sample[future]
 
             path = []
