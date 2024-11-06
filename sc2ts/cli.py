@@ -649,7 +649,7 @@ def _match_worker(work):
     )
     logger.info(f"Start: {msg}")
     ts = tszip.load(work.ts_path)
-    matches = sc2ts.match_tsinfer(
+    sc2ts.match_tsinfer(
         samples=work.samples,
         ts=ts,
         num_mismatches=work.num_mismatches,
@@ -666,7 +666,7 @@ def _match_worker(work):
                 strain=sample.strain,
                 num_mismatches=work.num_mismatches,
                 direction=work.direction,
-                match=matches[sample.strain],
+                match=sample.hmm_match,
             )
         )
     logger.info(f"Finish: {msg}")
@@ -724,7 +724,7 @@ def run_match(
         if sample.haplotype is None:
             raise ValueError(f"No alignment stored for {sample.strain}")
 
-    matches = sc2ts.match_tsinfer(
+    sc2ts.match_tsinfer(
         samples=samples,
         ts=ts,
         num_mismatches=num_mismatches,
@@ -737,12 +737,12 @@ def run_match(
         progress_phase="HMM",
         mirror_coordinates=direction == "reverse",
     )
-    for strain in strains:
+    for sample in samples:
         run = HmmRun(
-            strain=strain,
+            strain=sample.strain,
             num_mismatches=num_mismatches,
             direction=direction,
-            match=matches[strain],
+            match=sample.hmm_match,
         )
         print(run.asjson())
 

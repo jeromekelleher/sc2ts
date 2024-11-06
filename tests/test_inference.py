@@ -113,7 +113,7 @@ class TestInitialTs:
 
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
-        matches = sc2ts.inference.match_tsinfer(
+        sc2ts.inference.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=3,
@@ -121,7 +121,7 @@ class TestMatchTsinfer:
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
-        return [matches[sample.strain] for sample in samples]
+        return [s.hmm_match for s in samples]
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
@@ -1010,14 +1010,14 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=num_mismatches,
             mismatch_threshold=num_mismatches,
             num_threads=0,
         )
-        s = matches[strain]
+        s = samples[0].hmm_match
         assert len(s.mutations) == 0
         assert len(s.path) == 1
         assert s.path[0].parent == parent
@@ -1045,14 +1045,13 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        mu, rho = sc2ts.solve_num_mismatches(num_mismatches)
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=num_mismatches,
             mismatch_threshold=1,
         )
-        s = matches[strain]
+        s = samples[0].hmm_match
         assert len(s.mutations) == 1
         assert s.mutations[0].site_position == position
         assert s.mutations[0].derived_state == derived_state
@@ -1073,13 +1072,13 @@ class TestMatchingDetails:
             fx_alignment_store.path,
             keep_sites=ts.sites_position.astype(int),
         )
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=num_mismatches,
             mismatch_threshold=2,
         )
-        s = matches[strain]
+        s = samples[0].hmm_match
         assert len(s.path) == 1
         assert s.path[0].parent == 1
         assert len(s.mutations) == 2
@@ -1087,7 +1086,7 @@ class TestMatchingDetails:
     def test_match_recombinant(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
 
-        matches = sc2ts.match_tsinfer(
+        sc2ts.match_tsinfer(
             samples=[s],
             ts=ts,
             num_mismatches=2,
@@ -1097,7 +1096,7 @@ class TestMatchingDetails:
         left_parent = 31
         right_parent = 46
 
-        m = matches[s.strain]
+        m = s.hmm_match
         assert len(m.mutations) == 0
         assert len(m.path) == 2
         assert m.path[0].parent == left_parent

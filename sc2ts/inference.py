@@ -382,7 +382,7 @@ def match_recombinants(
 ):
     for hmm_pass in ["forward", "reverse", "no_recombination"]:
         logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
-        hmm_matches = match_tsinfer(
+        match_tsinfer(
             samples=samples,
             ts=base_ts,
             num_mismatches=1000 if hmm_pass == "no_recombination" else num_mismatches,
@@ -393,7 +393,7 @@ def match_recombinants(
         )
 
         for sample in samples:
-            sample.hmm_reruns[hmm_pass] = hmm_matches[sample.strain]
+            sample.hmm_reruns[hmm_pass] = sample.hmm_match
 
 
 def match_samples(
@@ -410,7 +410,7 @@ def match_samples(
 
     for k in range(2):
         logger.info(f"Running match={k} batch of {len(run_batch)}")
-        hmm_matches = match_tsinfer(
+        match_tsinfer(
             samples=run_batch,
             ts=base_ts,
             num_mismatches=num_mismatches,
@@ -424,12 +424,7 @@ def match_samples(
 
         exceeding_threshold = []
         for sample in run_batch:
-            hmm_match = hmm_matches[sample.strain]
-            sample.hmm_match = hmm_match
-            cost = hmm_match.get_hmm_cost(num_mismatches)
-            logger.debug(
-                f"HMM@k={k}: {sample.strain} hmm_cost={cost} match={hmm_match.summary()}"
-            )
+            cost = sample.hmm_match.get_hmm_cost(num_mismatches)
             if cost > k + 1:
                 exceeding_threshold.append(sample)
 
@@ -441,7 +436,7 @@ def match_samples(
         run_batch = exceeding_threshold
 
     logger.info(f"Running final batch of {len(run_batch)} at high precision")
-    hmm_matches = match_tsinfer(
+    match_tsinfer(
         samples=run_batch,
         ts=base_ts,
         num_mismatches=num_mismatches,
@@ -451,12 +446,6 @@ def match_samples(
         progress_title=date,
         progress_phase=f"match(F)",
     )
-    for sample in run_batch:
-        hmm_match = hmm_matches[sample.strain]
-        sample.hmm_match = hmm_match
-        cost = hmm_match.get_hmm_cost(num_mismatches)
-        # print(f"Final HMM pass:{sample.strain} hmm_cost={cost} {sample.summary()}")
-        logger.debug(f"Final HMM pass hmm_cost={cost} {sample.summary()}")
     return samples
 
 
@@ -1261,18 +1250,20 @@ def match_tsinfer(
             future = executor.submit(match_worker, sample.strain, h, likelihood_threshold)
             future_to_sample[future] = sample
 
-        hmm_matches = {}
         for future in cf.as_completed(future_to_sample):
             raw_hmm_match = future.result()
             sample = future_to_sample[future]
-            hmm_matches[sample.strain] = raw_hmm_match.translate_coordinates(
+            sample.hmm_match = raw_hmm_match.translate_coordinates(
                 coord_map, mirror_coordinates, ts.sites_position
+            )
+            cost = sample.hmm_match.get_hmm_cost(num_mismatches)
+            logger.debug(
+                f"HMM@T={mismatch_threshold}: {sample.strain} "
+                f"hmm_cost={cost} match={sample.hmm_match.summary()}"
             )
             bar.update()
         bar.close()
 
-    # NOTE: we should just update and return the samples here
-    return hmm_matches
 
 
 @dataclasses.dataclass(frozen=True)
