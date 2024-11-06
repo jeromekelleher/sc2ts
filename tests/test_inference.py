@@ -441,6 +441,27 @@ class TestRealData:
             # of deletions_as_missing
             assert site.metadata["sc2ts"]["deletion_samples"] == 1
 
+    @pytest.mark.parametrize("deletions_as_missing", [True, False])
+    def test_2020_02_03_deletions_as_missing(
+        self,
+        tmp_path,
+        fx_alignment_store,
+        fx_metadata_db,
+        fx_ts_map,
+        deletions_as_missing,
+    ):
+        base_ts = fx_ts_map["2020-02-02"]
+        assert ord("-") in base_ts.tables.mutations.derived_state
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=base_ts,
+            date="2020-02-03",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            deletions_as_missing=deletions_as_missing,
+        )
+        ts.tables.assert_equals(fx_ts_map["2020-02-03"].tables, ignore_provenance=True)
+
     @pytest.mark.parametrize(
         ["strain", "num_missing"], [("SRR11597164", 122), ("SRR11597114", 402)]
     )

@@ -34,6 +34,24 @@ from . import info
 
 logger = logging.getLogger(__name__)
 
+
+# Common arguments/options
+
+num_mismatches = click.option(
+    "-k",
+    "--num-mismatches",
+    default=3,
+    show_default=True,
+    type=float,
+    help="Number of mismatches to accept in favour of recombination",
+)
+deletions_as_missing = click.option(
+    "--deletions-as-missing/--no-deletions-as-missing",
+    default=True,
+    help="Treat all deletions as missing data when matching haplotypes",
+    show_default=True,
+)
+
 __before = time.time()
 
 
@@ -364,13 +382,8 @@ def summarise_base(ts, date, progress):
 @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
 @click.argument("matches", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output_ts", type=click.Path(dir_okay=False))
-@click.option(
-    "--num-mismatches",
-    default=3,
-    show_default=True,
-    type=float,
-    help="Number of mismatches to accept in favour of recombination",
-)
+@num_mismatches
+@deletions_as_missing
 @click.option(
     "--hmm-cost-threshold",
     default=5,
@@ -418,12 +431,6 @@ def summarise_base(ts, date, progress):
     show_default=True,
     type=int,
     help="Number of days in the past to reconsider potential matches",
-)
-@click.option(
-    "--deletions-as-missing/--no-deletions-as-missing",
-    default=True,
-    help="Treat all deletions as missing data when matching haplotypes",
-    show_default=True,
 )
 @click.option(
     "--max-daily-samples",
@@ -541,12 +548,7 @@ def extend(
 @click.command()
 @click.argument("alignment_db")
 @click.argument("ts_file")
-@click.option(
-    "--deletions-as-missing/--no-deletions-as-missing",
-    default=True,
-    help="Treat all deletions as missing data when matching haplotypes",
-    show_default=True,
-)
+@deletions_as_missing
 @click.option("-v", "--verbose", count=True)
 def validate(alignment_db, ts_file, deletions_as_missing, verbose):
     """
@@ -654,6 +656,7 @@ def _match_worker(work):
         ts=ts,
         num_mismatches=work.num_mismatches,
         mismatch_threshold=100,
+        # FIXME!
         deletions_as_missing=False,
         num_threads=0,
         show_progress=False,
@@ -677,7 +680,15 @@ def _match_worker(work):
 @click.argument("alignments_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("strains", nargs=-1)
-@click.option("--num-mismatches", default=3, type=int, help="num-mismatches")
+@num_mismatches
+@deletions_as_missing
+@click.option(
+    "--mismatch-threshold",
+    type=int,
+    default=100,
+    show_default=True,
+    help="Set the HMM likelihood threshold to this number of mutations",
+)
 @click.option(
     "--direction",
     type=click.Choice(["forward", "reverse"]),
@@ -698,6 +709,8 @@ def run_match(
     ts_path,
     strains,
     num_mismatches,
+    deletions_as_missing,
+    mismatch_threshold,
     direction,
     num_threads,
     progress,
@@ -728,9 +741,8 @@ def run_match(
         samples=samples,
         ts=ts,
         num_mismatches=num_mismatches,
-        deletions_as_missing=False,
-        # TODO make this a CLI param
-        mismatch_threshold=100,
+        deletions_as_missing=deletions_as_missing,
+        mismatch_threshold=mismatch_threshold,
         num_threads=num_threads,
         show_progress=progress,
         progress_title=progress_title,
@@ -770,14 +782,7 @@ def find_previous_date_path(date, path_pattern):
 @click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("path_pattern")
-@click.option(
-    "-k",
-    "--num-mismatches",
-    default=[3],
-    type=int,
-    multiple=True,
-    help="num-mismatches",
-)
+@num_mismatches
 @click.option(
     "--num-threads",
     default=0,
@@ -839,15 +844,14 @@ def run_rematch_recombinants(
     work = []
     for recombinant, samples in recombinant_to_samples.items():
         for direction in ["forward", "reverse"]:
-            for k in num_mismatches:
-                work.append(
-                    MatchWork(
-                        recombinant_to_path[recombinant],
-                        samples,
-                        num_mismatches=k,
-                        direction=direction,
-                    )
+            work.append(
+                MatchWork(
+                    recombinant_to_path[recombinant],
+                    samples,
+                    num_mismatches=num_mismatches,
+                    direction=direction,
                 )
+            )
 
     bar = sc2ts.get_progress(None, progress_title, "HMM", progress, total=len(work))
 

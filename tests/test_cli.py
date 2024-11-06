@@ -163,6 +163,7 @@ class TestRunMatch:
             cli.cli,
             f"run-match {fx_alignment_store.path} {ts_path} {strain}"
             " --direction=reverse --num-mismatches=5 --num-threads=4",
+            " --no-deletions-as-missing",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -212,42 +213,6 @@ class TestRunRematchRecombinants:
         assert len(results["recombinant_example_1_0"]) == 2
         assert len(results["recombinant_example_1_1"]) == 2
 
-    def test_multiple_mismatch_values(
-        self, tmp_path, fx_recombinant_example_1, fx_data_cache
-    ):
-        ts_path = fx_data_cache / "recombinant_ex1.ts"
-        as_path = fx_data_cache / "recombinant_ex1_alignments.db"
-        pattern = str(fx_data_cache) + "/{}.ts"
-        runner = ct.CliRunner(mix_stderr=False)
-        cmd = (
-            f"run-rematch-recombinants {as_path} {ts_path} {pattern} "
-            f"-k 3 --num-mismatches 1000"
-        )
-        result = runner.invoke(
-            cli.cli,
-            cmd,
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        lines = result.stdout.splitlines()
-        assert len(lines) == 8
-        results = collections.defaultdict(list)
-        for line in lines:
-            d = json.loads(line)
-            if d["num_mismatches"] == 3:
-                assert len(d["match"]["path"]) == 2
-            else:
-                assert len(d["match"]["path"]) == 1
-            results[d["strain"]].append(result)
-
-        assert len(results) == 2
-        assert set(results.keys()) == {
-            "recombinant_example_1_0",
-            "recombinant_example_1_1",
-        }
-
-        assert len(results["recombinant_example_1_0"]) == 4
-        assert len(results["recombinant_example_1_1"]) == 4
 
 
 class TestInfoMatches:
