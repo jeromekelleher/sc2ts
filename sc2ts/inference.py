@@ -5,6 +5,7 @@ import datetime
 import dataclasses
 import collections
 import concurrent.futures as cf
+import time
 import json
 import pickle
 import hashlib
@@ -18,8 +19,8 @@ import _tsinfer
 import numpy as np
 import zarr
 import numba
+import humanize
 import pandas as pd
-
 
 from . import core
 from . import alignments
@@ -1209,21 +1210,35 @@ def match_tsinfer(
         # TMP
         likelihood_threshold = rho**2 * mu**5
 
-    def match_worker(h):
-        logger.debug("Start match worker")
+    def match_worker(strain, h):
+        before = time.thread_time()
         matcher = _tsinfer.AncestorMatcher(
             tsb,
             recombination=np.full(ts.num_sites, rho),
             mismatch=np.full(ts.num_sites, mu),
             likelihood_threshold=likelihood_threshold,
         )
-        logger.debug("matcher built")
+        duration = time.thread_time() - before
+        logger.debug(
+            f"Matcher built for {strain} in {duration:.3f}s at "
+            f"likelihood_threshold={likelihood_threshold}"
+        )
         is_missing = h == MISSING
         m = np.full(len(h), MISSING, dtype=np.int8)
+        before = time.thread_time()
         match_path = matcher.find_path(h, 0, len(h), m)
-        logger.debug("find_path done")
+        duration = time.thread_time() - before
         # Mask out the imputed sites
         m[is_missing] = MISSING
+        path_len = len(match_path[0])
+        num_muts = np.sum(m != h)
+        likelihood = rho**path_len * mu**num_muts
+        logger.debug(
+            f"Found path len={path_len} and muts={num_muts} P={likelihood:.2g} "
+            f"for {strain} in {duration:.3f}s "
+            f"mean_tb_size={matcher.mean_traceback_size:.1f} "
+            f"match_mem={humanize.naturalsize(matcher.total_memory, binary=True)}"
+        )
         return match_path, h, m
 
     bar = get_progress(samples, progress_title, "match", show_progress)
@@ -1237,7 +1252,7 @@ def match_tsinfer(
             if deletions_as_missing:
                 h[h == DELETION] = MISSING
 
-            future = executor.submit(match_worker, h)
+            future = executor.submit(match_worker, sample.strain, h)
             future_to_sample[future] = sample
 
         hmm_matches = {}
