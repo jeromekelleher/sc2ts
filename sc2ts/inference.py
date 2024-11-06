@@ -394,6 +394,7 @@ def pad_sites(ts):
 def match_recombinants(
     samples, base_ts, num_mismatches, show_progress=False, num_threads=None
 ):
+    # NOTE: Not passing num_alleles since this function will be removed.
     mu, rho = solve_num_mismatches(num_mismatches)
     for hmm_pass in ["forward", "reverse", "no_recombination"]:
         logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
@@ -428,7 +429,10 @@ def match_samples(
     num_threads=None,
 ):
     run_batch = samples
-    mu, rho = solve_num_mismatches(num_mismatches)
+
+    num_alleles = 4 if deletions_as_missing else 5
+    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
+
     for k in range(2):
         # To catch k mismatches we need a likelihood threshold of mu**k
         likelihood_threshold = mu**k - 1e-15
@@ -1042,18 +1046,20 @@ def add_matching_results(
     return ts, added_groups
 
 
-def solve_num_mismatches(k):
+def solve_num_mismatches(k, num_alleles=5):
     """
     Return the low-level LS parameters corresponding to accepting
     k mismatches in favour of a single recombination.
 
+    mu is scaled by the number of distinct alleles.
+
     The equation is
 
-    r(1 - r)^(m-1) (1 - 4 mu)^m = (1 - r)^m (1 - 4 mu)^(m - k) mu^k
+    r(1 - r)^(m-1) (1 - [a-1] mu)^m = (1 - r)^m (1 - [a-1] mu)^(m - k) mu^k
 
     Solving for r gives
 
-    r = mu^k / (mu^k + (1 - 4 mu)^k
+    r = mu^k / (mu^k + (1 - [a-1] mu)^k
 
     The LHS is
     1. P[one recombination]
@@ -1064,15 +1070,14 @@ def solve_num_mismatches(k):
     1. P[not recombining m times]
     2. P[not mutating m - k times]
     3. P[mutating k times]
-
-    The 1 - 4mu terms come from having 5 alleles.
-
     """
     # values of k <= 1 are not relevant for SC2 and lead to awkward corner cases
     assert k > 1
+    assert num_alleles > 1
+
     mu = 0.0125
 
-    denom = mu**k + (1 - 4 * mu) ** k
+    denom = mu**k + (1 - (num_alleles - 1) * mu) ** k
     rho = mu**k / denom
     # print("r before", r)
     # Add a tiny bit of extra mass so that we deterministically recombine
