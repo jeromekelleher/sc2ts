@@ -32,7 +32,7 @@ def recombinant_example_1(ts_map):
     # SRR11597163 51  [(15324, 'T'), (29303, 'T')]
     H = ts.genotype_matrix(samples=nodes, alleles=tuple("ACGT-")).T
     bp = 10_000
-    h = H[0].copy()
+    h = H[0].copy().astype(np.int8)
     h[bp:] = H[1][bp:]
 
     s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
@@ -113,14 +113,16 @@ class TestInitialTs:
 
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
-        return sc2ts.inference.match_tsinfer(
+        matches = sc2ts.inference.match_tsinfer(
             samples=samples,
             ts=ts,
             mu=0.125,
             rho=0,
+            likelihood_threshold=1e-200,
             mirror_coordinates=mirror_coordinates,
             **kwargs,
         )
+        return [matches[sample.strain] for sample in samples]
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
@@ -1018,7 +1020,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu**num_mismatches - 1e-12,
             num_threads=0,
         )
-        s = matches[0]
+        s = matches[strain]
         assert len(s.mutations) == 0
         assert len(s.path) == 1
         assert s.path[0].parent == parent
@@ -1055,7 +1057,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu - 1e-5,
             num_threads=0,
         )
-        s = matches[0]
+        s = matches[strain]
         assert len(s.mutations) == 1
         assert s.mutations[0].site_position == position
         assert s.mutations[0].derived_state == derived_state
@@ -1085,7 +1087,7 @@ class TestMatchingDetails:
             likelihood_threshold=mu**2 - 1e-12,
             num_threads=0,
         )
-        s = matches[0]
+        s = matches[strain]
         assert len(s.path) == 1
         assert s.path[0].parent == 1
         assert len(s.mutations) == 2
@@ -1099,13 +1101,14 @@ class TestMatchingDetails:
             ts=ts,
             mu=mu,
             rho=rho,
+            likelihood_threshold=1e-200,
             num_threads=0,
         )
         interval_right = 11083
         left_parent = 31
         right_parent = 46
 
-        m = matches[0]
+        m = matches[s.strain]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
         assert m.path[0].parent == left_parent
@@ -1144,18 +1147,23 @@ class TestMatchRecombinants:
         m = s.hmm_reruns["reverse"]
         assert len(m.mutations) == 0
         assert len(m.path) == 2
-        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_left
+        assert m.path[0].parent == left_parent
         assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_left
         assert m.path[1].right == ts.sequence_length
 
         m = s.hmm_reruns["no_recombination"]
+        # It seems that we can choose either the left or right parent
+        # arbitrarily :shrug:
         assert len(m.mutations) == 3
-        assert m.mutation_summary() == "[11083T>G, 15324C>T, 29303C>T]"
+        assert m.mutation_summary() in [
+            "[A871G, A3027G, C3787T]",
+            "[T11083G, C15324T, C29303T]",
+        ]
         assert len(m.path) == 1
-        assert m.path[0].parent == left_parent
+        assert m.path[0].parent in [left_parent, right_parent]
         assert m.path[0].left == 0
         assert m.path[0].right == ts.sequence_length
 
