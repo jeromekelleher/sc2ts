@@ -368,14 +368,17 @@ def coalesce_mutations(ts, samples=None):
         group_parent_time = max_sib_time + diff / 2
         assert group_parent_time < parent_time
 
-        md_overlap = [(x.site, x.inherited_state, x.derived_state) for x in overlap]
+        md_overlap = [
+            f"{x.inherited_state}{int(ts.sites_position[x.site])}{x.derived_state}"
+            for x in overlap
+        ]
         md_sibs = [int(sib) for sib in sibs]
         tables.nodes.add_row(
             flags=core.NODE_IS_MUTATION_OVERLAP,
             time=group_parent_time,
             metadata={
                 "sc2ts": {
-                    "overlap": md_overlap,
+                    "mutations": md_overlap,
                     "sibs": md_sibs,
                 }
             },
