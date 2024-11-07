@@ -539,7 +539,9 @@ def extend(
     summarise_base(base, date, progress)
     if include_samples is not None:
         include_samples = parse_include_samples(include_samples)
-        logger.debug("Loaded {len(include_samples)}: {include_samples}")
+        logger.debug(
+            f"Loaded {len(include_samples)} include samples: {include_samples}"
+        )
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
