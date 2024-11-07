@@ -152,7 +152,7 @@ def setup_logging(verbosity, log_file=None):
     warn_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
     warn_handler.setLevel(logging.WARN)
 
-    for name in ["sc2ts", "tsinfer.inference"]:
+    for name in ["sc2ts"]:
         logger = logging.getLogger(name)
         logger.setLevel(log_level)
         logger.addHandler(handler)

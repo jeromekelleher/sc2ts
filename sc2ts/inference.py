@@ -12,6 +12,7 @@ import hashlib
 import sqlite3
 import pathlib
 import random
+import threading
 
 import tqdm
 import tskit
@@ -1167,37 +1168,60 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
     return tsb, position_map.astype(int)
 
 
-def match_tsinfer(
-    samples,
-    ts,
-    *,
-    num_mismatches,
-    mismatch_threshold=None,
-    deletions_as_missing=False,
-    num_threads=0,
-    show_progress=False,
-    progress_title=None,
-    progress_phase=None,
-    mirror_coordinates=False,
-):
+class MatchingManager:
+    def __init__(self, tsb, work, num_threads, progress_bar):
+        self.tsb = tsb
+        self.num_threads = max(num_threads, 0)
+        self.matchers = [None for _ in range(max(num_threads, 1))]
+        self.matchers_lock = threading.Lock()
+        self.work = list(work)
+        self.work_lock = threading.Lock()
+        self.results = {}
+        self.results_lock = threading.Lock()
+        self.progress_bar = progress_bar
+        if num_threads > 0:
+            self.threads = [
+                threading.Thread(target=self.match_worker, args=(j,))
+                for j in range(num_threads)
+            ]
 
-    num_alleles = 4 if deletions_as_missing else 5
-    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
+    def run(self):
+        if self.num_threads == 0:
+            logger.debug(f"Running {len(self.work)} matches synchronously")
+            for w in self.work:
+                self.run_match(w, 0)
+        else:
+            for thread in self.threads:
+                thread.start()
+            logger.debug(
+                f"Running {len(self.work)} matches in {len(self.threads)} threads"
+            )
+            for thread in self.threads:
+                thread.join()
+            logger.debug("Match worker threads completed")
 
-    tsb, coord_map = make_tsb(ts, num_alleles, mirror_coordinates)
+        self.progress_bar.close()
 
-    def match_worker(strain, h, likelihood_threshold):
+    def run_match(self, work, thread_index):
+        logger.debug(f"Starting match {work.strain} in thread {thread_index}")
+
+        h = work.haplotype
+        num_sites = len(h)
         matcher = _tsinfer.AncestorMatcher(
-            tsb,
-            recombination=np.full(ts.num_sites, rho),
-            mismatch=np.full(ts.num_sites, mu),
-            likelihood_threshold=likelihood_threshold,
+            self.tsb,
+            recombination=np.full(num_sites, work.rho),
+            mismatch=np.full(num_sites, work.mu),
+            likelihood_threshold=work.likelihood_threshold,
         )
+        with self.matchers_lock:
+            assert self.matchers[thread_index] is None
+            self.matchers[thread_index] = matcher
+
         is_missing = h == MISSING
-        m = np.full(len(h), MISSING, dtype=np.int8)
+        m = np.full(num_sites, MISSING, dtype=np.int8)
 
         before = time.thread_time()
-        match_path = matcher.find_path(h, 0, len(h), m)
+        match_path = matcher.find_path(h, 0, num_sites, m)
         duration = time.thread_time() - before
 
         path = []
@@ -1219,51 +1243,104 @@ def match_tsinfer(
 
         path_len = len(match_path[0])
         num_muts = np.sum(m != h)
-        likelihood = rho ** (path_len - 1) * mu**num_muts
+        likelihood = work.rho ** (path_len - 1) * work.mu**num_muts
         hmm_match = HmmMatch(path, mutations, likelihood=likelihood)
 
         logger.debug(
             f"Found path len={path_len} and muts={num_muts} L={likelihood:.2g} "
-            f"(L_t={likelihood_threshold:.2g}) for {strain} in {duration:.3f}s "
+            f"(L_t={work.likelihood_threshold:.2g}) "
+            f"for {work.strain} in {duration:.3f}s "
             f"mean_tb_size={matcher.mean_traceback_size:.1f} "
             f"match_mem={humanize.naturalsize(matcher.total_memory, binary=True)}"
         )
+        with self.matchers_lock:
+            self.matchers[thread_index] = None
 
-        return hmm_match
+        with self.results_lock:
+            self.results[work.strain] = hmm_match
+        self.progress_bar.update()
 
-    bar = get_progress(samples, progress_title, progress_phase, show_progress)
+    def match_worker(self, thread_index):
+        """
+        Start the match worker, and read work from the queue until completed.
+        """
+        logger.debug(f"Starting match worker thread {thread_index}")
+        while True:
+            with self.work_lock:
+                if len(self.work) == 0:
+                    logger.debug(f"Work done: thread {thread_index} exiting")
+                    return
+                work = self.work.pop()
+            # TODO check memory budget and poll here
+            self.run_match(work, thread_index)
 
-    with cf.ThreadPoolExecutor(max_workers=max(num_threads, 1)) as executor:
-        future_to_sample = {}
-        for sample in samples:
-            h = sample.haplotype.copy()
-            if mirror_coordinates:
-                h = h[::-1]
-            if deletions_as_missing:
-                h[h == DELETION] = MISSING
-            if mismatch_threshold is not None:
-                # Likelihood threshold is slightly less than k mutations
-                likelihood_threshold = mu**mismatch_threshold * 0.99
-            else:
-                assert sample.hmm_match is not None
-                likelihood_threshold = sample.hmm_match.likelihood
-            future = executor.submit(match_worker, sample.strain, h, likelihood_threshold)
-            future_to_sample[future] = sample
 
-        for future in cf.as_completed(future_to_sample):
-            raw_hmm_match = future.result()
-            sample = future_to_sample[future]
-            sample.hmm_match = raw_hmm_match.translate_coordinates(
-                coord_map, mirror_coordinates, ts.sites_position
+@dataclasses.dataclass(frozen=True)
+class MatchWork:
+    strain: str
+    haplotype: List
+    mu: float
+    rho: float
+    likelihood_threshold: float
+
+
+def match_tsinfer(
+    samples,
+    ts,
+    *,
+    num_mismatches,
+    mismatch_threshold=None,
+    deletions_as_missing=False,
+    num_threads=0,
+    show_progress=False,
+    progress_title=None,
+    progress_phase=None,
+    mirror_coordinates=False,
+):
+
+    num_alleles = 4 if deletions_as_missing else 5
+    mu, rho = solve_num_mismatches(num_mismatches, num_alleles)
+
+    tsb, coord_map = make_tsb(ts, num_alleles, mirror_coordinates)
+
+    work = []
+    for sample in samples:
+        h = sample.haplotype.copy()
+        if mirror_coordinates:
+            h = h[::-1]
+        if deletions_as_missing:
+            h[h == DELETION] = MISSING
+        if mismatch_threshold is not None:
+            # Likelihood threshold is slightly less than k mutations
+            likelihood_threshold = mu**mismatch_threshold * 0.99
+        else:
+            assert sample.hmm_match is not None
+            likelihood_threshold = sample.hmm_match.likelihood
+
+        work.append(
+            MatchWork(
+                strain=sample.strain,
+                haplotype=h,
+                mu=mu,
+                rho=rho,
+                likelihood_threshold=likelihood_threshold,
             )
-            cost = sample.hmm_match.get_hmm_cost(num_mismatches)
-            logger.debug(
-                f"HMM@T={mismatch_threshold}: {sample.strain} "
-                f"hmm_cost={cost} match={sample.hmm_match.summary()}"
-            )
-            bar.update()
-        bar.close()
+        )
 
+    bar = get_progress(work, progress_title, progress_phase, show_progress)
+    manager = MatchingManager(tsb, work, num_threads, bar)
+    manager.run()
+
+    for sample in samples:
+        raw_hmm_match = manager.results[sample.strain]
+        sample.hmm_match = raw_hmm_match.translate_coordinates(
+            coord_map, mirror_coordinates, ts.sites_position
+        )
+        cost = sample.hmm_match.get_hmm_cost(num_mismatches)
+        logger.debug(
+            f"HMM@T={mismatch_threshold}: {sample.strain} "
+            f"hmm_cost={cost} match={sample.hmm_match.summary()}"
+        )
 
 
 @dataclasses.dataclass(frozen=True)
