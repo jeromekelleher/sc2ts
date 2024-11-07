@@ -51,6 +51,18 @@ deletions_as_missing = click.option(
     help="Treat all deletions as missing data when matching haplotypes",
     show_default=True,
 )
+memory_limit = click.option(
+    "-M",
+    "--memory-limit",
+    default=0,
+    type=float,
+    help=(
+        "Memory limit in GiB for matching. If active memory usage "
+        "exceeds this value during matching, do not start any more "
+        "matches until it goes below the threshold. "
+        "Defaults to 0 (unlimited)"
+    ),
+)
 
 __before = time.time()
 
@@ -384,6 +396,7 @@ def summarise_base(ts, date, progress):
 @click.argument("output_ts", type=click.Path(dir_okay=False))
 @num_mismatches
 @deletions_as_missing
+@memory_limit
 @click.option(
     "--hmm-cost-threshold",
     default=5,
@@ -487,6 +500,7 @@ def extend(
     max_recurrent_mutations,
     retrospective_window,
     deletions_as_missing,
+    memory_limit,
     max_daily_samples,
     max_missing_sites,
     num_threads,
@@ -536,6 +550,7 @@ def extend(
             max_missing_sites=max_missing_sites,
             random_seed=random_seed,
             num_threads=num_threads,
+            memory_limit=memory_limit * 2**30,
             show_progress=progress,
         )
         add_provenance(ts_out, output_ts)

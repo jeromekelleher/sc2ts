@@ -405,9 +405,10 @@ def match_samples(
     deletions_as_missing=False,
     num_mismatches=None,
     show_progress=False,
-    num_threads=None,
+    num_threads=0,
+    memory_limit=-1,
 ):
-    run_batch = samples
+    run_batch = list(samples)
 
     for k in range(2):
         logger.info(f"Running match={k} batch of {len(run_batch)}")
@@ -418,6 +419,7 @@ def match_samples(
             mismatch_threshold=k,
             deletions_as_missing=deletions_as_missing,
             num_threads=num_threads,
+            memory_limit=memory_limit,
             show_progress=show_progress,
             progress_title=date,
             progress_phase=f"match({k})",
@@ -436,18 +438,35 @@ def match_samples(
         )
         run_batch = exceeding_threshold
 
+    # Order the run_batch by the likelihood of their matches so that
+    # we don't run out of memory because of an initial glut of
+    # difficult matches.
+    # NOTE: we should probably do this type of thing withing the
+    # MatchManager, where we preferentially choose high-likelihood
+    # sequences when we're under memory pressure? This is quite
+    # complicated though, and hard to test.
+    run_batch.sort(key=lambda s: -s.hmm_match.likelihood)
+    likelihoods = collections.Counter([s.hmm_match.likelihood for s in run_batch])
+    logger.debug(f"L dist: {dict(likelihoods)}")
+    if len(run_batch) > num_threads > 0:
+        start_batch = run_batch[:num_threads]
+        rest = run_batch[num_threads:]
+        rng = random.Random(42)  # Seed doesn't matter here
+        rng.shuffle(rest)
+        run_batch = start_batch + rest
+
     logger.info(f"Running final batch of {len(run_batch)} at high precision")
     match_tsinfer(
         samples=run_batch,
         ts=base_ts,
         num_mismatches=num_mismatches,
-        num_threads=num_threads // 2,  # FIXME! temporary hack to enable big inference
+        num_threads=num_threads,
+        memory_limit=memory_limit,
         deletions_as_missing=deletions_as_missing,
         show_progress=show_progress,
         progress_title=date,
         progress_phase=f"match(F)",
     )
-    return samples
 
 
 def check_base_ts(ts):
@@ -526,6 +545,7 @@ def extend(
     max_missing_sites=None,
     random_seed=42,
     num_threads=0,
+    memory_limit=0,
 ):
     if num_mismatches is None:
         num_mismatches = 3
@@ -599,13 +619,15 @@ def extend(
             logger.info(f"Subset from {len(samples)} to {max_daily_samples}")
             samples = rng.sample(samples, max_daily_samples)
 
+    samples.sort(key=lambda s: s.strain)
+
     ts = increment_time(date, base_ts)
     if len(samples) > 0:
         logger.info(
             f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
         )
 
-        samples = match_samples(
+        match_samples(
             date,
             samples,
             base_ts=base_ts,
@@ -613,6 +635,7 @@ def extend(
             deletions_as_missing=deletions_as_missing,
             show_progress=show_progress,
             num_threads=num_threads,
+            memory_limit=memory_limit,
         )
 
         characterise_match_mutations(base_ts, samples)
@@ -1169,7 +1192,7 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
 
 
 class MatchingManager:
-    def __init__(self, tsb, work, num_threads, progress_bar):
+    def __init__(self, tsb, work, num_threads, progress_bar, memory_limit):
         self.tsb = tsb
         self.num_threads = max(num_threads, 0)
         self.matchers = [None for _ in range(max(num_threads, 1))]
@@ -1179,6 +1202,7 @@ class MatchingManager:
         self.results = {}
         self.results_lock = threading.Lock()
         self.progress_bar = progress_bar
+        self.memory_limit = 2**64 if memory_limit <= 0 else memory_limit
         if num_threads > 0:
             self.threads = [
                 threading.Thread(target=self.match_worker, args=(j,))
@@ -1260,6 +1284,20 @@ class MatchingManager:
             self.results[work.strain] = hmm_match
         self.progress_bar.update()
 
+    def total_matcher_memory(self):
+        total_memory = 0
+        active_matchers = 0
+        with self.matchers_lock:
+            for matcher in self.matchers:
+                if matcher is not None:
+                    active_matchers += 1
+                    total_memory += matcher.total_memory
+        logger.debug(
+            f"Total matcher memory (active={active_matchers})="
+            f"{humanize.naturalsize(total_memory, binary=True)}"
+        )
+        return total_memory
+
     def match_worker(self, thread_index):
         """
         Start the match worker, and read work from the queue until completed.
@@ -1268,10 +1306,16 @@ class MatchingManager:
         while True:
             with self.work_lock:
                 if len(self.work) == 0:
-                    logger.debug(f"Work done: thread {thread_index} exiting")
+                    logger.debug(f"Thread {thread_index} work done, exiting")
                     return
                 work = self.work.pop()
-            # TODO check memory budget and poll here
+            wait_count = 0
+            while self.total_matcher_memory() > self.memory_limit:
+                logger.debug(
+                    f"Thread {thread_index} Over memory budget: waiting {wait_count}"
+                )
+                time.sleep(1)
+                wait_count += 1
             self.run_match(work, thread_index)
 
 
@@ -1292,6 +1336,7 @@ def match_tsinfer(
     mismatch_threshold=None,
     deletions_as_missing=False,
     num_threads=0,
+    memory_limit=-1,
     show_progress=False,
     progress_title=None,
     progress_phase=None,
@@ -1328,7 +1373,7 @@ def match_tsinfer(
         )
 
     bar = get_progress(work, progress_title, progress_phase, show_progress)
-    manager = MatchingManager(tsb, work, num_threads, bar)
+    manager = MatchingManager(tsb, work, num_threads, bar, memory_limit)
     manager.run()
 
     for sample in samples:

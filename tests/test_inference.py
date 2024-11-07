@@ -353,13 +353,17 @@ class TestRealData:
         assert ts.metadata["sc2ts"]["exact_matches"]["node"] == {"5": 2}
         ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
 
-    def test_2020_02_02(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+    @pytest.mark.parametrize("num_threads", [0, 1, 3, 10])
+    def test_2020_02_02(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, num_threads
+    ):
         ts = sc2ts.extend(
             alignment_store=fx_alignment_store,
             metadata_db=fx_metadata_db,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            num_threads=num_threads,
         )
         assert ts.num_samples == 22
         assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
