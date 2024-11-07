@@ -1751,10 +1751,10 @@ class TreeInfo:
                     shown_nodes.append(u)
                 prev = u
 
+        multiple_mutations = []
+        reverted_mutations = []
         if mutation_labels is None:
             mutation_labels = collections.defaultdict(list)
-            multiple_mutations = []
-            reverted_mutations = []
             use_mutations = np.where(np.isin(ts.mutations_node, shown_nodes))[0]
             sites = ts.mutations_site[use_mutations]
             for mut_id in use_mutations:
