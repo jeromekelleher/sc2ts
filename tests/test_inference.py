@@ -567,7 +567,8 @@ class TestRealData:
         assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
         assert rp_node.metadata["sc2ts"] == {
             "date_added": "2020-02-08",
-            "sites": [5019],
+            # The mutation we tried to revert is the inverse 
+            "mutations": ["C5025T"],
         }
         ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
 

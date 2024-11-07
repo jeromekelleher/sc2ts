@@ -443,7 +443,11 @@ def push_up_reversions(ts, samples, date="1999-01-01"):
         for site in child_muts:
             if site in parent_muts:
                 if child_muts[site].is_reversion_of(parent_muts[site]):
-                    reversions.append((site, child))
+                    reversions.append(
+                        ReversionDescriptor(
+                            site, child, child_muts[site], parent_muts[site]
+                        )
+                    )
         # Pick the maximum set of reversions per sib group so that we're not
         # trying to resolve incompatible reversion sets.
         if len(reversions) > len(sib_groups[parent]):
@@ -456,9 +460,9 @@ def push_up_reversions(ts, samples, date="1999-01-01"):
         if len(reversions) == 0:
             continue
 
-        sample = reversions[0][1]
-        assert all(x[1] == sample for x in reversions)
-        sites = [x[0] for x in reversions]
+        sample = reversions[0].child_node
+        assert all(x.child_node == sample for x in reversions)
+        sites = [x.site for x in reversions]
         # Remove the edges above the sample and its parent
         edges_to_delete.extend([tree.edge(sample), tree.edge(parent)])
         # Create new node that is fractionally older than the current
@@ -468,16 +472,21 @@ def push_up_reversions(ts, samples, date="1999-01-01"):
         # make it proportional to the number of mutations or something.
         eps = tree.branch_length(parent) * 0.125
         w_time = tree.time(parent) + eps
+        parent_summary = []
+        for r in reversions:
+            position = int(ts.sites_position[r.site])
+            parent_summary.append(
+                f"{r.parent_mutation.inherited_state}{position}{r.parent_mutation.derived_state}"
+            )
         w = tables.nodes.add_row(
             flags=core.NODE_IS_REVERSION_PUSH,
             time=w_time,
             metadata={
                 "sc2ts": {
-                    # FIXME it's not clear how helpful the metadata is here
-                    # If we had separate pass for each group, it would probably
-                    # be easier to reason about.
-                    "sites": [int(x) for x in sites],
                     "date_added": date,
+                    # Store the parent mutation, that is the mutations we were trying
+                    # to revert
+                    "mutations": parent_summary,
                 }
             },
         )
@@ -522,6 +531,14 @@ class MutationDescriptor:
         """
         assert self.site == other.site
         return self.derived_state == other.inherited_state
+
+
+@dataclasses.dataclass
+class ReversionDescriptor:
+    site: int
+    child_node: int
+    child_mutation: MutationDescriptor
+    parent_mutation: MutationDescriptor
 
 
 def node_mutation_descriptors(ts, u):
