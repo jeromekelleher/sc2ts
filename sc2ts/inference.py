@@ -102,7 +102,7 @@ class MatchDb:
     def close(self):
         self.conn.close()
 
-    def add(self, samples, date, num_mismatches, show_progress=False):
+    def add(self, samples, date, show_progress=False):
         """
         Adds the specified matched samples to this MatchDb.
         """
@@ -121,7 +121,7 @@ class MatchDb:
             pkl = pickle.dumps(sample)
             # BZ2 compressing drops this by ~10X, so worth it.
             pkl_compressed = bz2.compress(pkl)
-            hmm_cost[j] = sample.hmm_match.get_hmm_cost(num_mismatches)
+            hmm_cost[j] = sample.hmm_match.cost
             args = (
                 sample.strain,
                 date,
@@ -427,7 +427,7 @@ def match_samples(
 
         exceeding_threshold = []
         for sample in run_batch:
-            cost = sample.hmm_match.get_hmm_cost(num_mismatches)
+            cost = sample.hmm_match.cost
             if cost > k + 1:
                 exceeding_threshold.append(sample)
 
@@ -531,6 +531,7 @@ def extend(
     date,
     base_ts,
     match_db,
+    include_samples=None,
     num_mismatches=None,
     hmm_cost_threshold=None,
     min_group_size=None,
@@ -567,6 +568,8 @@ def extend(
         max_missing_sites = np.inf
     if deletions_as_missing is None:
         deletions_as_missing = False
+    if include_samples is None:
+        include_samples = []
 
     previous_date = check_base_ts(base_ts)
     logger.info(
@@ -589,6 +592,8 @@ def extend(
     # FIXME parametrise
     pango_lineage_key = "Viridian_pangolin"
 
+    include_strains = set(include_samples)
+    unconditional_include_samples = []
     samples = []
     for s in preprocessed_samples:
         if s.haplotype is None:
@@ -604,7 +609,9 @@ def extend(
             f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
             f"deletions={num_deletion_sites}"
         )
-        if num_missing_sites <= max_missing_sites:
+        if s.strain in include_strains:
+            unconditional_include_samples.append(s)
+        elif num_missing_sites <= max_missing_sites:
             samples.append(s)
         else:
             logger.debug(
@@ -619,6 +626,7 @@ def extend(
             logger.info(f"Subset from {len(samples)} to {max_daily_samples}")
             samples = rng.sample(samples, max_daily_samples)
 
+    samples = samples + unconditional_include_samples
     samples.sort(key=lambda s: s.strain)
 
     ts = increment_time(date, base_ts)
@@ -639,8 +647,14 @@ def extend(
         )
 
         characterise_match_mutations(base_ts, samples)
+        for sample in unconditional_include_samples:
+            # We want this sample to included unconditionally, so we set the
+            # hmm cost to 0 < hmm_cost < hmm_cost_threshold. We use 0.5
+            # arbitrarily here to distinguish it from real one-mutation
+            sample.hmm_match.cost = 0.5
+            logger.warning(f"Unconditionally including {sample.summary()}")
 
-        match_db.add(samples, date, num_mismatches, show_progress)
+        match_db.add(samples, date, show_progress)
         match_db.create_mask_table(base_ts)
 
         ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
@@ -1267,7 +1281,8 @@ class MatchingManager:
         path_len = len(match_path[0])
         num_muts = np.sum(m != h)
         likelihood = work.rho ** (path_len - 1) * work.mu**num_muts
-        hmm_match = HmmMatch(path, mutations, likelihood=likelihood)
+        cost = work.num_mismatches * (path_len - 1) + num_muts
+        hmm_match = HmmMatch(path, mutations, likelihood=likelihood, cost=cost)
 
         logger.debug(
             f"Found path len={path_len} and muts={num_muts} L={likelihood:.2g} "
@@ -1320,6 +1335,7 @@ class MatchingManager:
 class MatchWork:
     strain: str
     haplotype: List
+    num_mismatches: int
     mu: float
     rho: float
     likelihood_threshold: float
@@ -1363,6 +1379,7 @@ def match_tsinfer(
             MatchWork(
                 strain=sample.strain,
                 haplotype=h,
+                num_mismatches=num_mismatches,
                 mu=mu,
                 rho=rho,
                 likelihood_threshold=likelihood_threshold,
@@ -1379,10 +1396,9 @@ def match_tsinfer(
         sample.hmm_match = raw_hmm_match.translate_coordinates(
             coord_map, mirror_coordinates, ts.sites_position
         )
-        cost = sample.hmm_match.get_hmm_cost(num_mismatches)
         logger.debug(
             f"HMM@T={mismatch_threshold}: {sample.strain} "
-            f"hmm_cost={cost} match={sample.hmm_match.summary()}"
+            f"hmm_cost={sample.hmm_match.cost} match={sample.hmm_match.summary()}"
         )
 
 
@@ -1427,11 +1443,12 @@ def path_summary(path):
     return ", ".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class HmmMatch:
     path: List[PathSegment]
     mutations: List[MatchMutation]
     likelihood: float = None
+    cost: float = None
 
     def asdict(self):
         return {
@@ -1455,8 +1472,8 @@ class HmmMatch:
     def parents(self):
         return [seg.parent for seg in self.path]
 
-    def get_hmm_cost(self, num_mismatches):
-        return num_mismatches * (len(self.path) - 1) + len(self.mutations)
+    def compute_cost(self, num_mismatches):
+        self.cost = num_mismatches * (len(self.path) - 1) + len(self.mutations)
 
     def path_summary(self):
         return path_summary(self.path)
@@ -1504,7 +1521,7 @@ class HmmMatch:
             )
         if mirror_coordinates:
             mutations = mutations[::-1]
-        return HmmMatch(path, mutations, self.likelihood)
+        return HmmMatch(path, mutations, self.likelihood, self.cost)
 
 
 def characterise_match_mutations(ts, samples):

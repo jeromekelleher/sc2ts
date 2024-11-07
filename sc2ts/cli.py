@@ -387,6 +387,14 @@ def summarise_base(ts, date, progress):
         print(f"{date} Start base: {node_info}", file=sys.stderr)
 
 
+def parse_include_samples(fileobj):
+    strains = []
+    for line in fileobj:
+        strain = line.split(maxsplit=1)[0]
+        strains.append(strain)
+    return strains
+
+
 @click.command()
 @click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("date")
@@ -463,6 +471,16 @@ def summarise_base(ts, date, progress):
     ),
 )
 @click.option(
+    "--include-samples",
+    default=None,
+    type=click.File("r"),
+    help=(
+        "File containing the list of strains to unconditionally include, "
+        "one per line. Strains are the first white-space delimited token "
+        "and the rest of the line ignored (to allow for comments etc)"
+    ),
+)
+@click.option(
     "--random-seed",
     default=42,
     type=int,
@@ -503,6 +521,7 @@ def extend(
     memory_limit,
     max_daily_samples,
     max_missing_sites,
+    include_samples,
     num_threads,
     random_seed,
     progress,
@@ -518,6 +537,9 @@ def extend(
     setup_logging(verbose, log_file)
     base = tskit.load(base_ts)
     summarise_base(base, date, progress)
+    if include_samples is not None:
+        include_samples = parse_include_samples(include_samples)
+        logger.debug("Loaded {len(include_samples)}: {include_samples}")
     with contextlib.ExitStack() as exit_stack:
         alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
         metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
@@ -539,6 +561,7 @@ def extend(
             date=date,
             match_db=match_db,
             num_mismatches=num_mismatches,
+            include_samples=include_samples,
             hmm_cost_threshold=hmm_cost_threshold,
             min_group_size=min_group_size,
             min_root_mutations=min_root_mutations,

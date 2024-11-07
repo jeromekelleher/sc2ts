@@ -1,3 +1,4 @@
+import io
 import json
 import collections
 
@@ -177,6 +178,54 @@ class TestMatch:
         assert len(d["match"]["mutations"]) == 5
 
 
+class TestExtend:
+
+    def test_first_day(self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db):
+        ts = fx_ts_map["2020-01-01"]
+        ts_path = tmp_path / "ts.ts"
+        output_ts_path = tmp_path / "out.ts"
+        ts.dump(ts_path)
+        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"extend {ts_path} 2020-01-19 {fx_alignment_store.path} "
+            f"{fx_metadata_db.path} {match_db.path} {output_ts_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out_ts = tskit.load(output_ts_path)
+        out_ts.tables.assert_equals(
+            fx_ts_map["2020-01-19"].tables, ignore_provenance=True
+        )
+
+    def test_include_samples(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db
+    ):
+        ts = fx_ts_map["2020-02-01"]
+        ts_path = tmp_path / "ts.ts"
+        output_ts_path = tmp_path / "out.ts"
+        ts.dump(ts_path)
+        include_samples_path = tmp_path / "include_samples.txt"
+        with open(include_samples_path, "w") as f:
+            print("SRR11597115 This is a test strain", file=f)
+            print("ABCD this is a strain that doesn't exist", file=f)
+        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"extend {ts_path} 2020-02-02 {fx_alignment_store.path} "
+            f"{fx_metadata_db.path} {match_db.path} {output_ts_path} "
+            f"--include-samples={include_samples_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        ts = tskit.load(output_ts_path)
+        assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
+        assert ts.num_samples == 23
+
+
 class TestRunRematchRecombinants:
 
     @pytest.mark.parametrize("num_threads", [0, 1, 2])
@@ -287,3 +336,18 @@ class TestListDates:
             "2020-02-11\t2",
             "2020-02-13\t4",
         ]
+
+
+class TestParseIncludeSamples:
+    @pytest.mark.parametrize(
+        ["text", "parsed"],
+        [
+            ("ABCD\n1234\n56", ["ABCD", "1234", "56"]),
+            ("   ABCD\n\t1234\n 56", ["ABCD", "1234", "56"]),
+            ("ABCD the rest is a comment", ["ABCD"]),
+            ("", []),
+        ],
+    )
+    def test_examples(self, text, parsed):
+        result = cli.parse_include_samples(io.StringIO(text))
+        assert result == parsed

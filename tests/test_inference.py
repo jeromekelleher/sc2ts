@@ -368,8 +368,32 @@ class TestRealData:
         assert ts.num_samples == 22
         assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
-
+        assert "SRR11597115" not in ts.metadata["sc2ts"]["samples_strain"]
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
+
+    @pytest.mark.parametrize(
+        "include_samples", (["SRR11597115"], ["SRR11597115", "NOSUCHSTRAIN"])
+    )
+    def test_2020_02_02_include_samples(
+        self,
+        tmp_path,
+        fx_ts_map,
+        fx_alignment_store,
+        fx_metadata_db,
+        include_samples,
+    ):
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            include_samples=include_samples,
+        )
+        assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
+        assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
+        assert ts.num_samples == 23
 
     @pytest.mark.parametrize("max_samples", range(1, 6))
     def test_2020_02_02_max_samples(
