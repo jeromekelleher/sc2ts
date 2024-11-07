@@ -1197,10 +1197,10 @@ class MatchingManager:
         self.num_threads = max(num_threads, 0)
         self.matchers = [None for _ in range(max(num_threads, 1))]
         self.matchers_lock = threading.Lock()
-        self.work = list(work)
-        self.work_lock = threading.Lock()
-        self.results = {}
-        self.results_lock = threading.Lock()
+        # This is a thread-safe operation, so we don't need locks on the
+        # work and results lists.
+        self.work = collections.deque(work)
+        self.results = collections.deque()
         self.progress_bar = progress_bar
         self.memory_limit = 2**64 if memory_limit <= 0 else memory_limit
         if num_threads > 0:
@@ -1220,14 +1220,13 @@ class MatchingManager:
             logger.debug(
                 f"Running {len(self.work)} matches in {len(self.threads)} threads"
             )
-            for thread in self.threads:
-                thread.join()
+            for j in range(self.num_threads):
+                self.threads[j].join()
+                self.threads[j] = None
             logger.debug("Match worker threads completed")
-
         self.progress_bar.close()
 
     def run_match(self, work, thread_index):
-        logger.debug(f"Starting match {work.strain} in thread {thread_index}")
 
         h = work.haplotype
         num_sites = len(h)
@@ -1279,9 +1278,7 @@ class MatchingManager:
         )
         with self.matchers_lock:
             self.matchers[thread_index] = None
-
-        with self.results_lock:
-            self.results[work.strain] = hmm_match
+        self.results.append((work, hmm_match))
         self.progress_bar.update()
 
     def total_matcher_memory(self):
@@ -1304,11 +1301,10 @@ class MatchingManager:
         """
         logger.debug(f"Starting match worker thread {thread_index}")
         while True:
-            with self.work_lock:
-                if len(self.work) == 0:
-                    logger.debug(f"Thread {thread_index} work done, exiting")
-                    return
-                work = self.work.pop()
+            if len(self.work) == 0:
+                logger.debug(f"Thread {thread_index} work done, exiting")
+                return
+            work = self.work.popleft()
             wait_count = 0
             while self.total_matcher_memory() > self.memory_limit:
                 logger.debug(
@@ -1316,6 +1312,7 @@ class MatchingManager:
                 )
                 time.sleep(1)
                 wait_count += 1
+            logger.debug(f"Starting match {work.strain} in thread {thread_index}")
             self.run_match(work, thread_index)
 
 
@@ -1375,9 +1372,10 @@ def match_tsinfer(
     bar = get_progress(work, progress_title, progress_phase, show_progress)
     manager = MatchingManager(tsb, work, num_threads, bar, memory_limit)
     manager.run()
+    results = {work.strain: hmm_match for work, hmm_match in manager.results}
 
     for sample in samples:
-        raw_hmm_match = manager.results[sample.strain]
+        raw_hmm_match = results[sample.strain]
         sample.hmm_match = raw_hmm_match.translate_coordinates(
             coord_map, mirror_coordinates, ts.sites_position
         )
