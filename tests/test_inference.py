@@ -395,6 +395,22 @@ class TestRealData:
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
         assert ts.num_samples == 23
 
+    def test_2020_02_02_mutation_overlap(
+        self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db
+    ):
+        base_ts = fx_ts_map["2020-02-01"]
+        ts = sc2ts.extend(
+            alignment_store=fx_alignment_store,
+            metadata_db=fx_metadata_db,
+            base_ts=fx_ts_map["2020-02-01"],
+            date="2020-02-02",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        )
+        assert ts.num_samples == 22
+        node = ts.node(27)
+        assert node.flags == sc2ts.NODE_IS_MUTATION_OVERLAP
+        assert node.metadata == {"sc2ts": {"mutations": ["C17373T"], "sibs": [11, 23]}}
+
     @pytest.mark.parametrize("max_samples", range(1, 6))
     def test_2020_02_02_max_samples(
         self, tmp_path, fx_ts_map, fx_alignment_store, fx_metadata_db, max_samples
@@ -567,7 +583,8 @@ class TestRealData:
         assert rp_node.flags == sc2ts.NODE_IS_REVERSION_PUSH
         assert rp_node.metadata["sc2ts"] == {
             "date_added": "2020-02-08",
-            "sites": [5019],
+            # The mutation we tried to revert is the inverse
+            "mutations": ["C5025T"],
         }
         ts.tables.assert_equals(fx_ts_map["2020-02-08"].tables, ignore_provenance=True)
 
