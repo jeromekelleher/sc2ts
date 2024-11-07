@@ -14,7 +14,6 @@ import tszip
 import numpy as np
 import pandas as pd
 
-import sklearn
 import tqdm
 import matplotlib.pyplot as plt
 from matplotlib import colors
@@ -752,62 +751,6 @@ def sample_subgraph(sample_node, ts, ti=None, **kwargs):
     nodes = nodes[np.sort(idx)]
 
     return plot_subgraph(nodes, ts, ti, **kwargs)
-
-
-def imputation_setup(filepath, verbose=False):
-    """
-    Reads in JSON of lineage-defining mutations and constructs decision tree classifier
-    JSON can be downloaded from covidcg.org -> 'Compare AA mutations' -> Download -> 'Consensus mutations'
-    (setting mutation type to 'NT' and consensus threshold to 0.9)
-    """
-    linmuts_dict = lineages.read_in_mutations(filepath)
-    df, df_ohe, ohe = lineages.read_in_mutations_json(filepath)
-
-    # Get decision tree
-    y = df_ohe.index  # lineage labels
-    clf = sklearn.tree.DecisionTreeClassifier()
-    clf = clf.fit(df_ohe, y)
-
-    if verbose:
-        # Check tree works and that lineages-defining mutations are unique for each lineage
-        y_pred = clf.predict(df_ohe)
-        correct = incorrect = lineage_definition_issue = 0
-        for yy, yy_pred in zip(y, y_pred):
-            if yy == yy_pred:
-                correct += 1
-            else:
-                incorrect += 1
-                if linmuts_dict.get_mutations(yy) == linmuts_dict.get_mutations(
-                    yy_pred
-                ):
-                    lineage_definition_issue += 1
-                    print(yy_pred, "same mutations as", yy)
-        print(
-            "Correct:",
-            correct,
-            "incorrect:",
-            incorrect,
-            "of which due to lineage definition ambiguity:",
-            lineage_definition_issue,
-        )
-
-    return linmuts_dict, df, df_ohe, ohe, clf
-
-
-def lineage_imputation(filepath, ts, ti, internal_only=False, verbose=False):
-    """
-    Runs lineage imputation on input ts
-    """
-    linmuts_dict, df, df_ohe, ohe, clf = imputation_setup(filepath, verbose)
-    print("Recording relevant mutations for each node...")
-    node_to_mut_dict = lineages.get_node_to_mut_dict(ts, ti, linmuts_dict)
-    edited_ts = lineages.impute_lineages(
-        ts, ti, node_to_mut_dict, df, ohe, clf, "Nextclade_pango", internal_only
-    )
-    edited_ts = lineages.impute_lineages(
-        edited_ts, ti, node_to_mut_dict, df, ohe, clf, "GISAID_lineage", internal_only
-    )
-    return edited_ts
 
 
 def add_gisaid_lineages_to_ts(ts, node_gisaid_lineages, linmuts_dict):
