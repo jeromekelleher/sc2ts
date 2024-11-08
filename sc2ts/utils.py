@@ -355,7 +355,7 @@ def plot_subgraph(
                 s = (
                     s.replace("$", "")
                     .replace(r"\bf", "")
-                    .replace("\it", "")
+                    .replace(r"\it", "")
                     .replace("{", "")
                     .replace("}", "")
                 )
