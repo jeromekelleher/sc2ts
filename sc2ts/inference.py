@@ -690,7 +690,7 @@ def extend(
     )
     for group in groups:
         logger.warning(
-            f"Add retro group {dict(group.pango_count)}: "
+            f"Add retro group {group.summary()}:"
             f"{group.tree_quality_metrics.summary()}"
         )
     return update_top_level_metadata(ts, date, groups, len(samples))

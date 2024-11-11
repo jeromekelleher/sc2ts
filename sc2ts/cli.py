@@ -141,7 +141,7 @@ def get_provenance_dict():
     return document
 
 
-def setup_logging(verbosity, log_file=None):
+def setup_logging(verbosity, log_file=None, date=None):
     log_level = "WARN"
     if verbosity > 0:
         log_level = "INFO"
@@ -152,8 +152,9 @@ def setup_logging(verbosity, log_file=None):
         handler = logging.FileHandler(log_file)
     # default time format has millisecond precision which we don't need
     time_format = "%Y-%m-%d %H:%M:%S"
+    date = "" if date is None else date
     fmt = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s", datefmt=time_format
+        f"%(asctime)s %(levelname)s {date} %(message)s", datefmt=time_format
     )
     handler.setFormatter(fmt)
 
@@ -161,7 +162,7 @@ def setup_logging(verbosity, log_file=None):
     # should do this with a separate logger entirely, rather than use
     # the "WARNING" channel.
     warn_handler = logging.StreamHandler()
-    warn_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    warn_handler.setFormatter(logging.Formatter(f"%(levelname)s {date} %(message)s"))
     warn_handler.setLevel(logging.WARN)
 
     for name in ["sc2ts"]:
@@ -534,7 +535,7 @@ def extend(
     alignments and metadata databases, updating the specified matches
     database, and outputting the result to the specified file.
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose, log_file, date=date)
     base = tskit.load(base_ts)
     summarise_base(base, date, progress)
     if include_samples is not None:
@@ -579,7 +580,7 @@ def extend(
             show_progress=progress,
         )
         add_provenance(ts_out, output_ts)
-    resource_usage = f"{date}:{summarise_usage()}"
+    resource_usage = f"{summarise_usage()}"
     logger.info(resource_usage)
     if progress:
         print(resource_usage, file=sys.stderr)
