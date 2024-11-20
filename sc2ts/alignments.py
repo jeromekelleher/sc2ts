@@ -35,8 +35,12 @@ def decompress_alignment(b):
     x = np.frombuffer(buff, dtype="S1")
     return x.astype(str)
 
-
 class AlignmentStore(collections.abc.Mapping):
+    def __init__(self, path, mode="r"):
+        store = zarr.DirectoryStore(path, mode=mode)
+
+
+class OldAlignmentStore(collections.abc.Mapping):
     def __init__(self, path, mode="r"):
         map_size = 1024**4
         self.path = path

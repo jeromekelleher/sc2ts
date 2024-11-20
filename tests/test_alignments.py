@@ -4,6 +4,18 @@ from numpy.testing import assert_array_equal
 
 from sc2ts import alignments as sa
 from sc2ts import core
+import sc2ts
+
+
+class TestBuildAlignmentStore:
+
+    def test_new(self, tmp_path):
+        path = tmp_path / "alignments.vcz"
+        with sc2ts.AlignmentStore(path, mode="a") as store:
+            pass
+        with sc2ts.AlignmentStore(path, mode="r") as store:
+            assert len(store) == 0
+            assert "X" not in store
 
 
 class TestAlignmentsStore:
