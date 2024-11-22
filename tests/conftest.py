@@ -73,28 +73,33 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta):
         sc2ts.Dataset.append_alignments(
             fs_path, encoded_alignments(fx_alignments_fasta)
         )
-        sc2ts.Dataset.add_metadata(fs_path, read_metadata_df())
+        sc2ts.Dataset.add_metadata(
+            # The metadata we're using has been slightly massaged 
+            # already to add more precise dates. Use the "date"
+            # field rather than original Collection_date.
+            fs_path, read_metadata_df(), date_field="date"
+        )
         sc2ts.Dataset.create_zip(fs_path, cache_path)
     return sc2ts.Dataset(cache_path)
 
 
-@pytest.fixture
-def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
-    cache_path = fx_data_cache / "alignments.db"
-    if not cache_path.exists():
-        with sc2ts.AlignmentStore(cache_path, "a") as a:
-            fasta = sc2ts.core.FastaReader(fx_alignments_fasta)
-            a.append(fasta, show_progress=False)
-    return sc2ts.AlignmentStore(cache_path)
+# @pytest.fixture
+# def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
+#     cache_path = fx_data_cache / "alignments.db"
+#     if not cache_path.exists():
+#         with sc2ts.AlignmentStore(cache_path, "a") as a:
+#             fasta = sc2ts.core.FastaReader(fx_alignments_fasta)
+#             a.append(fasta, show_progress=False)
+#     return sc2ts.AlignmentStore(cache_path)
 
 
-@pytest.fixture
-def fx_metadata_db(fx_data_cache):
-    cache_path = fx_data_cache / "metadata.db"
-    tsv_path = "tests/data/metadata.tsv"
-    if not cache_path.exists():
-        sc2ts.MetadataDb.import_csv(tsv_path, cache_path)
-    return sc2ts.MetadataDb(cache_path)
+# @pytest.fixture
+# def fx_metadata_db(fx_data_cache):
+#     cache_path = fx_data_cache / "metadata.db"
+#     tsv_path = "tests/data/metadata.tsv"
+#     if not cache_path.exists():
+#         sc2ts.MetadataDb.import_csv(tsv_path, cache_path)
+#     return sc2ts.MetadataDb(cache_path)
 
 
 @pytest.fixture
@@ -107,7 +112,7 @@ def fx_match_db(fx_data_cache):
 
 # TODO make this a session fixture cacheing the tree sequences.
 @pytest.fixture
-def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_match_db):
+def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
     dates = [
         "2020-01-01",
         "2020-01-19",
@@ -141,8 +146,7 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_ma
             # Load the ts from file to get the provenance data
             last_ts = tskit.load(cache_path)
             last_ts = sc2ts.extend(
-                alignment_store=fx_alignment_store,
-                metadata_db=fx_metadata_db,
+                dataset=fx_dataset,
                 base_ts=last_ts,
                 date=date,
                 match_db=fx_match_db,

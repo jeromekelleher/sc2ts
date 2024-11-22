@@ -2,6 +2,7 @@
 Methods for managing a sc2ts Zarr based dataset.
 """
 
+import dataclasses
 import os.path
 import zipfile
 import collections
@@ -11,37 +12,12 @@ import pathlib
 import zarr
 import numcodecs
 import numpy as np
-import numba
 
 from sc2ts import core
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7, shuffle=0)
-
-# We omit N here as it's mapped to -1. Make "-" the 5th allele
-# as this is a valid allele for us.
-IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
-
-
-# FIXME make cache optional
-@numba.njit(cache=True)
-def encode_alignment(h):
-    # Just so numba knows this is a constant string
-    alleles = "ACGT-RYSWKMBDHV."
-    n = h.shape[0]
-    a = np.full(n, -1, dtype=np.int8)
-    for j in range(n):
-        if h[j] == "N":
-            a[j] = -1
-        else:
-            for k, c in enumerate(alleles):
-                if c == h[j]:
-                    break
-            else:
-                raise ValueError(f"Allele {h[j]} not recognised")
-            a[j] = k
-    return a
 
 
 def massage_viridian_metadata(df):
@@ -69,7 +45,10 @@ def massage_viridian_metadata(df):
         "Viridian_cons_het",
     ]
     for name in int_fields:
-        data = df[name]
+        try:
+            data = df[name]
+        except KeyError:
+            continue
         if str(data.dtype) == "int64":
             continue
         a = np.zeros(N, dtype=int)
@@ -114,17 +93,31 @@ class CachedAlignmentMapping(collections.abc.Mapping):
 class CachedMetadataMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map):
         self.sample_id_map = sample_id_map
+        self.sample_date = root["sample_date"][:].astype(str)
+        self.sample_id = root["sample_id"][:].astype(str)
         self.arrays = {}
         prefix = "sample_"
         # We might need to do this on a chunk-aware basis
         for k, v in root.items():
-            if k.startswith(prefix) and k != "sample_id":
+            if k.startswith(prefix) and k not in ("sample_id", "sample_date"):
                 name = k[len(prefix) :]
                 logger.debug(f"Decompressing metadata {name}")
                 self.arrays[name] = v[:]
 
     def get_metadata(self, j):
-        return {key: array[j] for key, array in self.arrays.items()}
+        d = {}
+        for key, array in self.arrays.items():
+            d[key] = array[j]
+            if array.dtype.kind == "i":
+                d[key] = int(d[key])
+            elif array.dtype.kind == "b":
+                d[key] = bool(d[key])
+            else:
+                d[key] = str(d[key])
+        # For compatibility in the short term:
+        d["date"] = self.sample_date[j]
+        d["strain"] = self.sample_id[j]
+        return d
 
     def __getitem__(self, key):
         j = self.sample_id_map[key]
@@ -135,6 +128,16 @@ class CachedMetadataMapping(collections.abc.Mapping):
 
     def __len__(self):
         return len(self.sample_id_map)
+
+    def samples_for_date(self, date):
+        return self.sample_id[self.sample_date == date]
+
+
+@dataclasses.dataclass
+class Variant:
+    position: int
+    genotypes: np.ndarray
+    alleles: list
 
 
 class Dataset:
@@ -147,13 +150,41 @@ class Dataset:
             self.store = zarr.DirectoryStore(path)
         self.root = zarr.open(self.store, mode="r")
 
-        sample_id_map = {
+        self.sample_id_map = {
             sample_id: k for k, sample_id in enumerate(self.root["sample_id"][:])
         }
         self.alignments = CachedAlignmentMapping(
-            self.root, sample_id_map, chunk_cache_size
+            self.root, self.sample_id_map, chunk_cache_size
         )
-        self.metadata = CachedMetadataMapping(self.root, sample_id_map)
+        self.metadata = CachedMetadataMapping(self.root, self.sample_id_map)
+
+    def variants(self, sample_id, position):
+        variant_position = self.root["variant_position"][:]
+        variant_alleles = self.root["variant_allele"][:]
+        call_genotype = self.root["call_genotype"]
+        sample_index = np.array(
+            [self.sample_id_map[sid] for sid in sample_id], dtype=int
+        )
+
+        index = np.searchsorted(variant_position, position)
+        if not np.all(variant_position[index] == position):
+            raise ValueError("Unknown position")
+        variant_select = np.zeros(shape=variant_position.shape, dtype=bool)
+        variant_select[index] = True
+
+        j = 0
+        for v_chunk in range(call_genotype.cdata_shape[0]):
+            # NOTE: could possibly save some effort here by only pulling in s_chunks
+            # that are needed.
+            G = call_genotype.blocks[v_chunk]
+            for k in range(G.shape[0]):
+                if variant_select[j]:
+                    yield Variant(
+                        variant_position[j],
+                        G[k, sample_index].squeeze(1),
+                        variant_alleles[j],
+                    )
+                j += 1
 
     @staticmethod
     def new(path, samples_chunk_size=10_000, variants_chunk_size=100):
@@ -175,12 +206,12 @@ class Dataset:
         z = root.empty(
             name="variant_allele",
             dtype="O",
-            shape=(L, len(IUPAC_ALLELES)),
-            chunks=(variants_chunk_size, len(IUPAC_ALLELES)),
+            shape=(L, len(core.IUPAC_ALLELES)),
+            chunks=(variants_chunk_size, len(core.IUPAC_ALLELES)),
             object_codec=numcodecs.VLenUTF8(),
             compressor=DEFAULT_ZARR_COMPRESSOR,
         )
-        z[:] = np.tile(tuple(IUPAC_ALLELES), L).reshape(L, len(IUPAC_ALLELES))
+        z[:] = np.tile(tuple(core.IUPAC_ALLELES), L).reshape(L, len(core.IUPAC_ALLELES))
         z.attrs["_ARRAY_DIMENSIONS"] = ["variants", "alleles"]
 
         z = root.empty(
@@ -264,17 +295,21 @@ class Dataset:
         zarr.consolidate_metadata(store)
 
     @staticmethod
-    def add_metadata(path, df):
+    def add_metadata(path, df, date_field):
         """
         Add metadata from the specified dataframe, indexed by sample ID.
         Each column will be added as a new array with prefix "sample_"
+
+        A "sample_date" field will be added as a copy of the given
+        date_field.
         """
         store = zarr.DirectoryStore(path)
         root = zarr.open(store, mode="a")
 
         sample_id_array = root["sample_id"]
         samples = sample_id_array[:]
-        df = df.loc[samples]
+        df = df.loc[samples].copy()
+        df["date"] = df[date_field]
         for colname in df:
             data = df[colname]
             dtype = data.dtype

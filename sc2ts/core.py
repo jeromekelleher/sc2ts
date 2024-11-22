@@ -4,10 +4,10 @@ import pathlib
 import collections.abc
 import csv
 
+import numba
 import pyfaidx
 import numpy as np
 
-ALLELES = "ACGT-"
 
 TIME_UNITS = "days"
 
@@ -158,3 +158,33 @@ def get_gene_coordinates():
                 d[row["gene"]] = (int(row["start"]), int(row["end"]))
         __cached_genes = d
     return __cached_genes
+
+
+# We omit N here as it's mapped to -1. Make "-" the 5th allele
+# as this is a valid allele for us.
+IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
+
+
+# FIXME make cache optional
+@numba.njit(cache=True)
+def encode_alignment(h):
+    # Just so numba knows this is a constant string
+    alleles = "ACGT-RYSWKMBDHV."
+    n = h.shape[0]
+    a = np.full(n, -1, dtype=np.int8)
+    for j in range(n):
+        if h[j] == "N":
+            a[j] = -1
+        else:
+            for k, c in enumerate(alleles):
+                if c == h[j]:
+                    break
+            else:
+                raise ValueError(f"Allele {h[j]} not recognised")
+            a[j] = k
+    return a
+
+
+def decode_alignment(a):
+    alleles = np.array(tuple(IUPAC_ALLELES + "N"), dtype=str)
+    return alleles[a]

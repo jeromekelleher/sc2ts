@@ -128,7 +128,7 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         ds = sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "Collection_date")
 
         sg_ds = sgkit.load_dataset(path)
         assert dict(sg_ds.dims) == {
@@ -147,7 +147,7 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "Collection_date")
         zip_path = tmp_path / "dataset.vcz.zip"
         sc2ts.Dataset.create_zip(path, zip_path)
 
@@ -167,6 +167,13 @@ class TestDatasetAlignments:
         assert a.shape == (sc2ts.REFERENCE_SEQUENCE_LENGTH - 1,)
         assert a[0] == -1
         assert a[-1] == -1
+
+    def test_compare_fasta(self, fx_dataset, fx_alignments_fasta):
+        fr = sc2ts.FastaReader(fx_alignments_fasta)
+        for k, a1 in fr.items():
+            h = fx_dataset.alignments[k]
+            a2 = sc2ts.decode_alignment(h)
+            nt.assert_array_equal(a1[1:], a2)
 
     def test_len(self, fx_dataset):
         assert len(fx_dataset.alignments) == 55
@@ -191,12 +198,14 @@ class TestDatasetAlignments:
         self,
         tmp_path,
         fx_encoded_alignments,
+        fx_metadata_df,
         chunk_size,
         cache_size,
     ):
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "Collection_date")
         ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
         for k, v in fx_encoded_alignments.items():
             nt.assert_array_equal(v, ds.alignments[k])
@@ -224,6 +233,10 @@ class TestDatasetMetadata:
     def test_in(self, fx_dataset):
         assert "SRR11772659" in fx_dataset.metadata
         assert "DEFO_NOT_IN_DB" not in fx_dataset.metadata
+
+    def test_samples_for_date(self, fx_dataset):
+        samples = fx_dataset.metadata.samples_for_date("2020-01-19")
+        assert samples == ["SRR11772659"]
 
 
 class TestEncodeAlignment:
