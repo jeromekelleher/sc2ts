@@ -81,13 +81,11 @@ def massage_viridian_metadata(df):
 
 
 class CachedAlignmentMapping(collections.abc.Mapping):
-    def __init__(self, root, chunk_cache_size):
+    def __init__(self, root, sample_id_map, chunk_cache_size):
         self.call_genotype_array = root["call_genotype"]
         self.chunk_cache_size = chunk_cache_size
         self.chunk_cache = {}
-        self.sample_id_map = {
-            sample_id: k for k, sample_id in enumerate(root["sample_id"][:])
-        }
+        self.sample_id_map = sample_id_map
 
     def get_alignment(self, j):
         chunk_size = self.call_genotype_array.chunks[1]
@@ -113,6 +111,32 @@ class CachedAlignmentMapping(collections.abc.Mapping):
         return len(self.sample_id_map)
 
 
+class CachedMetadataMapping(collections.abc.Mapping):
+    def __init__(self, root, sample_id_map):
+        self.sample_id_map = sample_id_map
+        self.arrays = {}
+        prefix = "sample_"
+        # We might need to do this on a chunk-aware basis
+        for k, v in root.items():
+            if k.startswith(prefix) and k != "sample_id":
+                name = k[len(prefix) :]
+                logger.debug(f"Decompressing metadata {name}")
+                self.arrays[name] = v[:]
+
+    def get_metadata(self, j):
+        return {key: array[j] for key, array in self.arrays.items()}
+
+    def __getitem__(self, key):
+        j = self.sample_id_map[key]
+        return self.get_metadata(j)
+
+    def __iter__(self):
+        return iter(self.sample_id_map)
+
+    def __len__(self):
+        return len(self.sample_id_map)
+
+
 class Dataset:
 
     def __init__(self, path, chunk_cache_size=1):
@@ -123,7 +147,13 @@ class Dataset:
             self.store = zarr.DirectoryStore(path)
         self.root = zarr.open(self.store, mode="r")
 
-        self.alignments = CachedAlignmentMapping(self.root, chunk_cache_size)
+        sample_id_map = {
+            sample_id: k for k, sample_id in enumerate(self.root["sample_id"][:])
+        }
+        self.alignments = CachedAlignmentMapping(
+            self.root, sample_id_map, chunk_cache_size
+        )
+        self.metadata = CachedMetadataMapping(self.root, sample_id_map)
 
     @staticmethod
     def new(path, samples_chunk_size=10_000, variants_chunk_size=100):

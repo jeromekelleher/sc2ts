@@ -180,7 +180,6 @@ class TestDatasetAlignments:
         assert "SRR11772659" in fx_dataset.alignments
         assert "NOT_IN_STORE" not in fx_dataset.alignments
 
-
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
         [
@@ -189,7 +188,11 @@ class TestDatasetAlignments:
         ],
     )
     def test_chunk_size_cache_size(
-        self, tmp_path, fx_encoded_alignments, chunk_size, cache_size,
+        self,
+        tmp_path,
+        fx_encoded_alignments,
+        chunk_size,
+        cache_size,
     ):
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
@@ -199,6 +202,28 @@ class TestDatasetAlignments:
             nt.assert_array_equal(v, ds.alignments[k])
 
 
+class TestDatasetMetadata:
+
+    def test_len(self, fx_dataset):
+        assert len(fx_dataset.metadata) == 55
+
+    def test_keys(self, fx_dataset):
+        assert fx_dataset.metadata.keys() == fx_dataset.alignments.keys()
+
+    def test_known(self, fx_dataset):
+        d = fx_dataset.metadata["SRR11772659"]
+        assert d["Artic_primer_version"] == "."
+        assert d["Collection_date"] == "2020-01-19"
+        assert d["In_Viridian_tree"]
+        assert not d["In_intersection"]
+        assert d["Run_count"] == 4
+        assert d["Viridian_cons_len"] == 29836
+        assert d["Genbank_N"] == -1
+        assert d["Viridian_pangolin"] == "A"
+
+    def test_in(self, fx_dataset):
+        assert "SRR11772659" in fx_dataset.metadata
+        assert "DEFO_NOT_IN_DB" not in fx_dataset.metadata
 
 
 class TestEncodeAlignment:
