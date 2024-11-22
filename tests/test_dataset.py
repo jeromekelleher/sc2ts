@@ -181,6 +181,26 @@ class TestDatasetAlignments:
         assert "NOT_IN_STORE" not in fx_dataset.alignments
 
 
+    @pytest.mark.parametrize(
+        ["chunk_size", "cache_size"],
+        [
+            (1, 10),
+            (10, 1),
+        ],
+    )
+    def test_chunk_size_cache_size(
+        self, tmp_path, fx_encoded_alignments, chunk_size, cache_size,
+    ):
+        path = tmp_path / "dataset.vcz"
+        sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
+        sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
+        ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
+        for k, v in fx_encoded_alignments.items():
+            nt.assert_array_equal(v, ds.alignments[k])
+
+
+
+
 class TestEncodeAlignment:
     @pytest.mark.parametrize(
         ["hap", "expected"],

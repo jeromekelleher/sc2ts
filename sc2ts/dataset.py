@@ -2,6 +2,8 @@
 Methods for managing a sc2ts Zarr based dataset.
 """
 
+import os.path
+import zipfile
 import collections
 import logging
 import pathlib
@@ -78,16 +80,31 @@ def massage_viridian_metadata(df):
     return df
 
 
-class AlignmentMapping(collections.abc.Mapping):
-    def __init__(self, root):
+class CachedAlignmentMapping(collections.abc.Mapping):
+    def __init__(self, root, chunk_cache_size):
         self.call_genotype_array = root["call_genotype"]
+        self.chunk_cache_size = chunk_cache_size
+        self.chunk_cache = {}
         self.sample_id_map = {
             sample_id: k for k, sample_id in enumerate(root["sample_id"][:])
         }
 
+    def get_alignment(self, j):
+        chunk_size = self.call_genotype_array.chunks[1]
+        chunk = j // chunk_size
+        if chunk not in self.chunk_cache:
+            logger.debug(f"Alignment chunk cache miss on {chunk}")
+            if len(self.chunk_cache) >= self.chunk_cache_size:
+                lru = list(self.chunk_cache.keys())[0]
+                del self.chunk_cache[lru]
+                logger.debug(f"Evicted LRU {lru} from alignment chunk cache")
+            self.chunk_cache[chunk] = self.call_genotype_array.blocks[:, chunk]
+        G = self.chunk_cache[chunk]
+        return G[:, j % chunk_size].squeeze(1)
+
     def __getitem__(self, key):
         j = self.sample_id_map[key]
-        return self.call_genotype_array[:, j].squeeze(1)
+        return self.get_alignment(j)
 
     def __iter__(self):
         return iter(self.sample_id_map)
@@ -98,7 +115,7 @@ class AlignmentMapping(collections.abc.Mapping):
 
 class Dataset:
 
-    def __init__(self, path):
+    def __init__(self, path, chunk_cache_size=1):
         self.path = pathlib.Path(path)
         if self.path.suffix == ".zip":
             self.store = zarr.ZipStore(path)
@@ -106,7 +123,7 @@ class Dataset:
             self.store = zarr.DirectoryStore(path)
         self.root = zarr.open(self.store, mode="r")
 
-        self.alignments = AlignmentMapping(self.root)
+        self.alignments = CachedAlignmentMapping(self.root, chunk_cache_size)
 
     @staticmethod
     def new(path, samples_chunk_size=10_000, variants_chunk_size=100):
@@ -257,16 +274,14 @@ class Dataset:
 
     @staticmethod
     def create_zip(in_path, out_path):
-        import os.path
-        import zipfile
 
-        def addToZip(zf, path, zippath):
+        # Based on https://github.com/python/cpython/blob/3.13/Lib/zipfile/__init__.py
+        def add_to_zip(zf, path, zippath):
             if os.path.isfile(path):
-                zf.write(path, zippath, zipfile.ZIP_DEFLATED)
+                zf.write(path, zippath, zipfile.ZIP_STORED)
             elif os.path.isdir(path):
                 for nm in os.listdir(path):
-                    addToZip(zf, os.path.join(path, nm), os.path.join(zippath, nm))
-            # else: ignore
+                    add_to_zip(zf, os.path.join(path, nm), os.path.join(zippath, nm))
 
         with zipfile.ZipFile(out_path, "w", allowZip64=True) as zf:
-            addToZip(zf, in_path, ".")  # os.path.basename(in_path))
+            add_to_zip(zf, in_path, ".")
