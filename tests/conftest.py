@@ -39,6 +39,24 @@ def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
     return sc2ts.AlignmentStore(cache_path)
 
 
+# TO GENERATE
+# @pytest.fixture
+# def fx_metadata_df(fx_alignments_fasta):
+#     fr = sc2ts.FastaReader(fx_alignments_fasta)
+#     sample_id = list(fr.keys)
+#     df = pd.read_csv("viridian_metadata.tsv", sep="\t", index_col="Run")
+#     dfs = df.loc[sample_id]
+#     tsv_path = "tests/data/metadata.tsv"
+#     dfs.to_csv(tsv_path, sep="\t")
+
+
+@pytest.fixture
+def fx_metadata_df():
+    tsv_path = "tests/data/metadata.tsv"
+    df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
+    return sc2ts.massage_virian_metadata(df)
+
+
 @pytest.fixture
 def fx_metadata_db(fx_data_cache):
     cache_path = fx_data_cache / "metadata.db"
@@ -238,7 +256,9 @@ def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_alignment_st
     if not cache_path.exists():
         print(f"Generating {cache_path}")
         as_cache_path = fx_data_cache / "recombinant_ex1_alignments.db"
-        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store, as_cache_path)
+        ts = recombinant_example_1(
+            tmp_path, fx_ts_map, fx_alignment_store, as_cache_path
+        )
         ts.dump(cache_path)
     return tskit.load(cache_path)
 

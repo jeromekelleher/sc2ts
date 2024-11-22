@@ -11,7 +11,7 @@ from . import core
 logger = logging.getLogger(__name__)
 
 
-def encode_alignment(h):
+def old_encode_alignment(h):
     # Map anything that's not ACGT- to N
     a = np.full(h.shape, -1, dtype=np.int8)
     for code, char in enumerate(core.ALLELES):
