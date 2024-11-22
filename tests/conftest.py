@@ -29,14 +29,17 @@ def fx_alignments_fasta(fx_data_cache):
     return cache_path
 
 
+def encoded_alignments(path):
+    fr = sc2ts.FastaReader(path)
+    alignments = {}
+    for k, v in fr.items():
+        alignments[k] = sc2ts.encode_alignment(v[1:])
+    return alignments
+
+
 @pytest.fixture
-def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
-    cache_path = fx_data_cache / "alignments.db"
-    if not cache_path.exists():
-        with sc2ts.AlignmentStore(cache_path, "a") as a:
-            fasta = sc2ts.core.FastaReader(fx_alignments_fasta)
-            a.append(fasta, show_progress=False)
-    return sc2ts.AlignmentStore(cache_path)
+def fx_encoded_alignments(fx_alignments_fasta):
+    return encoded_alignments(fx_alignments_fasta)
 
 
 # TO GENERATE
@@ -50,11 +53,39 @@ def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
 #     dfs.to_csv(tsv_path, sep="\t")
 
 
-@pytest.fixture
-def fx_metadata_df():
+def read_metadata_df():
     tsv_path = "tests/data/metadata.tsv"
     df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
-    return sc2ts.massage_virian_metadata(df)
+    return sc2ts.massage_viridian_metadata(df)
+
+
+@pytest.fixture
+def fx_metadata_df():
+    return read_metadata_df()
+
+
+@pytest.fixture
+def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta):
+    cache_path = fx_data_cache / "dataset.vcz.zip"
+    if not cache_path.exists():
+        fs_path = tmp_path / "dataset.vcz"
+        sc2ts.Dataset.new(fs_path)
+        sc2ts.Dataset.append_alignments(
+            fs_path, encoded_alignments(fx_alignments_fasta)
+        )
+        sc2ts.Dataset.add_metadata(fs_path, read_metadata_df())
+        sc2ts.Dataset.create_zip(fs_path, cache_path)
+    return sc2ts.Dataset(cache_path)
+
+
+@pytest.fixture
+def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
+    cache_path = fx_data_cache / "alignments.db"
+    if not cache_path.exists():
+        with sc2ts.AlignmentStore(cache_path, "a") as a:
+            fasta = sc2ts.core.FastaReader(fx_alignments_fasta)
+            a.append(fasta, show_progress=False)
+    return sc2ts.AlignmentStore(cache_path)
 
 
 @pytest.fixture

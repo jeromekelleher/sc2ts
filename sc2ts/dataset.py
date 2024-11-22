@@ -2,6 +2,7 @@
 Methods for managing a sc2ts Zarr based dataset.
 """
 
+import collections
 import logging
 import pathlib
 
@@ -16,15 +17,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7, shuffle=0)
 
-# We omit N here as it's mapped to -1
-IUPAC_ALLELES = "ACGTRYSWKMBDHV.-"
+# We omit N here as it's mapped to -1. Make "-" the 5th allele
+# as this is a valid allele for us.
+IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
 
 
 # FIXME make cache optional
 @numba.njit(cache=True)
 def encode_alignment(h):
     # Just so numba knows this is a constant string
-    alleles = "ACGTRYSWKMBDHV.-"
+    alleles = "ACGT-RYSWKMBDHV."
     n = h.shape[0]
     a = np.full(n, -1, dtype=np.int8)
     for j in range(n):
@@ -40,7 +42,7 @@ def encode_alignment(h):
     return a
 
 
-def massage_virian_metadata(df):
+def massage_viridian_metadata(df):
     """
     Takes a pandas dataframe indexex by sample ID and massages it
     so that the returned dataframe has consistent types:
@@ -76,18 +78,35 @@ def massage_virian_metadata(df):
     return df
 
 
+class AlignmentMapping(collections.abc.Mapping):
+    def __init__(self, root):
+        self.call_genotype_array = root["call_genotype"]
+        self.sample_id_map = {
+            sample_id: k for k, sample_id in enumerate(root["sample_id"][:])
+        }
+
+    def __getitem__(self, key):
+        j = self.sample_id_map[key]
+        return self.call_genotype_array[:, j].squeeze(1)
+
+    def __iter__(self):
+        return iter(self.sample_id_map)
+
+    def __len__(self):
+        return len(self.sample_id_map)
+
+
 class Dataset:
 
-    def __init__(self, path, mode="r"):
+    def __init__(self, path):
         self.path = pathlib.Path(path)
-        self.mode = mode
-        if path.suffix == ".zip":
-            if mode != "r":
-                raise ValueError("Zip stores can only be opened in read-mode")
+        if self.path.suffix == ".zip":
             self.store = zarr.ZipStore(path)
         else:
             self.store = zarr.DirectoryStore(path)
-        self.root = zarr.open(self.store, mode=mode)
+        self.root = zarr.open(self.store, mode="r")
+
+        self.alignments = AlignmentMapping(self.root)
 
     @staticmethod
     def new(path, samples_chunk_size=10_000, variants_chunk_size=100):
@@ -168,17 +187,19 @@ class Dataset:
         z.attrs["_ARRAY_DIMENSIONS"] = ["variants", "samples", "ploidy"]
 
         zarr.consolidate_metadata(store)
-        return Dataset(path, mode="a")
 
-    def append_alignments(self, alignments):
+    @staticmethod
+    def append_alignments(path, alignments):
         """
-        Append alignments to the store. No checking is done to ensure that
-        sample IDs are unique, and if this method fails then the store
+        Append alignments to the store. If this method fails then the store
         should be considered corrupt.
         """
+        store = zarr.DirectoryStore(path)
+        root = zarr.open(store, mode="a")
+
         n = len(alignments)
-        gt_array = self.root["call_genotype"]
-        sample_id_array = self.root["sample_id"]
+        gt_array = root["call_genotype"]
+        sample_id_array = root["sample_id"]
         if len(set(sample_id_array[:]) & set(alignments.keys())) > 0:
             raise ValueError("Attempting to add duplicate samples")
         L, N = gt_array.shape[:2]
@@ -193,14 +214,18 @@ class Dataset:
         sample_id_array.append(sample_id)
         gt_array.append(G, axis=1)
 
-        zarr.consolidate_metadata(self.store)
+        zarr.consolidate_metadata(store)
 
-    def add_metadata(self, df):
+    @staticmethod
+    def add_metadata(path, df):
         """
         Add metadata from the specified dataframe, indexed by sample ID.
         Each column will be added as a new array with prefix "sample_"
         """
-        sample_id_array = self.root["sample_id"]
+        store = zarr.DirectoryStore(path)
+        root = zarr.open(store, mode="a")
+
+        sample_id_array = root["sample_id"]
         samples = sample_id_array[:]
         df = df.loc[samples]
         for colname in df:
@@ -216,7 +241,7 @@ class Dataset:
                     dtype = "i4"
             elif dtype != bool:
                 dtype = "str"
-            z = self.root.empty(
+            z = root.empty(
                 f"sample_{colname}",
                 dtype=dtype,
                 compressor=sample_id_array.compressor,
@@ -228,4 +253,20 @@ class Dataset:
             z[:] = data
             logger.info(f"Wrote metadata array {z.name}")
 
-        zarr.consolidate_metadata(self.store)
+        zarr.consolidate_metadata(store)
+
+    @staticmethod
+    def create_zip(in_path, out_path):
+        import os.path
+        import zipfile
+
+        def addToZip(zf, path, zippath):
+            if os.path.isfile(path):
+                zf.write(path, zippath, zipfile.ZIP_DEFLATED)
+            elif os.path.isdir(path):
+                for nm in os.listdir(path):
+                    addToZip(zf, os.path.join(path, nm), os.path.join(zippath, nm))
+            # else: ignore
+
+        with zipfile.ZipFile(out_path, "w", allowZip64=True) as zf:
+            addToZip(zf, in_path, ".")  # os.path.basename(in_path))

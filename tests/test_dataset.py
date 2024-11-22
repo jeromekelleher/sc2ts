@@ -8,15 +8,6 @@ import sgkit
 import sc2ts
 
 
-@pytest.fixture
-def fx_encoded_alignments(fx_alignments_fasta):
-    fr = sc2ts.FastaReader(fx_alignments_fasta)
-    alignments = {}
-    for k, v in fr.items():
-        alignments[k] = sc2ts.encode_alignment(v[1:])
-    return alignments
-
-
 def test_massaged_viridian_metadata(fx_metadata_df):
     df = fx_metadata_df
     assert df["In_Viridian_tree"].dtype == bool
@@ -63,13 +54,13 @@ class TestCreateDataset:
         self, tmp_path, fx_encoded_alignments, num_samples, chunk_size
     ):
         path = tmp_path / "dataset.vcz"
-        ds = sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
+        sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         alignments = {
             k: fx_encoded_alignments[k]
             for k in itertools.islice(fx_encoded_alignments.keys(), num_samples)
         }
 
-        ds.append_alignments(alignments)
+        sc2ts.Dataset.append_alignments(path, alignments)
 
         sg_ds = sgkit.load_dataset(path)
         assert dict(sg_ds.dims) == {
@@ -85,17 +76,17 @@ class TestCreateDataset:
             nt.assert_array_equal(h, H[j])
 
     @pytest.mark.parametrize("num_samples", [1, 10, 20])
-    def test_append_same_aligments(self, tmp_path, fx_encoded_alignments, num_samples):
+    def test_append_same_alignments(self, tmp_path, fx_encoded_alignments, num_samples):
         path = tmp_path / "dataset.vcz"
-        ds = sc2ts.Dataset.new(path)
-        ds.append_alignments(fx_encoded_alignments)
+        sc2ts.Dataset.new(path)
+        sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
         alignments = {
             k: fx_encoded_alignments[k]
             for k in itertools.islice(fx_encoded_alignments.keys(), num_samples)
         }
 
         with pytest.raises(ValueError, match="duplicate"):
-            ds.append_alignments(alignments)
+            sc2ts.Dataset.append_alignments(path, alignments)
 
     @pytest.mark.parametrize(
         ["num_samples", "chunk_size"],
@@ -110,14 +101,14 @@ class TestCreateDataset:
         self, tmp_path, fx_encoded_alignments, num_samples, chunk_size
     ):
         path = tmp_path / "dataset.vcz"
-        ds = sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
+        sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         alignments = {
             k: fx_encoded_alignments[k]
             for k in itertools.islice(fx_encoded_alignments.keys(), num_samples)
         }
 
         for k, v in alignments.items():
-            ds.append_alignments({k: v})
+            sc2ts.Dataset.append_alignments(path, {k: v})
 
         sg_ds = sgkit.load_dataset(path)
         assert dict(sg_ds.dims) == {
@@ -136,8 +127,8 @@ class TestCreateDataset:
 
         path = tmp_path / "dataset.vcz"
         ds = sc2ts.Dataset.new(path)
-        ds.append_alignments(fx_encoded_alignments)
-        ds.add_metadata(fx_metadata_df)
+        sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
 
         sg_ds = sgkit.load_dataset(path)
         assert dict(sg_ds.dims) == {
@@ -149,5 +140,69 @@ class TestCreateDataset:
         }
         df = fx_metadata_df.loc[sg_ds["sample_id"].values]
         for col in fx_metadata_df:
-            print("check", col)
             nt.assert_array_equal(df[col], sg_ds[f"sample_{col}"])
+
+    def test_create_zip(self, tmp_path, fx_encoded_alignments, fx_metadata_df):
+
+        path = tmp_path / "dataset.vcz"
+        sc2ts.Dataset.new(path)
+        sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
+        zip_path = tmp_path / "dataset.vcz.zip"
+        sc2ts.Dataset.create_zip(path, zip_path)
+
+        ds1 = sc2ts.Dataset(path)
+        ds2 = sc2ts.Dataset(zip_path)
+        alignments1 = dict(ds1.alignments)
+        alignments2 = dict(ds2.alignments)
+        assert alignments1.keys() == alignments2.keys()
+        for k in alignments1.keys():
+            nt.assert_array_equal(alignments1[k], alignments2[k])
+
+
+class TestDatasetAlignments:
+
+    def test_fetch_known(self, fx_dataset):
+        a = fx_dataset.alignments["SRR11772659"]
+        assert a.shape == (sc2ts.REFERENCE_SEQUENCE_LENGTH - 1,)
+        assert a[0] == -1
+        assert a[-1] == -1
+
+    def test_len(self, fx_dataset):
+        assert len(fx_dataset.alignments) == 55
+
+    def test_keys(self, fx_dataset):
+        keys = list(fx_dataset.alignments.keys())
+        assert len(keys) == len(fx_dataset.alignments)
+        assert "SRR11772659" in keys
+
+    def test_in(self, fx_dataset):
+        assert "SRR11772659" in fx_dataset.alignments
+        assert "NOT_IN_STORE" not in fx_dataset.alignments
+
+
+class TestEncodeAlignment:
+    @pytest.mark.parametrize(
+        ["hap", "expected"],
+        [
+            ("A", [0]),
+            ("C", [1]),
+            ("G", [2]),
+            ("T", [3]),
+            ("-", [4]),
+            ("N", [-1]),
+            ("ACGT-N", [0, 1, 2, 3, 4, -1]),
+            ("N-TGCA", [-1, 4, 3, 2, 1, 0]),
+            ("ACAGTAC-N", [0, 1, 0, 2, 3, 0, 1, 4, -1]),
+        ],
+    )
+    def test_examples(self, hap, expected):
+        h = np.array(list(hap), dtype="U1")
+        a = sc2ts.encode_alignment(h)
+        nt.assert_array_equal(a, expected)
+
+    @pytest.mark.parametrize("hap", "acgtXZxz")
+    def test_other_error(self, hap):
+        h = np.array(list(hap), dtype="U1")
+        with pytest.raises(ValueError, match="not recognised"):
+            sc2ts.encode_alignment(h)
