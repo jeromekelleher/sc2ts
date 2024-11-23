@@ -172,66 +172,66 @@ def setup_logging(verbosity, log_file=None, date=None):
         logger.addHandler(warn_handler)
 
 
-# TODO add options to list keys, dump specific alignments etc
-@click.command()
-@click.argument("store", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_alignments(store, verbose, log_file):
-    """
-    Information about an alignment store
-    """
-    setup_logging(verbose, log_file)
-    with sc2ts.AlignmentStore(store) as alignment_store:
-        print(alignment_store)
+# # TODO add options to list keys, dump specific alignments etc
+# @click.command()
+# @click.argument("store", type=click.Path(exists=True, dir_okay=False))
+# @click.option("-v", "--verbose", count=True)
+# @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+# def info_alignments(store, verbose, log_file):
+#     """
+#     Information about an alignment store
+#     """
+#     setup_logging(verbose, log_file)
+#     with sc2ts.AlignmentStore(store) as alignment_store:
+#         print(alignment_store)
 
 
-@click.command()
-@click.argument("store", type=click.Path(dir_okay=False, file_okay=True))
-@click.argument("fastas", type=click.Path(exists=True, dir_okay=False), nargs=-1)
-@click.option("-i", "--initialise", default=False, type=bool, help="Initialise store")
-@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
-    """
-    Import the alignments from all FASTAS into STORE.
-    """
-    setup_logging(verbose, log_file)
-    if initialise:
-        a = sc2ts.AlignmentStore.initialise(store)
-    else:
-        a = sc2ts.AlignmentStore(store, "a")
-    for fasta_path in fastas:
-        logging.info(f"Reading fasta {fasta_path}")
-        fasta = core.FastaReader(fasta_path)
-        a.append(fasta, show_progress=True)
-    a.close()
+# @click.command()
+# @click.argument("store", type=click.Path(dir_okay=False, file_okay=True))
+# @click.argument("fastas", type=click.Path(exists=True, dir_okay=False), nargs=-1)
+# @click.option("-i", "--initialise", default=False, type=bool, help="Initialise store")
+# @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
+# @click.option("-v", "--verbose", count=True)
+# @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+# def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
+#     """
+#     Import the alignments from all FASTAS into STORE.
+#     """
+#     setup_logging(verbose, log_file)
+#     if initialise:
+#         a = sc2ts.AlignmentStore.initialise(store)
+#     else:
+#         a = sc2ts.AlignmentStore(store, "a")
+#     for fasta_path in fastas:
+#         logging.info(f"Reading fasta {fasta_path}")
+#         fasta = core.FastaReader(fasta_path)
+#         a.append(fasta, show_progress=True)
+#     a.close()
 
 
-@click.command()
-@click.argument("metadata")
-@click.argument("db")
-@click.option("-v", "--verbose", count=True)
-def import_metadata(metadata, db, verbose):
-    """
-    Convert a CSV formatted metadata file to a database for later use.
-    """
-    setup_logging(verbose)
-    sc2ts.MetadataDb.import_csv(metadata, db)
+# @click.command()
+# @click.argument("metadata")
+# @click.argument("db")
+# @click.option("-v", "--verbose", count=True)
+# def import_metadata(metadata, db, verbose):
+#     """
+#     Convert a CSV formatted metadata file to a database for later use.
+#     """
+#     setup_logging(verbose)
+#     sc2ts.MetadataDb.import_csv(metadata, db)
 
 
-@click.command()
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_metadata(metadata, verbose, log_file):
-    """
-    Information about a metadata DB
-    """
-    setup_logging(verbose, log_file)
-    with sc2ts.MetadataDb(metadata) as metadata_db:
-        print(metadata_db)
+# @click.command()
+# @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+# @click.option("-v", "--verbose", count=True)
+# @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+# def info_metadata(metadata, verbose, log_file):
+#     """
+#     Information about a metadata DB
+#     """
+#     setup_logging(verbose, log_file)
+#     with sc2ts.MetadataDb(metadata) as metadata_db:
+#         print(metadata_db)
 
 
 @click.command()
@@ -353,7 +353,7 @@ def initialise(
 
 
 @click.command()
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.option("--counts/--no-counts", default=False)
 @click.option(
     "--after",
@@ -365,19 +365,21 @@ def initialise(
 )
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def list_dates(metadata, counts, after, before, verbose, log_file):
+def list_dates(dataset, counts, after, before, verbose, log_file):
     """
-    List the dates included in specified metadataDB
+    List the dates included in specified dataset
     """
     setup_logging(verbose, log_file)
-    with sc2ts.MetadataDb(metadata) as metadata_db:
-        counter = metadata_db.date_sample_counts()
-        for k in counter:
-            if after <= k < before:
-                if counts:
-                    print(k, counter[k], sep="\t")
-                else:
-                    print(k)
+    ds = sc2ts.Dataset(dataset)
+    # This is a hack, but we probably won't keep this functionality in CLI anyway
+    # so let's not worry about it.
+    counter = collections.Counter(ds.root["sample_date"][:])
+    for k in counter:
+        if after <= k < before:
+            if counts:
+                print(k, counter[k], sep="\t")
+            else:
+                print(k)
 
 
 def summarise_base(ts, date, progress):
@@ -399,8 +401,7 @@ def parse_include_samples(fileobj):
 @click.command()
 @click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("date")
-@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("matches", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output_ts", type=click.Path(dir_okay=False))
 @num_mismatches
@@ -507,8 +508,7 @@ def parse_include_samples(fileobj):
 def extend(
     base_ts,
     date,
-    alignments,
-    metadata,
+    dataset,
     matches,
     output_ts,
     num_mismatches,
@@ -544,8 +544,7 @@ def extend(
             f"Loaded {len(include_samples)} include samples: {include_samples}"
         )
     with contextlib.ExitStack() as exit_stack:
-        alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
-        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
+        ds = sc2ts.Dataset(dataset)
         match_db = exit_stack.enter_context(sc2ts.MatchDb(matches))
 
         newer_matches = match_db.count_newer(date)
@@ -558,8 +557,7 @@ def extend(
                 )
                 match_db.delete_newer(date)
         ts_out = sc2ts.extend(
-            alignment_store=alignment_store,
-            metadata_db=metadata_db,
+            dataset=ds,
             base_ts=base,
             date=date,
             match_db=match_db,
@@ -602,46 +600,46 @@ def validate(alignment_db, ts_file, deletions_as_missing, verbose):
         sc2ts.validate(ts, alignment_store, deletions_as_missing, show_progress=True)
 
 
-@click.command()
-@click.argument("ts_file")
-@click.option("-v", "--verbose", count=True)
-def export_alignments(ts_file, verbose):
-    """
-    Export alignments from the specified tskit file to FASTA
-    """
-    setup_logging(verbose)
-    ts = tszip.load(ts_file)
-    for u, alignment in zip(ts.samples(), ts.alignments(left=1)):
-        strain = ts.node(u).metadata["strain"]
-        if strain == core.REFERENCE_STRAIN:
-            continue
-        print(f">{strain}")
-        print(alignment)
+# @click.command()
+# @click.argument("ts_file")
+# @click.option("-v", "--verbose", count=True)
+# def export_alignments(ts_file, verbose):
+#     """
+#     Export alignments from the specified tskit file to FASTA
+#     """
+#     setup_logging(verbose)
+#     ts = tszip.load(ts_file)
+#     for u, alignment in zip(ts.samples(), ts.alignments(left=1)):
+#         strain = ts.node(u).metadata["strain"]
+#         if strain == core.REFERENCE_STRAIN:
+#             continue
+#         print(f">{strain}")
+#         print(alignment)
 
 
-@click.command()
-@click.argument("ts_file")
-@click.option("-v", "--verbose", count=True)
-def export_metadata(ts_file, verbose):
-    """
-    Export metadata from the specified tskit file to TSV
-    """
-    setup_logging(verbose)
-    ts = tszip.load(ts_file)
-    data = []
-    for u in ts.samples():
-        md = ts.node(u).metadata
-        if md["strain"] == core.REFERENCE_STRAIN:
-            continue
-        try:
-            # FIXME this try/except is needed because of some samples not having full
-            # metadata. Can drop when fixed.
-            del md["sc2ts"]
-        except KeyError:
-            pass
-        data.append(md)
-    df = pd.DataFrame(data)
-    df.to_csv(sys.stdout, sep="\t", index=False)
+# @click.command()
+# @click.argument("ts_file")
+# @click.option("-v", "--verbose", count=True)
+# def export_metadata(ts_file, verbose):
+#     """
+#     Export metadata from the specified tskit file to TSV
+#     """
+#     setup_logging(verbose)
+#     ts = tszip.load(ts_file)
+#     data = []
+#     for u in ts.samples():
+#         md = ts.node(u).metadata
+#         if md["strain"] == core.REFERENCE_STRAIN:
+#             continue
+#         try:
+#             # FIXME this try/except is needed because of some samples not having full
+#             # metadata. Can drop when fixed.
+#             del md["sc2ts"]
+#         except KeyError:
+#             pass
+#         data.append(md)
+#     df = pd.DataFrame(data)
+#     df.to_csv(sys.stdout, sep="\t", index=False)
 
 
 @click.command()
@@ -718,7 +716,7 @@ def _match_worker(work):
 
 
 @click.command(name="match")
-@click.argument("alignments_path", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("strains", nargs=-1)
 @num_mismatches
@@ -746,7 +744,7 @@ def _match_worker(work):
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def _match(
-    alignments_path,
+    dataset,
     ts_path,
     strains,
     num_mismatches,
@@ -763,12 +761,13 @@ def _match(
     """
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_path)
+    ds = sc2ts.Dataset(dataset)
     if len(strains) == 0:
         return
     progress_title = "Match"
     samples = sc2ts.preprocess(
         list(strains),
-        alignments_path,
+        dataset=ds,
         show_progress=progress,
         progress_title=progress_title,
         keep_sites=ts.sites_position.astype(int),
@@ -820,7 +819,7 @@ def find_previous_date_path(date, path_pattern):
 
 
 @click.command()
-@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("path_pattern")
 @num_mismatches
@@ -834,7 +833,7 @@ def find_previous_date_path(date, path_pattern):
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def rematch_recombinants(
-    alignments,
+    dataset,
     ts,
     path_pattern,
     num_mismatches,
@@ -865,10 +864,11 @@ def rematch_recombinants(
             strain_to_recombinant[strain] = u
             all_strains.append(strain)
 
+    ds = sc2ts.Dataset(dataset)
     progress_title = "Recomb"
     samples = sc2ts.preprocess(
         all_strains,
-        alignments,
+        datset=ds,
         show_progress=progress,
         progress_title=progress_title,
         keep_sites=ts.sites_position.astype(int),
@@ -921,14 +921,14 @@ def cli():
     pass
 
 
-cli.add_command(import_alignments)
-cli.add_command(import_metadata)
-cli.add_command(info_alignments)
-cli.add_command(info_metadata)
+# cli.add_command(import_alignments)
+# cli.add_command(import_metadata)
+# cli.add_command(info_alignments)
+# cli.add_command(info_metadata)
 cli.add_command(info_matches)
 cli.add_command(info_ts)
-cli.add_command(export_alignments)
-cli.add_command(export_metadata)
+# cli.add_command(export_alignments)
+# cli.add_command(export_metadata)
 
 cli.add_command(initialise)
 cli.add_command(list_dates)
