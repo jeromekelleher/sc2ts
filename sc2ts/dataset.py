@@ -93,6 +93,9 @@ class CachedAlignmentMapping(collections.abc.Mapping):
 
 class CachedMetadataMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map):
+        # NOTE: this is definitely wasteful. We shouldn't load the sample_id field 
+        # from zarr more than once, and reading in all the metadata arrays in 
+        # one go unconditionally is also too slow.
         self.sample_id_map = sample_id_map
         self.sample_date = root["sample_date"][:].astype(str)
         self.sample_id = root["sample_id"][:].astype(str)

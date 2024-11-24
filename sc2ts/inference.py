@@ -495,7 +495,7 @@ def check_base_ts(ts):
 #     return samples
 
 
-def mask_amiguous(a):
+def mask_ambiguous(a):
     a = a.copy()
     a[a > DELETION] = -1
     return a
@@ -522,8 +522,7 @@ def preprocess(
         # No padding zero site in the alignment
         a = alignment[keep_sites - 1]
         # Do we need to do this here? Would be easier to do later, maybe
-        a = mask_amiguous(a)
-        sample.haplotype = mask_amiguous(a)
+        sample.haplotype = mask_ambiguous(a)
         counts = collections.Counter(a)
         sample.alignment_composition = {
             alleles[k]: count for k, count in counts.items()
