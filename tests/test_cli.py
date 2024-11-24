@@ -262,6 +262,22 @@ class TestRunRematchRecombinants:
         assert len(results["recombinant_example_1_1"]) == 2
 
 
+class TestValidate:
+
+    @pytest.mark.parametrize("date", ["2020-01-01", "2020-02-11"])
+    def test_date(self, tmp_path, fx_ts_map, fx_dataset, date):
+        ts = fx_ts_map[date]
+        ts_path = tmp_path / "ts.ts"
+        ts.dump(ts_path)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"validate {ts_path} {fx_dataset.path} ",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+
 class TestInfoMatches:
     def test_defaults(self, fx_match_db):
         runner = ct.CliRunner(mix_stderr=False)

@@ -585,19 +585,19 @@ def extend(
 
 
 @click.command()
-@click.argument("alignment_db")
 @click.argument("ts_file")
+@click.argument("dataset")
 @deletions_as_missing
 @click.option("-v", "--verbose", count=True)
-def validate(alignment_db, ts_file, deletions_as_missing, verbose):
+def validate(ts_file, dataset, deletions_as_missing, verbose):
     """
-    Check that the specified trees correctly encode alignments for samples.
+    Check that the specified trees correctly encode data
     """
     setup_logging(verbose)
 
     ts = tszip.load(ts_file)
-    with sc2ts.AlignmentStore(alignment_db) as alignment_store:
-        sc2ts.validate(ts, alignment_store, deletions_as_missing, show_progress=True)
+    ds = sc2ts.Dataset(dataset)
+    sc2ts.validate(ts, ds, deletions_as_missing, show_progress=True)
 
 
 # @click.command()
