@@ -39,12 +39,6 @@ def recombinant_example_1(ts_map):
     return ts, s
 
 
-def tmp_alignment_store(tmp_path, alignments):
-    path = tmp_path / "synthetic_alignments.db"
-    alignment_db = sc2ts.AlignmentStore(path, mode="rw")
-    alignment_db.append(alignments)
-    return alignment_db
-
 
 def tmp_metadata_db(tmp_path, strains, date):
     data = []
@@ -69,13 +63,13 @@ def test_get_group_strains(fx_ts_map):
         assert group_id == m.hexdigest()
 
 
-@pytest.mark.skip("Broken by dataset switch")
 class TestRecombinantHandling:
 
     def test_get_recombinant_strains_ex1(self, fx_recombinant_example_1):
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_1)
         assert d == {55: ["recombinant_example_1_0", "recombinant_example_1_1"]}
 
+    @pytest.mark.skip("Example broken by dataset")
     def test_get_recombinant_strains_ex2(self, fx_recombinant_example_2):
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_2)
         assert d == {56: ["recombinant"]}
@@ -881,24 +875,21 @@ class TestRealData:
         assert md["exact_matches"]["node"][str(parent)] >= 1
 
 
-@pytest.mark.skip("Broken by dataset switch")
 class TestSyntheticAlignments:
 
-    def test_exact_match(self, tmp_path, fx_ts_map, fx_alignment_store):
+    def test_exact_match(self, tmp_path, fx_ts_map, fx_dataset):
         # Pick two unique strains and we should match exactly with them
         strains = ["SRR11597218", "ERR4204459"]
         fake_strains = ["fake" + s for s in strains]
         alignments = {
-            name: fx_alignment_store[s] for name, s in zip(fake_strains, strains)
+            name: fx_dataset.alignments[s] for name, s in zip(fake_strains, strains)
         }
-        local_as = tmp_alignment_store(tmp_path, alignments)
         date = "2020-03-01"
-        metadata_db = tmp_metadata_db(tmp_path, fake_strains, date)
+        ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
         base_ts = fx_ts_map["2020-02-13"]
         ts = sc2ts.extend(
-            alignment_store=local_as,
-            metadata_db=metadata_db,
+            dataset=ds,
             base_ts=base_ts,
             date=date,
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
@@ -999,6 +990,7 @@ class TestSyntheticAlignments:
         assert row.parents == 2
         assert row.causal_pango == {"Unknown": 2}
 
+    @pytest.mark.skip("Example broken by dataset")
     def test_recombinant_example_2(self, fx_ts_map, fx_recombinant_example_2):
         base_ts = fx_ts_map["2020-02-13"]
         date = "2020-03-01"
@@ -1018,20 +1010,16 @@ class TestSyntheticAlignments:
 
         assert smd["hmm_reruns"] == {}
 
-    def test_all_As(self, tmp_path, fx_ts_map, fx_alignment_store):
+    def test_all_As(self, tmp_path, fx_ts_map, fx_dataset):
         # Same as the recombinant_example_1() function above
         # Just to get something that looks like an alignment easily
-        a = fx_alignment_store["SRR11597188"]
-        a[1:] = "A"
+        a = fx_dataset.alignments["SRR11597188"]
+        a[1:] = 0
         alignments = {"crazytype": a}
-        local_as = tmp_alignment_store(tmp_path, alignments)
         date = "2020-03-01"
-        metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
-
         base_ts = fx_ts_map["2020-02-13"]
         ts = sc2ts.extend(
-            alignment_store=local_as,
-            metadata_db=metadata_db,
+            dataset=sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date),
             base_ts=base_ts,
             date=date,
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),

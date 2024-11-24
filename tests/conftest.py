@@ -180,44 +180,41 @@ def tmp_metadata_db(tmp_path, strains, date):
     return sc2ts.MetadataDb(db_path)
 
 
-def recombinant_alignments(alignment_store):
+def recombinant_alignments(dataset):
     """
     Generate some recombinant alignments from existing haplotypes
     """
     strains = ["SRR11597188", "SRR11597163"]
-    left_a = alignment_store[strains[0]]
-    right_a = alignment_store[strains[1]]
+    left_a = dataset.alignments[strains[0]]
+    right_a = dataset.alignments[strains[1]]
     # Recombine in the middle
-    bp = 10_000
+    bp = 9_999
     h = left_a.copy()
     h[bp:] = right_a[bp:]
     alignments = {}
     alignments["recombinant_example_1_0"] = h
     h = h.copy()
     mut_site = bp - 100
-    assert h[mut_site] != "C"
-    h[mut_site] = "C"
+    C = sc2ts.IUPAC_ALLELES.index("C")
+    assert h[mut_site] != C
+    h[mut_site] = C
     alignments["recombinant_example_1_1"] = h
     return alignments
 
 
-def recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store, as_path):
-    alignments = recombinant_alignments(fx_alignment_store)
+def recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_path):
+    alignments = recombinant_alignments(fx_dataset)
 
-    with sc2ts.AlignmentStore(as_path, mode="rw") as local_as:
-        local_as.append(alignments)
-        date = "2020-02-15"
-        metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
-
-        base_ts = fx_ts_map["2020-02-13"]
-        ts = sc2ts.extend(
-            alignment_store=local_as,
-            metadata_db=metadata_db,
-            base_ts=base_ts,
-            date=date,
-            num_mismatches=2,
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
-        )
+    date = "2020-02-15"
+    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    base_ts = fx_ts_map["2020-02-13"]
+    ts = sc2ts.extend(
+        dataset=ds,
+        base_ts=base_ts,
+        date=date,
+        num_mismatches=2,
+        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+    )
     return ts
 
 
@@ -286,14 +283,12 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_alignment_store):
 
 
 @pytest.fixture
-def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_alignment_store):
+def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
     cache_path = fx_data_cache / "recombinant_ex1.ts"
     if not cache_path.exists():
         print(f"Generating {cache_path}")
-        as_cache_path = fx_data_cache / "recombinant_ex1_alignments.db"
-        ts = recombinant_example_1(
-            tmp_path, fx_ts_map, fx_alignment_store, as_cache_path
-        )
+        ds_cache_path = fx_data_cache / "recombinant_ex1_dataset.zarr"
+        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
         ts.dump(cache_path)
     return tskit.load(cache_path)
 

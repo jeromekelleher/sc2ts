@@ -32,6 +32,7 @@ sc2ts = "sc2ts.cli:cli"
 [project.optional-dependencies]
 dev = [
   "msprime",
+  "sgkit",
   "pytest",
   "pytest-coverage",
 ]

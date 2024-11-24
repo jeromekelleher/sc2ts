@@ -9,6 +9,7 @@ import collections
 import logging
 import pathlib
 
+import pandas as pd
 import zarr
 import numcodecs
 import numpy as np
@@ -350,3 +351,14 @@ class Dataset:
 
         with zipfile.ZipFile(out_path, "w", allowZip64=True) as zf:
             add_to_zip(zf, in_path, ".")
+
+
+
+def tmp_dataset(path, alignments, date="2020-01-01"):
+    # Minimal hacky thing for testing. Should refactor into something more useful.
+    Dataset.new(path)
+    Dataset.append_alignments(path, alignments)
+    df = pd.DataFrame({"strain": alignments.keys(), "date": [date] * len(alignments)})
+    Dataset.add_metadata(path, df.set_index("strain"), "date")
+    return Dataset(path)
+
