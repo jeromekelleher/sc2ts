@@ -312,7 +312,7 @@ class Dataset:
         df = df.loc[samples].copy()
         df["date"] = df[date_field]
         for colname in df:
-            data = df[colname]
+            data = df[colname].to_numpy()
             dtype = data.dtype
             if dtype == int:
                 max_v = data.max()
@@ -353,7 +353,6 @@ class Dataset:
             add_to_zip(zf, in_path, ".")
 
 
-
 def tmp_dataset(path, alignments, date="2020-01-01"):
     # Minimal hacky thing for testing. Should refactor into something more useful.
     Dataset.new(path)
@@ -361,4 +360,3 @@ def tmp_dataset(path, alignments, date="2020-01-01"):
     df = pd.DataFrame({"strain": alignments.keys(), "date": [date] * len(alignments)})
     Dataset.add_metadata(path, df.set_index("strain"), "date")
     return Dataset(path)
-

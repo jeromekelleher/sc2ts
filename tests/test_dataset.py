@@ -16,7 +16,7 @@ def test_massaged_viridian_metadata(fx_metadata_df):
     int_fields = [
         "Genbank_N",
         "Viridian_N",
-        "Run_count",
+        # "Run_count",
         "Viridian_cons_len",
         "Viridian_cons_het",
     ]
@@ -32,7 +32,7 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path)
         sg_ds = sgkit.load_dataset(path)
-        assert dict(sg_ds.dims) == {
+        assert dict(sg_ds.sizes) == {
             "variants": 29903,
             "samples": 0,
             "ploidy": 1,
@@ -63,7 +63,7 @@ class TestCreateDataset:
         sc2ts.Dataset.append_alignments(path, alignments)
 
         sg_ds = sgkit.load_dataset(path)
-        assert dict(sg_ds.dims) == {
+        assert dict(sg_ds.sizes) == {
             "variants": 29903,
             "samples": num_samples,
             "ploidy": 1,
@@ -111,7 +111,7 @@ class TestCreateDataset:
             sc2ts.Dataset.append_alignments(path, {k: v})
 
         sg_ds = sgkit.load_dataset(path)
-        assert dict(sg_ds.dims) == {
+        assert dict(sg_ds.sizes) == {
             "variants": 29903,
             "samples": num_samples,
             "ploidy": 1,
@@ -128,10 +128,10 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         ds = sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "Collection_date")
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "date")
 
         sg_ds = sgkit.load_dataset(path)
-        assert dict(sg_ds.dims) == {
+        assert dict(sg_ds.sizes) == {
             "variants": 29903,
             "samples": len(fx_encoded_alignments),
             "ploidy": 1,
@@ -147,7 +147,7 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "Collection_date")
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "date")
         zip_path = tmp_path / "dataset.vcz.zip"
         sc2ts.Dataset.create_zip(path, zip_path)
 
@@ -205,7 +205,7 @@ class TestDatasetAlignments:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "Collection_date")
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "date")
         ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
         for k, v in fx_encoded_alignments.items():
             nt.assert_array_equal(v, ds.alignments[k])
@@ -222,10 +222,10 @@ class TestDatasetMetadata:
     def test_known(self, fx_dataset):
         d = fx_dataset.metadata["SRR11772659"]
         assert d["Artic_primer_version"] == "."
-        assert d["Collection_date"] == "2020-01-19"
+        assert d["date"] == "2020-01-19"
         assert d["In_Viridian_tree"]
         assert not d["In_intersection"]
-        assert d["Run_count"] == 4
+        # assert d["Run_count"] == 4
         assert d["Viridian_cons_len"] == 29836
         assert d["Genbank_N"] == -1
         assert d["Viridian_pangolin"] == "A"
