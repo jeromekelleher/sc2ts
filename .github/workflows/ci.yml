@@ -64,13 +64,11 @@ jobs:
 
       - name: Import alignments
         run: |
-          sc2ts import-alignments testrun/alignments.db testrun/data/alignments.fasta
-          sc2ts info-alignments testrun/alignments.db
+          sc2ts import-alignments testrun/dataset.zarr testrun/data/alignments.fasta
 
       - name: Import metadata
         run: |
-          sc2ts import-metadata testrun/data/metadata.tsv testrun/metadata.db
-          sc2ts info-metadata testrun/metadata.db
+          sc2ts import-metadata testrun/dataset.zarr testrun/data/metadata.tsv
 
       - name: Run inference
         run: |
@@ -80,14 +78,14 @@ jobs:
           for date in `sc2ts list-dates testrun/metadata.db | head -n 10`; do
               out_ts=testrun/$date.ts
               sc2ts extend $last_ts $date \
-                  testrun/alignments.db testrun/metadata.db \
+                  testrun/dataset.zarr \
                   testrun/match.db $out_ts -v --min-group-size=2
               last_ts=$out_ts
           done
 
       - name: Validate
         run: |
-          sc2ts validate -v testrun/alignments.db testrun/2020-02-02.ts
+          sc2ts validate -v testrun/dataset.zarr testrun/2020-02-02.ts
 
 
       - name: Info

@@ -592,11 +592,11 @@ def extend(
 
 
 @click.command()
-@click.argument("ts_file")
 @click.argument("dataset")
+@click.argument("ts_file")
 @deletions_as_missing
 @click.option("-v", "--verbose", count=True)
-def validate(ts_file, dataset, deletions_as_missing, verbose):
+def validate(dataset, ts_file, deletions_as_missing, verbose):
     """
     Check that the specified trees correctly encode data
     """
