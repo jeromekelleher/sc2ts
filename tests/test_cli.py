@@ -41,6 +41,24 @@ class TestImportAlignments:
         assert result.exit_code == 1
 
 
+class TestImportMetadata:
+    def test_suite_data(self, tmp_path, fx_metadata_tsv, fx_alignments_fasta):
+        ds_path = tmp_path / "ds.zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"import-alignments {ds_path} {fx_alignments_fasta} -i --no-progress",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            cli.cli,
+            f"import-metadata {ds_path} {fx_metadata_tsv} ",
+            catch_exceptions=False,
+        )
+
+
 class TestInitialise:
     def test_defaults(self, tmp_path):
         ts_path = tmp_path / "trees.ts"

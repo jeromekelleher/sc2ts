@@ -42,6 +42,19 @@ def fx_encoded_alignments(fx_alignments_fasta):
     return encoded_alignments(fx_alignments_fasta)
 
 
+
+def read_metadata_df(tsv_path):
+    df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
+    return sc2ts.massage_viridian_metadata(df)
+
+@pytest.fixture
+def fx_metadata_tsv():
+    return "tests/data/metadata.tsv"
+
+@pytest.fixture
+def fx_metadata_df(fx_metadata_tsv):
+    return read_metadata_df(fx_metadata_tsv)
+
 # TO GENERATE
 # @pytest.fixture
 # def fx_metadata_df(fx_alignments_fasta):
@@ -51,17 +64,6 @@ def fx_encoded_alignments(fx_alignments_fasta):
 #     dfs = df.loc[sample_id]
 #     tsv_path = "tests/data/metadata.tsv"
 #     dfs.to_csv(tsv_path, sep="\t")
-
-
-def read_metadata_df():
-    tsv_path = "tests/data/metadata.tsv"
-    df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
-    return sc2ts.massage_viridian_metadata(df)
-
-
-@pytest.fixture
-def fx_metadata_df():
-    return read_metadata_df()
 
 
 @pytest.fixture
@@ -74,7 +76,7 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta):
             fs_path, encoded_alignments(fx_alignments_fasta)
         )
         sc2ts.Dataset.add_metadata(
-            # The metadata we're using has been slightly massaged 
+            # The metadata we're using has been slightly massaged
             # already to add more precise dates. Use the "date"
             # field rather than original Collection_date.
             fs_path, read_metadata_df(), date_field="date"

@@ -193,16 +193,15 @@ def setup_logging(verbosity, log_file=None, date=None):
 )
 @progress
 @verbose
-@log_file
-def import_alignments(dataset, fastas, initialise, progress, verbose, log_file):
+def import_alignments(dataset, fastas, initialise, progress, verbose):
     """
     Import the alignments from all FASTAS into the dataset
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose)
     if initialise:
         sc2ts.Dataset.new(dataset)
 
-    f_bar = tqdm.tqdm(sorted(fastas), desc="File", disable=not progress, position=0)
+    f_bar = tqdm.tqdm(sorted(fastas), desc="Files", disable=not progress, position=0)
     for fasta_path in f_bar:
         reader = core.FastaReader(fasta_path, add_zero_base=False)
         logger.info(f"Reading {len(reader)} alignments from {fasta_path}")
@@ -219,29 +218,27 @@ def import_alignments(dataset, fastas, initialise, progress, verbose, log_file):
         sc2ts.Dataset.append_alignments(dataset, alignments)
 
 
-# @click.command()
-# @click.argument("metadata")
-# @click.argument("db")
-# @click.option("-v", "--verbose", count=True)
-# def import_metadata(metadata, db, verbose):
-#     """
-#     Convert a CSV formatted metadata file to a database for later use.
-#     """
-#     setup_logging(verbose)
-#     sc2ts.MetadataDb.import_csv(metadata, db)
-
-
-# @click.command()
-# @click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-# @click.option("-v", "--verbose", count=True)
-# @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-# def info_metadata(metadata, verbose, log_file):
-#     """
-#     Information about a metadata DB
-#     """
-#     setup_logging(verbose, log_file)
-#     with sc2ts.MetadataDb(metadata) as metadata_db:
-#         print(metadata_db)
+@click.command()
+@click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.argument("metadata", type=click.Path(dir_okay=False, file_okay=True))
+@click.option("--viridian", is_flag=True, help=
+        "Do some preprocessing appropriate for the Viridian metadata "
+        "(Available at https://figshare.com/ndownloader/files/49694808)"
+        )
+@verbose
+def import_metadata(dataset, metadata, viridian, verbose):
+    """
+    Import a CSV/TSV metadata file into the dataset.
+    """
+    setup_logging(verbose)
+    df_in = pd.read_csv(metadata, sep="\t") #, dtype={"Artic_primer_version": str})
+    date_field = "date"
+    index_field = "Run"
+    if viridian:
+        df = sc2ts.massage_viridian_metadata(df)
+        date_field = "Collection_date"
+    df = df_in.set_index(index_field)
+    sc2ts.Dataset.add_metadata(dataset, df, date_field=date_field)
 
 
 @click.command()
@@ -932,7 +929,7 @@ def cli():
 
 
 cli.add_command(import_alignments)
-# cli.add_command(import_metadata)
+cli.add_command(import_metadata)
 # cli.add_command(info_alignments)
 # cli.add_command(info_metadata)
 cli.add_command(info_matches)
