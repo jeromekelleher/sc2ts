@@ -64,6 +64,12 @@ memory_limit = click.option(
     ),
 )
 
+progress = click.option("--progress/--no-progress", default=True)
+verbose = click.option("-v", "--verbose", count=True)
+log_file = click.option(
+    "-l", "--log-file", default=None, type=click.Path(dir_okay=False)
+)
+
 __before = time.time()
 
 
@@ -172,41 +178,45 @@ def setup_logging(verbosity, log_file=None, date=None):
         logger.addHandler(warn_handler)
 
 
-# # TODO add options to list keys, dump specific alignments etc
-# @click.command()
-# @click.argument("store", type=click.Path(exists=True, dir_okay=False))
-# @click.option("-v", "--verbose", count=True)
-# @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-# def info_alignments(store, verbose, log_file):
-#     """
-#     Information about an alignment store
-#     """
-#     setup_logging(verbose, log_file)
-#     with sc2ts.AlignmentStore(store) as alignment_store:
-#         print(alignment_store)
+@click.command()
+@click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.argument("fastas", type=click.Path(exists=True, dir_okay=False), nargs=-1)
+@click.option(
+    "-i",
+    "--initialise",
+    is_flag=True,
+    flag_value=True,
+    help=(
+        "If true, initialise a new dataset. WARNING! This will erase and existing "
+        "store"
+    ),
+)
+@progress
+@verbose
+@log_file
+def import_alignments(dataset, fastas, initialise, progress, verbose, log_file):
+    """
+    Import the alignments from all FASTAS into the dataset
+    """
+    setup_logging(verbose, log_file)
+    if initialise:
+        sc2ts.Dataset.new(dataset)
 
-
-# @click.command()
-# @click.argument("store", type=click.Path(dir_okay=False, file_okay=True))
-# @click.argument("fastas", type=click.Path(exists=True, dir_okay=False), nargs=-1)
-# @click.option("-i", "--initialise", default=False, type=bool, help="Initialise store")
-# @click.option("--no-progress", default=False, type=bool, help="Don't show progress")
-# @click.option("-v", "--verbose", count=True)
-# @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-# def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
-#     """
-#     Import the alignments from all FASTAS into STORE.
-#     """
-#     setup_logging(verbose, log_file)
-#     if initialise:
-#         a = sc2ts.AlignmentStore.initialise(store)
-#     else:
-#         a = sc2ts.AlignmentStore(store, "a")
-#     for fasta_path in fastas:
-#         logging.info(f"Reading fasta {fasta_path}")
-#         fasta = core.FastaReader(fasta_path)
-#         a.append(fasta, show_progress=True)
-#     a.close()
+    f_bar = tqdm.tqdm(sorted(fastas), desc="File", disable=not progress, position=0)
+    for fasta_path in f_bar:
+        reader = core.FastaReader(fasta_path, add_zero_base=False)
+        logger.info(f"Reading {len(reader)} alignments from {fasta_path}")
+        alignments = {}
+        a_bar = tqdm.tqdm(
+            reader.items(),
+            total=len(reader),
+            desc="Extract",
+            disable=not progress,
+            position=1,
+        )
+        for k, v in a_bar:
+            alignments[k] = sc2ts.encode_alignment(v)
+        sc2ts.Dataset.append_alignments(dataset, alignments)
 
 
 # @click.command()
@@ -921,7 +931,7 @@ def cli():
     pass
 
 
-# cli.add_command(import_alignments)
+cli.add_command(import_alignments)
 # cli.add_command(import_metadata)
 # cli.add_command(info_alignments)
 # cli.add_command(info_metadata)

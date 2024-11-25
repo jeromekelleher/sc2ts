@@ -35,20 +35,23 @@ except ImportError:
 
 
 class FastaReader(collections.abc.Mapping):
-    def __init__(self, path):
+    def __init__(self, path, add_zero_base=True):
         self.reader = pyfaidx.Fasta(str(path))
-        self.keys = list(self.reader.keys())
+        self._keys = list(self.reader.keys())
+        self.add_zero_base = add_zero_base
 
     def __getitem__(self, key):
         x = self.reader[key]
         h = np.array(x).astype(str)
-        return np.append(["X"], h)
+        if self.add_zero_base:
+            return np.append(["X"], h)
+        return h
 
     def __iter__(self):
-        return iter(self.keys)
+        return iter(self._keys)
 
     def __len__(self):
-        return len(self.keys)
+        return len(self._keys)
 
 
 data_path = pathlib.Path(__file__).parent / "data"

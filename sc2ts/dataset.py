@@ -93,8 +93,8 @@ class CachedAlignmentMapping(collections.abc.Mapping):
 
 class CachedMetadataMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map):
-        # NOTE: this is definitely wasteful. We shouldn't load the sample_id field 
-        # from zarr more than once, and reading in all the metadata arrays in 
+        # NOTE: this is definitely wasteful. We shouldn't load the sample_id field
+        # from zarr more than once, and reading in all the metadata arrays in
         # one go unconditionally is also too slow.
         self.sample_id_map = sample_id_map
         self.sample_date = root["sample_date"][:].astype(str)
@@ -192,6 +192,7 @@ class Dataset:
 
     @staticmethod
     def new(path, samples_chunk_size=10_000, variants_chunk_size=100):
+        logger.info(f"Creating new dataset at {path}")
         L = core.REFERENCE_SEQUENCE_LENGTH - 1
         N = 0  # Samples must be added
         store = zarr.DirectoryStore(path)
@@ -282,10 +283,10 @@ class Dataset:
         n = len(alignments)
         gt_array = root["call_genotype"]
         sample_id_array = root["sample_id"]
+        L, N = gt_array.shape[:2]
+        logger.info(f"Appending {len(alignments)} alignments to store with {N}")
         if len(set(sample_id_array[:]) & set(alignments.keys())) > 0:
             raise ValueError("Attempting to add duplicate samples")
-        L, N = gt_array.shape[:2]
-        logger.debug(f"Appending {len(alignments)} to store with {N}")
 
         G = np.zeros((L, n, 1), dtype=np.int8)
         sample_id = []
