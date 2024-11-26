@@ -58,6 +58,23 @@ class TestImportMetadata:
             catch_exceptions=False,
         )
 
+    def test_viridian_metadata(self, tmp_path, fx_raw_viridian_metadata_tsv,
+            fx_alignments_fasta):
+        ds_path = tmp_path / "ds.zarr"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"import-alignments {ds_path} {fx_alignments_fasta} -i --no-progress",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(
+            cli.cli,
+            f"import-metadata {ds_path} {fx_raw_viridian_metadata_tsv} --viridian",
+            catch_exceptions=False,
+        )
+
 
 class TestInitialise:
     def test_defaults(self, tmp_path):

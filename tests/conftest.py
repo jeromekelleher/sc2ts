@@ -42,28 +42,39 @@ def fx_encoded_alignments(fx_alignments_fasta):
     return encoded_alignments(fx_alignments_fasta)
 
 
-
 def read_metadata_df(tsv_path):
     df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
     return sc2ts.massage_viridian_metadata(df)
+
 
 @pytest.fixture
 def fx_metadata_tsv():
     return "tests/data/metadata.tsv"
 
+
+@pytest.fixture
+def fx_raw_viridian_metadata_tsv():
+    tsv_path = "tests/data/raw_viridian_metadata.tsv.gz"
+    # TO generate, uncommment:
+    # df = pd.read_csv("viridian_metadata.tsv", sep="\t")
+    # date = df["Collection_date"]
+    # dfs = df[(date < "2020-03-01") & (date.str.len() >= 6)]
+    # # Not clear why this sequence is in the suite metadata, but easiest
+    # # to just put it in here
+    # dfs = pd.concat([dfs, df[df.Run == "SRR15736313"]])
+    # dfs.to_csv(tsv_path, sep="\t", index=False)
+    return tsv_path
+
+
 @pytest.fixture
 def fx_metadata_df(fx_metadata_tsv):
+
     return read_metadata_df(fx_metadata_tsv)
 
-# TO GENERATE
-# @pytest.fixture
-# def fx_metadata_df(fx_alignments_fasta):
-#     fr = sc2ts.FastaReader(fx_alignments_fasta)
-#     sample_id = list(fr.keys)
-#     df = pd.read_csv("viridian_metadata.tsv", sep="\t", index_col="Run")
-#     dfs = df.loc[sample_id]
-#     tsv_path = "tests/data/metadata.tsv"
-#     dfs.to_csv(tsv_path, sep="\t")
+
+@pytest.fixture
+def fx_raw_viridian_metadata_df(fx_raw_viridian_metadata_tsv):
+    return read_metadata_df(fx_raw_viridian_metadata_tsv)
 
 
 @pytest.fixture
@@ -79,7 +90,9 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
             # The metadata we're using has been slightly massaged
             # already to add more precise dates. Use the "date"
             # field rather than original Collection_date.
-            fs_path, fx_metadata_df, date_field="date"
+            fs_path,
+            fx_metadata_df,
+            date_field="date",
         )
         sc2ts.Dataset.create_zip(fs_path, cache_path)
     return sc2ts.Dataset(cache_path)

@@ -170,7 +170,7 @@ class Dataset:
 
     def __str__(self):
         # TODO return summary of metadata columns
-        # TODO summarise Zarr 
+        # TODO summarise Zarr
         return f"Dataset at {self.path} with {self.num_samples} samples"
 
     def variants(self, sample_id, position):
@@ -324,7 +324,11 @@ class Dataset:
 
         sample_id_array = root["sample_id"]
         samples = sample_id_array[:]
+        if samples.shape[0] == 0:
+            raise ValueError("Cannot add metadata to empty dataset")
+        print(samples)
         df = df.loc[samples].copy()
+        print(df)
         df["date"] = df[date_field]
         for colname in df:
             data = df[colname].to_numpy()

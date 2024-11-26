@@ -8,15 +8,15 @@ import sgkit
 import sc2ts
 
 
-def test_massaged_viridian_metadata(fx_metadata_df):
-    df = fx_metadata_df
+def test_massaged_viridian_metadata(fx_raw_viridian_metadata_df):
+    df = fx_raw_viridian_metadata_df
     assert df["In_Viridian_tree"].dtype == bool
     assert df["In_intersection"].dtype == bool
 
     int_fields = [
         "Genbank_N",
         "Viridian_N",
-        # "Run_count",
+        "Run_count",
         "Viridian_cons_len",
         "Viridian_cons_het",
     ]

@@ -222,21 +222,26 @@ def import_alignments(dataset, fastas, initialise, progress, verbose):
 @click.command()
 @click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
 @click.argument("metadata", type=click.Path(dir_okay=False, file_okay=True))
-@click.option("--viridian", is_flag=True, help=
-        "Do some preprocessing appropriate for the Viridian metadata "
-        "(Available at https://figshare.com/ndownloader/files/49694808)"
-        )
+@click.option(
+    "--viridian",
+    is_flag=True,
+    help="Do some preprocessing appropriate for the Viridian metadata "
+    "(Available at https://figshare.com/ndownloader/files/49694808)",
+)
 @verbose
 def import_metadata(dataset, metadata, viridian, verbose):
     """
     Import a CSV/TSV metadata file into the dataset.
     """
     setup_logging(verbose)
-    df_in = pd.read_csv(metadata, sep="\t") #, dtype={"Artic_primer_version": str})
+    logger.info(f"Reading {metadata}")
+    df_in = pd.read_csv(metadata, sep="\t")
+    # TODO do we need to do this?
+    # , dtype={"Artic_primer_version": str})
     date_field = "date"
     index_field = "Run"
     if viridian:
-        df = sc2ts.massage_viridian_metadata(df)
+        df_in = sc2ts.massage_viridian_metadata(df_in)
         date_field = "Collection_date"
     df = df_in.set_index(index_field)
     sc2ts.Dataset.add_metadata(dataset, df, date_field=date_field)
@@ -261,6 +266,7 @@ def info_matches(match_db, verbose):
             count = hmm_cost_counter[cost]
             percent = count / total * 100
             print(f"{cost}\t{percent:.1f}\t{count}")
+
 
 @click.command()
 @dataset
