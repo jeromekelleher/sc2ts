@@ -24,8 +24,6 @@ import humanize
 import pandas as pd
 
 from . import core
-from . import alignments
-from . import metadata
 from . import tree_ops
 
 logger = logging.getLogger(__name__)
@@ -51,13 +49,18 @@ def get_progress(iterable, title, phase, show_progress, total=None):
     )
 
 
+def dict_factory(cursor, row):
+    col_names = [col[0] for col in cursor.description]
+    return {key: value for key, value in zip(col_names, row)}
+
+
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
         self.path = path
         self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
-        self.conn.row_factory = metadata.dict_factory
+        self.conn.row_factory = dict_factory
         logger.debug(f"Opened MatchDb at {path} mode=rw")
 
     def __len__(self):
