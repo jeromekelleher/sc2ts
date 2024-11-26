@@ -1,4 +1,4 @@
-import logging 
+import logging
 
 import numpy as np
 import numpy.testing as nt
@@ -12,14 +12,10 @@ MISSING = -1
 DELETION = sc2ts.IUPAC_ALLELES.index("-")
 
 
-def validate(ts, dataset, deletions_as_missing=False, show_progress=False):
-    """
-    Check that all the samples in the specified tree sequence are correctly
-    representing the original alignments.
-    """
+def validate_genotypes(ts, dataset, deletions_as_missing=False, show_progress=False):
     sample_id = ts.metadata["sc2ts"]["samples_strain"][1:]
     logger.info(f"Validating ARG for with {len(sample_id)} samples")
-    bar = tqdm.tqdm(total=ts.num_sites, disable=not show_progress)
+    bar = tqdm.tqdm(total=ts.num_sites, desc="Genotypes", disable=not show_progress)
     for var1, var2 in zip(
         ts.variants(samples=ts.samples()[1:], alleles=tuple(sc2ts.IUPAC_ALLELES)),
         dataset.variants(sample_id, ts.sites_position),
@@ -32,3 +28,28 @@ def validate(ts, dataset, deletions_as_missing=False, show_progress=False):
         nt.assert_array_equal(var1.genotypes[select], g2[select])
         bar.update()
     bar.close()
+
+
+def validate_metadata(ts, dataset, show_progress=False):
+
+    samples = ts.samples()[1:]
+    bar = tqdm.tqdm(samples, desc="Metadata", disable=not show_progress)
+    for u in bar:
+        md1 = ts.node(u).metadata
+        del md1["sc2ts"]
+        md2 = dataset.metadata[md1["strain"]]
+        assert md1 == md2
+
+
+def validate(ts, dataset, deletions_as_missing=False, show_progress=False):
+    """
+    Check that all the samples in the specified tree sequence are correctly
+    representing the original alignments.
+    """
+    validate_genotypes(
+        ts,
+        dataset,
+        deletions_as_missing=deletions_as_missing,
+        show_progress=show_progress,
+    )
+    validate_metadata(ts, dataset, show_progress=show_progress)

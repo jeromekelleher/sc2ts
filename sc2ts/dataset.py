@@ -92,33 +92,50 @@ class CachedAlignmentMapping(collections.abc.Mapping):
 
 
 class CachedMetadataMapping(collections.abc.Mapping):
-    def __init__(self, root, sample_id_map):
-        # NOTE: this is definitely wasteful. We shouldn't load the sample_id field
-        # from zarr more than once, and reading in all the metadata arrays in
-        # one go unconditionally is also too slow.
+    def __init__(self, root, sample_id_map, date_field, chunk_cache_size):
         self.sample_id_map = sample_id_map
-        self.sample_date = root["sample_date"][:].astype(str)
+        self.sample_date = root[f"sample_{date_field}"][:].astype(str)
         self.sample_id = root["sample_id"][:].astype(str)
-        self.arrays = {}
+        self.sample_id_array = root["sample_id"]
+        # Mapping of field name to Zarr array
+        self.fields = {}
         prefix = "sample_"
-        # We might need to do this on a chunk-aware basis
-        for k, v in root.items():
-            if k.startswith(prefix) and k not in ("sample_id", "sample_date"):
+        for k, array in root.items():
+            if k.startswith(prefix) and k != "sample_id":
                 name = k[len(prefix) :]
-                logger.debug(f"Decompressing metadata {name}")
-                self.arrays[name] = v[:]
+                self.fields[name] = array
+        self.chunk_cache_size = chunk_cache_size
+        self.chunk_cache = {}
+
+        logger.debug(f"Got {self.num_fields} metadata fields")
 
     @property
-    def num_columns(self):
-        return len(self.arrays)
+    def num_fields(self):
+        return len(self.fields)
 
     def get_metadata(self, j):
+
+        chunk_size = self.sample_id_array.chunks[0]
+        chunk = j // chunk_size
+        if chunk not in self.chunk_cache:
+            logger.debug(f"Metadata chunk cache miss on {chunk}")
+            if len(self.chunk_cache) >= self.chunk_cache_size:
+                lru = list(self.chunk_cache.keys())[0]
+                del self.chunk_cache[lru]
+                logger.debug(f"Evicted LRU {lru} from metadata chunk cache")
+            cached_chunk = {}
+            for field, array in self.fields.items():
+                cached_chunk[field] = array.blocks[chunk]
+            self.chunk_cache[chunk] = cached_chunk
+        cached_chunk = self.chunk_cache[chunk]
+        k = j % chunk_size
+
         d = {}
-        for key, array in self.arrays.items():
-            d[key] = array[j]
-            if array.dtype.kind == "i":
+        for key, np_array in cached_chunk.items():
+            d[key] = np_array[k]
+            if np_array.dtype.kind == "i":
                 d[key] = int(d[key])
-            elif array.dtype.kind == "b":
+            elif np_array.dtype.kind == "b":
                 d[key] = bool(d[key])
             else:
                 d[key] = str(d[key])
@@ -140,6 +157,11 @@ class CachedMetadataMapping(collections.abc.Mapping):
     def samples_for_date(self, date):
         return self.sample_id[self.sample_date == date]
 
+    def as_dataframe(self):
+        return pd.DataFrame({"sample_id": self.sample_id, **self.fields}).set_index(
+            "sample_id"
+        )
+
 
 @dataclasses.dataclass
 class Variant:
@@ -150,7 +172,7 @@ class Variant:
 
 class Dataset:
 
-    def __init__(self, path, chunk_cache_size=1):
+    def __init__(self, path, chunk_cache_size=1, date_field="date"):
         self.path = pathlib.Path(path)
         if self.path.suffix == ".zip":
             self.store = zarr.ZipStore(path)
@@ -166,7 +188,8 @@ class Dataset:
         self.alignments = CachedAlignmentMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
-        self.metadata = CachedMetadataMapping(self.root, self.sample_id_map)
+        self.metadata = CachedMetadataMapping(self.root, self.sample_id_map, date_field,
+                chunk_cache_size=chunk_cache_size)
 
     @property
     def num_samples(self):
@@ -175,7 +198,7 @@ class Dataset:
     def __str__(self):
         return (
             f"Dataset at {self.path} with {self.num_samples} samples "
-            f"and {self.metadata.num_columns} metadata fields"
+            f"and {self.metadata.num_fields} metadata fields"
         )
 
     def variants(self, sample_id, position):
@@ -206,8 +229,40 @@ class Dataset:
                     )
                 j += 1
 
+    def copy(
+        self, path, samples_chunk_size=None, variants_chunk_size=None, sample_id=None
+    ):
+        """
+        Copy this dataset to the specified path.
+
+        If sample_id is specified, only include these samples in the specified order.
+        """
+        if sample_id is None:
+            sample_id = self.root["sample_id"][:]
+        Dataset.new(
+            path,
+            samples_chunk_size=samples_chunk_size,
+            variants_chunk_size=variants_chunk_size,
+        )
+        alignments = {}
+        for s in sample_id:
+            alignments[s] = self.alignments[s]
+            if len(alignments) == samples_chunk_size:
+                Dataset.append_alignments(path, alignments)
+                alignments = {}
+        Dataset.append_alignments(path, alignments)
+
+        df = self.metadata.as_dataframe()
+        Dataset.add_metadata(path, df)
+
     @staticmethod
-    def new(path, samples_chunk_size=10_000, variants_chunk_size=100):
+    def new(path, samples_chunk_size=None, variants_chunk_size=None):
+
+        if samples_chunk_size is None:
+            samples_chunk_size = 10_000
+        if variants_chunk_size is None:
+            variants_chunk_size = 100
+
         logger.info(f"Creating new dataset at {path}")
         L = core.REFERENCE_SEQUENCE_LENGTH - 1
         N = 0  # Samples must be added
@@ -293,6 +348,8 @@ class Dataset:
         Append alignments to the store. If this method fails then the store
         should be considered corrupt.
         """
+        if len(alignments) == 0:
+            return
         store = zarr.DirectoryStore(path)
         root = zarr.open(store, mode="a")
 
@@ -316,13 +373,10 @@ class Dataset:
         zarr.consolidate_metadata(store)
 
     @staticmethod
-    def add_metadata(path, df, date_field):
+    def add_metadata(path, df):
         """
         Add metadata from the specified dataframe, indexed by sample ID.
         Each column will be added as a new array with prefix "sample_"
-
-        A "sample_date" field will be added as a copy of the given
-        date_field.
         """
         store = zarr.DirectoryStore(path)
         root = zarr.open(store, mode="a")
@@ -332,11 +386,10 @@ class Dataset:
         if samples.shape[0] == 0:
             raise ValueError("Cannot add metadata to empty dataset")
         df = df.loc[samples].copy()
-        df["date"] = df[date_field]
         for colname in df:
             data = df[colname].to_numpy()
             dtype = data.dtype
-            if dtype == int:
+            if dtype.kind == "i":
                 max_v = data.max()
                 if max_v < 127:
                     dtype = "i1"
@@ -380,5 +433,5 @@ def tmp_dataset(path, alignments, date="2020-01-01"):
     Dataset.new(path)
     Dataset.append_alignments(path, alignments)
     df = pd.DataFrame({"strain": alignments.keys(), "date": [date] * len(alignments)})
-    Dataset.add_metadata(path, df.set_index("strain"), "date")
+    Dataset.add_metadata(path, df.set_index("strain"))
     return Dataset(path)

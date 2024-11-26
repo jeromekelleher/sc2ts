@@ -46,6 +46,14 @@ num_mismatches = click.option(
     type=float,
     help="Number of mismatches to accept in favour of recombination",
 )
+chunk_cache_size = click.option(
+    "-C",
+    "--chunk-cache-size",
+    default=3,
+    show_default=True,
+    type=int,
+    help="Number of dataset chunks to hold in cache",
+)
 deletions_as_missing = click.option(
     "--deletions-as-missing/--no-deletions-as-missing",
     default=True,
@@ -243,9 +251,8 @@ def import_metadata(dataset, metadata, viridian, verbose):
     index_field = "Run"
     if viridian:
         df_in = sc2ts.massage_viridian_metadata(df_in)
-        date_field = "Collection_date"
     df = df_in.set_index(index_field)
-    sc2ts.Dataset.add_metadata(dataset, df, date_field=date_field)
+    sc2ts.Dataset.add_metadata(dataset, df)
 
 
 @click.command()
@@ -618,16 +625,32 @@ def extend(
 @dataset
 @click.argument("ts_file")
 @deletions_as_missing
-@click.option("-v", "--verbose", count=True)
-def validate(dataset, ts_file, deletions_as_missing, verbose):
+@click.option(
+    "--genotypes/--no-genotypes",
+    default=True,
+    help="Validate all genotypes",
+    show_default=True,
+)
+@click.option(
+    "--metadata/--no-metadata",
+    default=True,
+    help="Validate metadata",
+    show_default=True,
+)
+@chunk_cache_size
+@verbose
+def validate(dataset, ts_file, deletions_as_missing, genotypes, metadata, chunk_cache_size, verbose):
     """
     Check that the specified trees correctly encode data
     """
     setup_logging(verbose)
 
     ts = tszip.load(ts_file)
-    ds = sc2ts.Dataset(dataset)
-    sc2ts.validate(ts, ds, deletions_as_missing, show_progress=True)
+    ds = sc2ts.Dataset(dataset, chunk_cache_size=chunk_cache_size)
+    if genotypes:
+        sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
+    if metadata:
+        sc2ts.validate_metadata(ts, ds, show_progress=True)
 
 
 # @click.command()

@@ -86,14 +86,7 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
         sc2ts.Dataset.append_alignments(
             fs_path, encoded_alignments(fx_alignments_fasta)
         )
-        sc2ts.Dataset.add_metadata(
-            # The metadata we're using has been slightly massaged
-            # already to add more precise dates. Use the "date"
-            # field rather than original Collection_date.
-            fs_path,
-            fx_metadata_df,
-            date_field="date",
-        )
+        sc2ts.Dataset.add_metadata(fs_path, fx_metadata_df)
         sc2ts.Dataset.create_zip(fs_path, cache_path)
     return sc2ts.Dataset(cache_path)
 

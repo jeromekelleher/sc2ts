@@ -39,7 +39,6 @@ def recombinant_example_1(ts_map):
     return ts, s
 
 
-
 def tmp_metadata_db(tmp_path, strains, date):
     data = []
     for strain in strains:

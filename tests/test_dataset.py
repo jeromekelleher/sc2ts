@@ -128,7 +128,7 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         ds = sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "date")
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
 
         sg_ds = sgkit.load_dataset(path)
         assert dict(sg_ds.sizes) == {
@@ -147,7 +147,7 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "date")
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
         zip_path = tmp_path / "dataset.vcz.zip"
         sc2ts.Dataset.create_zip(path, zip_path)
 
@@ -158,6 +158,13 @@ class TestCreateDataset:
         assert alignments1.keys() == alignments2.keys()
         for k in alignments1.keys():
             nt.assert_array_equal(alignments1[k], alignments2[k])
+
+    def test_copy(self, tmp_path, fx_dataset):
+        path = tmp_path / "dataset.vcz"
+        fx_dataset.copy(path)
+        ds = sc2ts.Dataset(path)
+        # FIXME assert_dataset_equal
+        print(ds)
 
 
 class TestDatasetAlignments:
@@ -205,7 +212,7 @@ class TestDatasetAlignments:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df, "date")
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
         ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
         for k, v in fx_encoded_alignments.items():
             nt.assert_array_equal(v, ds.alignments[k])
@@ -230,6 +237,33 @@ class TestDatasetMetadata:
         assert d["Genbank_N"] == -1
         assert d["Viridian_pangolin"] == "A"
 
+    @pytest.mark.parametrize(
+        ["chunk_size", "cache_size"],
+        [
+            (1, 10),
+            (10, 1),
+        ],
+    )
+    def test_chunk_size_cache_size(
+        self,
+        tmp_path,
+        fx_encoded_alignments,
+        fx_metadata_df,
+        chunk_size,
+        cache_size,
+    ):
+        path = tmp_path / "dataset.vcz"
+        sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
+        sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
+        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
+        ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
+        for strain in fx_encoded_alignments.keys():
+            row = fx_metadata_df.loc[strain]
+            d1 = ds.metadata[strain]
+            del d1["strain"]
+            d2 = dict(row)
+            assert d1 == d2
+
     def test_in(self, fx_dataset):
         assert "SRR11772659" in fx_dataset.metadata
         assert "DEFO_NOT_IN_DB" not in fx_dataset.metadata
@@ -237,6 +271,14 @@ class TestDatasetMetadata:
     def test_samples_for_date(self, fx_dataset):
         samples = fx_dataset.metadata.samples_for_date("2020-01-19")
         assert samples == ["SRR11772659"]
+
+    def test_as_dataframe(self, fx_dataset, fx_metadata_df):
+        df1 = fx_dataset.metadata.as_dataframe()
+        df2 = fx_metadata_df.loc[df1.index]
+        assert df1.shape[0] == df2.shape[0]
+        for col, data1 in df2.items():
+            data2 = df2[col]
+            nt.assert_array_equal(data1.to_numpy(), data2.to_numpy())
 
 
 class TestEncodeAlignment:
