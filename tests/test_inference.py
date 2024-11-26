@@ -507,7 +507,7 @@ class TestRealData:
         num_missing,
     ):
         a = fx_dataset.alignments[strain]
-        a = sc2ts.mask_amiguous(a)
+        a = sc2ts.mask_ambiguous(a)
 
         missing_positions = np.where(a == -1)[0] + 1
         assert len(missing_positions) == num_missing

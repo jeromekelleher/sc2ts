@@ -67,7 +67,7 @@ def fx_metadata_df(fx_metadata_tsv):
 
 
 @pytest.fixture
-def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta):
+def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
     cache_path = fx_data_cache / "dataset.vcz.zip"
     if not cache_path.exists():
         fs_path = tmp_path / "dataset.vcz"
@@ -79,29 +79,10 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta):
             # The metadata we're using has been slightly massaged
             # already to add more precise dates. Use the "date"
             # field rather than original Collection_date.
-            fs_path, read_metadata_df(), date_field="date"
+            fs_path, fx_metadata_df, date_field="date"
         )
         sc2ts.Dataset.create_zip(fs_path, cache_path)
     return sc2ts.Dataset(cache_path)
-
-
-# @pytest.fixture
-# def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
-#     cache_path = fx_data_cache / "alignments.db"
-#     if not cache_path.exists():
-#         with sc2ts.AlignmentStore(cache_path, "a") as a:
-#             fasta = sc2ts.core.FastaReader(fx_alignments_fasta)
-#             a.append(fasta, show_progress=False)
-#     return sc2ts.AlignmentStore(cache_path)
-
-
-# @pytest.fixture
-# def fx_metadata_db(fx_data_cache):
-#     cache_path = fx_data_cache / "metadata.db"
-#     tsv_path = "tests/data/metadata.tsv"
-#     if not cache_path.exists():
-#         sc2ts.MetadataDb.import_csv(tsv_path, cache_path)
-#     return sc2ts.MetadataDb(cache_path)
 
 
 @pytest.fixture
