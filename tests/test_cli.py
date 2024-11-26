@@ -336,6 +336,17 @@ class TestInfoMatches:
         assert result.exit_code == 0
 
 
+class TestInfoDataset:
+    def test_defaults(self, fx_dataset):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"info-dataset {fx_dataset.path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+
 class TestListDates:
     def test_defaults(self, fx_dataset):
         runner = ct.CliRunner(mix_stderr=False)

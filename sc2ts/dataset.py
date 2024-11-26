@@ -154,6 +154,8 @@ class Dataset:
             self.store = zarr.DirectoryStore(path)
         self.root = zarr.open(self.store, mode="r")
 
+        # TODO add sample mask
+
         self.sample_id_map = {
             sample_id: k for k, sample_id in enumerate(self.root["sample_id"][:])
         }
@@ -161,6 +163,15 @@ class Dataset:
             self.root, self.sample_id_map, chunk_cache_size
         )
         self.metadata = CachedMetadataMapping(self.root, self.sample_id_map)
+
+    @property
+    def num_samples(self):
+        return self.root.call_genotype.shape[1]
+
+    def __str__(self):
+        # TODO return summary of metadata columns
+        # TODO summarise Zarr 
+        return f"Dataset at {self.path} with {self.num_samples} samples"
 
     def variants(self, sample_id, position):
         variant_position = self.root["variant_position"][:]

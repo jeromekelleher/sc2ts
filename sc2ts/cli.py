@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # Common arguments/options
+dataset = click.argument("dataset", type=click.Path(exists=True, dir_okay=True))
 
 num_mismatches = click.option(
     "-k",
@@ -243,13 +244,12 @@ def import_metadata(dataset, metadata, viridian, verbose):
 
 @click.command()
 @click.argument("match_db", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_matches(match_db, verbose, log_file):
+@verbose
+def info_matches(match_db, verbose):
     """
     Information about an alignment store
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose)
     with sc2ts.MatchDb(match_db) as db:
         print(db)
         print("last date = ", db.last_date())
@@ -262,17 +262,27 @@ def info_matches(match_db, verbose, log_file):
             percent = count / total * 100
             print(f"{cost}\t{percent:.1f}\t{count}")
 
+@click.command()
+@dataset
+@verbose
+def info_dataset(dataset, verbose):
+    """
+    Information about a sc2ts Zarr dataset
+    """
+    setup_logging(verbose)
+    ds = sc2ts.Dataset(dataset)
+    print(ds)
+
 
 @click.command()
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("-R", "--recombinants", is_flag=True)
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_ts(ts_path, recombinants, verbose, log_file):
+@verbose
+def info_ts(ts_path, recombinants, verbose):
     """
     Information about a sc2ts inferred ARG
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose)
     ts = tszip.load(ts_path)
 
     ti = sc2ts.TreeInfo(ts, quick=False)
@@ -360,7 +370,7 @@ def initialise(
 
 
 @click.command()
-@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
+@dataset
 @click.option("--counts/--no-counts", default=False)
 @click.option(
     "--after",
@@ -370,13 +380,12 @@ def initialise(
 @click.option(
     "--before", default="3000-01-01", help="show dates before the specified value"
 )
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def list_dates(dataset, counts, after, before, verbose, log_file):
+@verbose
+def list_dates(dataset, counts, after, before, verbose):
     """
     List the dates included in specified dataset
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose)
     ds = sc2ts.Dataset(dataset)
     # This is a hack, but we probably won't keep this functionality in CLI anyway
     # so let's not worry about it.
@@ -408,7 +417,7 @@ def parse_include_samples(fileobj):
 @click.command()
 @click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("date")
-@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
+@dataset
 @click.argument("matches", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output_ts", type=click.Path(dir_okay=False))
 @num_mismatches
@@ -592,7 +601,7 @@ def extend(
 
 
 @click.command()
-@click.argument("dataset")
+@dataset
 @click.argument("ts_file")
 @deletions_as_missing
 @click.option("-v", "--verbose", count=True)
@@ -930,12 +939,10 @@ def cli():
 
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
-# cli.add_command(info_alignments)
-# cli.add_command(info_metadata)
+
+cli.add_command(info_dataset)
 cli.add_command(info_matches)
 cli.add_command(info_ts)
-# cli.add_command(export_alignments)
-# cli.add_command(export_metadata)
 
 cli.add_command(initialise)
 cli.add_command(list_dates)
