@@ -58,8 +58,9 @@ class TestImportMetadata:
             catch_exceptions=False,
         )
 
-    def test_viridian_metadata(self, tmp_path, fx_raw_viridian_metadata_tsv,
-            fx_alignments_fasta):
+    def test_viridian_metadata(
+        self, tmp_path, fx_raw_viridian_metadata_tsv, fx_alignments_fasta
+    ):
         ds_path = tmp_path / "ds.zarr"
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
@@ -362,6 +363,18 @@ class TestInfoDataset:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+        assert "with 55 samples and 25 metadata fields" in result.stdout
+
+    def test_zarr(self, fx_dataset):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"info-dataset {fx_dataset.path} -z",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        # Pick arbitrary field as a basic check
+        assert "/sample_Genbank_N" in result.stdout
 
 
 class TestListDates:

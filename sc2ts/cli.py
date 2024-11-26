@@ -271,7 +271,9 @@ def info_matches(match_db, verbose):
 @click.command()
 @dataset
 @verbose
-@click.option("-z", "--zarr-details", is_flag=True, help="Show detailed zarr information")
+@click.option(
+    "-z", "--zarr-details", is_flag=True, help="Show detailed zarr information"
+)
 def info_dataset(dataset, verbose, zarr_details):
     """
     Information about a sc2ts Zarr dataset
