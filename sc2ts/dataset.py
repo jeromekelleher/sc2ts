@@ -108,6 +108,10 @@ class CachedMetadataMapping(collections.abc.Mapping):
                 logger.debug(f"Decompressing metadata {name}")
                 self.arrays[name] = v[:]
 
+    @property
+    def num_columns(self):
+        return len(self.arrays)
+
     def get_metadata(self, j):
         d = {}
         for key, array in self.arrays.items():
@@ -169,9 +173,10 @@ class Dataset:
         return self.root.call_genotype.shape[1]
 
     def __str__(self):
-        # TODO return summary of metadata columns
-        # TODO summarise Zarr
-        return f"Dataset at {self.path} with {self.num_samples} samples"
+        return (
+            f"Dataset at {self.path} with {self.num_samples} samples "
+            f"and {self.metadata.num_columns} metadata fields"
+        )
 
     def variants(self, sample_id, position):
         variant_position = self.root["variant_position"][:]
@@ -326,9 +331,7 @@ class Dataset:
         samples = sample_id_array[:]
         if samples.shape[0] == 0:
             raise ValueError("Cannot add metadata to empty dataset")
-        print(samples)
         df = df.loc[samples].copy()
-        print(df)
         df["date"] = df[date_field]
         for colname in df:
             data = df[colname].to_numpy()
