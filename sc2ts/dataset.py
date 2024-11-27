@@ -9,6 +9,7 @@ import collections
 import logging
 import pathlib
 
+import tqdm
 import pandas as pd
 import zarr
 import numcodecs
@@ -95,6 +96,7 @@ class CachedMetadataMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map, date_field, chunk_cache_size):
         self.sample_id_map = sample_id_map
         self.sample_date = root[f"sample_{date_field}"][:].astype(str)
+        self.sample_date_array = root[f"sample_{date_field}"]
         self.sample_id = root["sample_id"][:].astype(str)
         self.sample_id_array = root["sample_id"]
         # Mapping of field name to Zarr array
@@ -173,6 +175,7 @@ class Variant:
 class Dataset:
 
     def __init__(self, path, chunk_cache_size=1, date_field="date"):
+        self.date_field = date_field
         self.path = pathlib.Path(path)
         if self.path.suffix == ".zip":
             self.store = zarr.ZipStore(path)
@@ -188,8 +191,9 @@ class Dataset:
         self.alignments = CachedAlignmentMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
-        self.metadata = CachedMetadataMapping(self.root, self.sample_id_map, date_field,
-                chunk_cache_size=chunk_cache_size)
+        self.metadata = CachedMetadataMapping(
+            self.root, self.sample_id_map, date_field, chunk_cache_size=chunk_cache_size
+        )
 
     @property
     def num_samples(self):
@@ -230,7 +234,12 @@ class Dataset:
                 j += 1
 
     def copy(
-        self, path, samples_chunk_size=None, variants_chunk_size=None, sample_id=None
+        self,
+        path,
+        samples_chunk_size=None,
+        variants_chunk_size=None,
+        sample_id=None,
+        show_progress=False,
     ):
         """
         Copy this dataset to the specified path.
@@ -245,7 +254,8 @@ class Dataset:
             variants_chunk_size=variants_chunk_size,
         )
         alignments = {}
-        for s in sample_id:
+        bar = tqdm.tqdm(sample_id, desc="Samples", disable=not show_progress)
+        for s in bar:
             alignments[s] = self.alignments[s]
             if len(alignments) == samples_chunk_size:
                 Dataset.append_alignments(path, alignments)
@@ -254,6 +264,13 @@ class Dataset:
 
         df = self.metadata.as_dataframe()
         Dataset.add_metadata(path, df)
+
+    def reorder(self, path, additional_fields=list(), show_progress=False):
+        sample_id = self.metadata.sample_id_array[:]
+        sort_key = [self.date_field] + list(additional_fields)
+        logger.info(f"Reorder sort key = {sort_key})")
+        index = np.lexsort([self.metadata.fields[f] for f in sort_key[::-1]])
+        self.copy(path, sample_id=sample_id[index], show_progress=show_progress)
 
     @staticmethod
     def new(path, samples_chunk_size=None, variants_chunk_size=None):

@@ -256,6 +256,25 @@ def import_metadata(dataset, metadata, viridian, verbose):
 
 
 @click.command()
+@click.argument("in_dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.argument("out_dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.option("--date-field", default="date", help="The metadata field to use for dates")
+@click.option("-a", "--additional-field", default=[], help="Additional fields to sort by",
+        multiple=True)
+@chunk_cache_size
+@progress
+@verbose
+def reorder_dataset(in_dataset, out_dataset, chunk_cache_size, date_field, additional_field, progress, verbose):
+    """
+    Create a copy of the specified dataset where the samples are reordered by
+    date (and optionally other fields).
+    """
+    setup_logging(verbose)
+    ds = sc2ts.Dataset(in_dataset, chunk_cache_size=chunk_cache_size, date_field=date_field)
+    ds.reorder(out_dataset, show_progress=progress, additional_fields=additional_field)
+
+
+@click.command()
 @click.argument("match_db", type=click.Path(exists=True, dir_okay=False))
 @verbose
 def info_matches(match_db, verbose):
@@ -993,6 +1012,7 @@ def cli():
 
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
+cli.add_command(reorder_dataset)
 
 cli.add_command(info_dataset)
 cli.add_command(info_matches)
