@@ -637,9 +637,26 @@ def extend(
     help="Validate metadata",
     show_default=True,
 )
+@click.option(
+    "-s",
+    "--skip",
+    default=[],
+    help="Skip this metadata field during comparison",
+    show_default=True,
+    multiple=True,
+)
 @chunk_cache_size
 @verbose
-def validate(dataset, ts_file, deletions_as_missing, genotypes, metadata, chunk_cache_size, verbose):
+def validate(
+    dataset,
+    ts_file,
+    deletions_as_missing,
+    genotypes,
+    metadata,
+    skip,
+    chunk_cache_size,
+    verbose,
+):
     """
     Check that the specified trees correctly encode data
     """
@@ -650,7 +667,7 @@ def validate(dataset, ts_file, deletions_as_missing, genotypes, metadata, chunk_
     if genotypes:
         sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:
-        sc2ts.validate_metadata(ts, ds, show_progress=True)
+        sc2ts.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
 
 
 # @click.command()

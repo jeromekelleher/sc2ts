@@ -1,4 +1,5 @@
 import logging
+import unittest
 
 import numpy as np
 import numpy.testing as nt
@@ -30,15 +31,17 @@ def validate_genotypes(ts, dataset, deletions_as_missing=False, show_progress=Fa
     bar.close()
 
 
-def validate_metadata(ts, dataset, show_progress=False):
+def validate_metadata(ts, dataset, show_progress=False, skip_fields=set()):
 
     samples = ts.samples()[1:]
     bar = tqdm.tqdm(samples, desc="Metadata", disable=not show_progress)
     for u in bar:
         md1 = ts.node(u).metadata
-        del md1["sc2ts"]
+        keys = set(md1.keys()) - ({"sc2ts"} | skip_fields)
         md2 = dataset.metadata[md1["strain"]]
-        assert md1 == md2
+        md1 = {k: md1[k] for k in keys}
+        md2 = {k: md2[k] for k in keys}
+        unittest.TestCase().assertDictEqual(md1, md2)
 
 
 def validate(ts, dataset, deletions_as_missing=False, show_progress=False):
