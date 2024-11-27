@@ -235,9 +235,10 @@ def import_metadata(dataset, metadata, viridian, verbose):
     """
     setup_logging(verbose)
     logger.info(f"Reading {metadata}")
-    df_in = pd.read_csv(metadata, sep="\t")
-    # TODO do we need to do this?
-    # , dtype={"Artic_primer_version": str})
+    dtype = {}
+    if viridian:
+        dtype = {"Artic_primer_version": str}
+    df_in = pd.read_csv(metadata, sep="\t", dtype=dtype)
     date_field = "date"
     index_field = "Run"
     if viridian:
