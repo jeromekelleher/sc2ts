@@ -79,9 +79,10 @@ class CachedAlignmentMapping(collections.abc.Mapping):
                 logger.debug(f"Evicted LRU {lru} from alignment chunk cache ")
             self.chunk_cache[chunk] = self.call_genotype_array.blocks[:, chunk]
         G = self.chunk_cache[chunk]
-        # NOTE: the copy seems to be needed here to avoid memory leaks.
-        # There must be some circular references issue along the line
-        # without it.
+        # NOTE: the copy is needed here to avoid memory growing very
+        # rapidly in pathological cases. We can end up storing many copies
+        # of the same chunk if we have repeated cache missed on it before
+        # flushing.
         return G[:, j % chunk_size].squeeze(1).copy()
 
     def __getitem__(self, key):
@@ -199,6 +200,14 @@ class Dataset:
         )
 
     @property
+    def samples_chunk_size(self):
+        return self.root["call_genotype"].chunks[1]
+
+    @property
+    def variants_chunk_size(self):
+        return self.root["call_genotype"].chunks[0]
+
+    @property
     def num_samples(self):
         return self.root.call_genotype.shape[1]
 
@@ -249,6 +258,10 @@ class Dataset:
 
         If sample_id is specified, only include these samples in the specified order.
         """
+        if samples_chunk_size is None:
+            samples_chunk_size = self.samples_chunk_size
+        if variants_chunk_size is None:
+            variants_chunk_size = self.variants_chunk_size
         if sample_id is None:
             sample_id = self.root["sample_id"][:]
         Dataset.new(
