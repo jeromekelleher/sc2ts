@@ -10,7 +10,7 @@ from typing import List
 import numba
 import tskit
 import numpy as np
-import tqdm
+from tqdm.auto import tqdm
 import pandas as pd
 import humanize
 import matplotlib.pyplot as plt
@@ -143,7 +143,7 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     # Take the exact matches into account also.
     counter = collections.Counter(md["exact_matches"]["pango"])
     key = "Viridian_pangolin"
-    iterator = tqdm.tqdm(
+    iterator = tqdm(
         ts.samples()[1:],
         desc="ARG metadata",
         disable=not show_progress,
@@ -397,7 +397,7 @@ def max_descendant_samples(ts, show_progress=True):
     """
     tree = ts.first()
     num_samples = np.zeros(ts.num_nodes, dtype=np.int32)
-    iterator = tqdm.tqdm(
+    iterator = tqdm(
         tree.preorder(),
         desc="Counting descendants ",
         total=ts.num_nodes,
@@ -497,7 +497,7 @@ class TreeInfo:
         self.earliest_pango_lineage = {}
         self.pango_lineage_samples = collections.defaultdict(list)
 
-        iterator = tqdm.tqdm(
+        iterator = tqdm(
             ts.nodes(),
             desc="Indexing metadata    ",
             total=ts.num_nodes,
@@ -603,7 +603,7 @@ class TreeInfo:
                     transversions.add((b1, b2))
 
         tree = ts.first()
-        iterator = tqdm.tqdm(
+        iterator = tqdm(
             np.arange(N), desc="Classifying mutations", disable=not show_progress
         )
         for mut_id in iterator:
