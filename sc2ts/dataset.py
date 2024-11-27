@@ -76,10 +76,13 @@ class CachedAlignmentMapping(collections.abc.Mapping):
             if len(self.chunk_cache) >= self.chunk_cache_size:
                 lru = list(self.chunk_cache.keys())[0]
                 del self.chunk_cache[lru]
-                logger.debug(f"Evicted LRU {lru} from alignment chunk cache")
+                logger.debug(f"Evicted LRU {lru} from alignment chunk cache ")
             self.chunk_cache[chunk] = self.call_genotype_array.blocks[:, chunk]
         G = self.chunk_cache[chunk]
-        return G[:, j % chunk_size].squeeze(1)
+        # NOTE: the copy seems to be needed here to avoid memory leaks.
+        # There must be some circular references issue along the line
+        # without it.
+        return G[:, j % chunk_size].squeeze(1).copy()
 
     def __getitem__(self, key):
         j = self.sample_id_map[key]
