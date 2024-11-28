@@ -29,23 +29,66 @@ def fx_alignments_fasta(fx_data_cache):
     return cache_path
 
 
-@pytest.fixture
-def fx_alignment_store(fx_data_cache, fx_alignments_fasta):
-    cache_path = fx_data_cache / "alignments.db"
-    if not cache_path.exists():
-        with sc2ts.AlignmentStore(cache_path, "a") as a:
-            fasta = sc2ts.core.FastaReader(fx_alignments_fasta)
-            a.append(fasta, show_progress=False)
-    return sc2ts.AlignmentStore(cache_path)
+def encoded_alignments(path):
+    fr = sc2ts.FastaReader(path)
+    alignments = {}
+    for k, v in fr.items():
+        alignments[k] = sc2ts.encode_alignment(v[1:])
+    return alignments
 
 
 @pytest.fixture
-def fx_metadata_db(fx_data_cache):
-    cache_path = fx_data_cache / "metadata.db"
-    tsv_path = "tests/data/metadata.tsv"
+def fx_encoded_alignments(fx_alignments_fasta):
+    return encoded_alignments(fx_alignments_fasta)
+
+
+def read_metadata_df(tsv_path):
+    df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
+    return sc2ts.massage_viridian_metadata(df)
+
+
+@pytest.fixture
+def fx_metadata_tsv():
+    return "tests/data/metadata.tsv"
+
+
+@pytest.fixture
+def fx_raw_viridian_metadata_tsv():
+    tsv_path = "tests/data/raw_viridian_metadata.tsv.gz"
+    # TO generate, uncommment:
+    # df = pd.read_csv("viridian_metadata.tsv", sep="\t")
+    # date = df["Collection_date"]
+    # dfs = df[(date < "2020-03-01") & (date.str.len() >= 6)]
+    # # Not clear why this sequence is in the suite metadata, but easiest
+    # # to just put it in here
+    # dfs = pd.concat([dfs, df[df.Run == "SRR15736313"]])
+    # dfs.to_csv(tsv_path, sep="\t", index=False)
+    return tsv_path
+
+
+@pytest.fixture
+def fx_metadata_df(fx_metadata_tsv):
+
+    return read_metadata_df(fx_metadata_tsv)
+
+
+@pytest.fixture
+def fx_raw_viridian_metadata_df(fx_raw_viridian_metadata_tsv):
+    return read_metadata_df(fx_raw_viridian_metadata_tsv)
+
+
+@pytest.fixture
+def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
+    cache_path = fx_data_cache / "dataset.vcz.zip"
     if not cache_path.exists():
-        sc2ts.MetadataDb.import_csv(tsv_path, cache_path)
-    return sc2ts.MetadataDb(cache_path)
+        fs_path = tmp_path / "dataset.vcz"
+        sc2ts.Dataset.new(fs_path)
+        sc2ts.Dataset.append_alignments(
+            fs_path, encoded_alignments(fx_alignments_fasta)
+        )
+        sc2ts.Dataset.add_metadata(fs_path, fx_metadata_df)
+        sc2ts.Dataset.create_zip(fs_path, cache_path)
+    return sc2ts.Dataset(cache_path)
 
 
 @pytest.fixture
@@ -58,7 +101,7 @@ def fx_match_db(fx_data_cache):
 
 # TODO make this a session fixture cacheing the tree sequences.
 @pytest.fixture
-def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_match_db):
+def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
     dates = [
         "2020-01-01",
         "2020-01-19",
@@ -92,8 +135,7 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_metadata_db, fx_alignment_store, fx_ma
             # Load the ts from file to get the provenance data
             last_ts = tskit.load(cache_path)
             last_ts = sc2ts.extend(
-                alignment_store=fx_alignment_store,
-                metadata_db=fx_metadata_db,
+                dataset=fx_dataset,
                 base_ts=last_ts,
                 date=date,
                 match_db=fx_match_db,
@@ -127,44 +169,41 @@ def tmp_metadata_db(tmp_path, strains, date):
     return sc2ts.MetadataDb(db_path)
 
 
-def recombinant_alignments(alignment_store):
+def recombinant_alignments(dataset):
     """
     Generate some recombinant alignments from existing haplotypes
     """
     strains = ["SRR11597188", "SRR11597163"]
-    left_a = alignment_store[strains[0]]
-    right_a = alignment_store[strains[1]]
+    left_a = dataset.alignments[strains[0]]
+    right_a = dataset.alignments[strains[1]]
     # Recombine in the middle
-    bp = 10_000
+    bp = 9_999
     h = left_a.copy()
     h[bp:] = right_a[bp:]
     alignments = {}
     alignments["recombinant_example_1_0"] = h
     h = h.copy()
     mut_site = bp - 100
-    assert h[mut_site] != "C"
-    h[mut_site] = "C"
+    C = sc2ts.IUPAC_ALLELES.index("C")
+    assert h[mut_site] != C
+    h[mut_site] = C
     alignments["recombinant_example_1_1"] = h
     return alignments
 
 
-def recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store, as_path):
-    alignments = recombinant_alignments(fx_alignment_store)
+def recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_path):
+    alignments = recombinant_alignments(fx_dataset)
 
-    with sc2ts.AlignmentStore(as_path, mode="rw") as local_as:
-        local_as.append(alignments)
-        date = "2020-02-15"
-        metadata_db = tmp_metadata_db(tmp_path, list(alignments.keys()), date)
-
-        base_ts = fx_ts_map["2020-02-13"]
-        ts = sc2ts.extend(
-            alignment_store=local_as,
-            metadata_db=metadata_db,
-            base_ts=base_ts,
-            date=date,
-            num_mismatches=2,
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
-        )
+    date = "2020-02-15"
+    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    base_ts = fx_ts_map["2020-02-13"]
+    ts = sc2ts.extend(
+        dataset=ds,
+        base_ts=base_ts,
+        date=date,
+        num_mismatches=2,
+        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+    )
     return ts
 
 
@@ -233,12 +272,12 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_alignment_store):
 
 
 @pytest.fixture
-def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_alignment_store):
+def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
     cache_path = fx_data_cache / "recombinant_ex1.ts"
     if not cache_path.exists():
         print(f"Generating {cache_path}")
-        as_cache_path = fx_data_cache / "recombinant_ex1_alignments.db"
-        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_alignment_store, as_cache_path)
+        ds_cache_path = fx_data_cache / "recombinant_ex1_dataset.zarr"
+        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
         ts.dump(cache_path)
     return tskit.load(cache_path)
 

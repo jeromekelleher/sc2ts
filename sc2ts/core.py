@@ -4,10 +4,10 @@ import pathlib
 import collections.abc
 import csv
 
+import numba
 import pyfaidx
 import numpy as np
 
-ALLELES = "ACGT-"
 
 TIME_UNITS = "days"
 
@@ -35,20 +35,23 @@ except ImportError:
 
 
 class FastaReader(collections.abc.Mapping):
-    def __init__(self, path):
+    def __init__(self, path, add_zero_base=True):
         self.reader = pyfaidx.Fasta(str(path))
-        self.keys = list(self.reader.keys())
+        self._keys = list(self.reader.keys())
+        self.add_zero_base = add_zero_base
 
     def __getitem__(self, key):
         x = self.reader[key]
         h = np.array(x).astype(str)
-        return np.append(["X"], h)
+        if self.add_zero_base:
+            return np.append(["X"], h)
+        return h
 
     def __iter__(self):
-        return iter(self.keys)
+        return iter(self._keys)
 
     def __len__(self):
-        return len(self.keys)
+        return len(self._keys)
 
 
 data_path = pathlib.Path(__file__).parent / "data"
@@ -158,3 +161,33 @@ def get_gene_coordinates():
                 d[row["gene"]] = (int(row["start"]), int(row["end"]))
         __cached_genes = d
     return __cached_genes
+
+
+# We omit N here as it's mapped to -1. Make "-" the 5th allele
+# as this is a valid allele for us.
+IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
+
+
+# FIXME make cache optional
+@numba.njit(cache=True)
+def encode_alignment(h):
+    # Just so numba knows this is a constant string
+    alleles = "ACGT-RYSWKMBDHV."
+    n = h.shape[0]
+    a = np.full(n, -1, dtype=np.int8)
+    for j in range(n):
+        if h[j] == "N":
+            a[j] = -1
+        else:
+            for k, c in enumerate(alleles):
+                if c == h[j]:
+                    break
+            else:
+                raise ValueError(f"Allele {h[j]} not recognised")
+            a[j] = k
+    return a
+
+
+def decode_alignment(a):
+    alleles = np.array(tuple(IUPAC_ALLELES + "N"), dtype=str)
+    return alleles[a]

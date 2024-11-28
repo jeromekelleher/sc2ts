@@ -24,14 +24,12 @@ import humanize
 import pandas as pd
 
 from . import core
-from . import alignments
-from . import metadata
 from . import tree_ops
 
 logger = logging.getLogger(__name__)
 
 MISSING = -1
-DELETION = core.ALLELES.index("-")
+DELETION = core.IUPAC_ALLELES.index("-")
 
 
 def get_progress(iterable, title, phase, show_progress, total=None):
@@ -51,13 +49,18 @@ def get_progress(iterable, title, phase, show_progress, total=None):
     )
 
 
+def dict_factory(cursor, row):
+    col_names = [col[0] for col in cursor.description]
+    return {key: value for key, value in zip(col_names, row)}
+
+
 class MatchDb:
     def __init__(self, path):
         uri = f"file:{path}"
         self.path = path
         self.uri = uri
         self.conn = sqlite3.connect(uri, uri=True)
-        self.conn.row_factory = metadata.dict_factory
+        self.conn.row_factory = dict_factory
         logger.debug(f"Opened MatchDb at {path} mode=rw")
 
     def __len__(self):
@@ -478,26 +481,33 @@ def check_base_ts(ts):
     return sc2ts_md["date"]
 
 
-def preprocess_worker(strains, alignment_store_path, keep_sites):
-    assert keep_sites is not None
-    with alignments.AlignmentStore(alignment_store_path) as alignment_store:
-        samples = []
-        for strain in strains:
-            alignment = alignment_store.get(strain, None)
-            sample = Sample(strain)
-            if alignment is not None:
-                a = alignment[keep_sites]
-                sample.haplotype = alignments.encode_alignment(a)
-                # Need to do this here because encoding gets rid of
-                # ambiguous bases etc.
-                sample.alignment_composition = collections.Counter(a)
-            samples.append(sample)
-    return samples
+# def preprocess_worker(strains, alignment_store_path, keep_sites):
+#     assert keep_sites is not None
+#     with alignments.AlignmentStore(alignment_store_path) as alignment_store:
+#         samples = []
+#         for strain in strains:
+#             alignment = alignment_store.get(strain, None)
+#             sample = Sample(strain)
+#             if alignment is not None:
+#                 a = alignment[keep_sites - 1]
+#                 sample.haplotype = alignments.encode_alignment(a)
+#                 # Need to do this here because encoding gets rid of
+#                 # ambiguous bases etc.
+#                 sample.alignment_composition = collections.Counter(a)
+#             samples.append(sample)
+#     return samples
+
+
+def mask_ambiguous(a):
+    a = a.copy()
+    a[a > DELETION] = -1
+    return a
 
 
 def preprocess(
     strains,
-    alignment_store_path,
+    dataset,
+    # alignment_store_path,
     *,
     keep_sites,
     progress_title="",
@@ -506,28 +516,44 @@ def preprocess(
 ):
     if len(strains) == 0:
         return []
-    num_workers = max(1, num_workers)
-    splits = min(len(strains), 2 * num_workers)
-    work = np.array_split(strains, splits)
+
+    alleles = core.IUPAC_ALLELES + "N"
     samples = []
-    bar = get_progress(strains, progress_title, "preprocess", show_progress)
-    with cf.ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = [
-            executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
-            for w in work
-        ]
-        for future in cf.as_completed(futures):
-            for s in future.result():
-                bar.update()
-                samples.append(s)
-    bar.close()
+    for strain in strains:
+        alignment = dataset.alignments[strain]
+        sample = Sample(strain)
+        # No padding zero site in the alignment
+        a = alignment[keep_sites - 1]
+        # Do we need to do this here? Would be easier to do later, maybe
+        sample.haplotype = mask_ambiguous(a)
+        counts = collections.Counter(a)
+        sample.alignment_composition = {
+            alleles[k]: count for k, count in counts.items()
+        }
+        samples.append(sample)
     return samples
+
+    # num_workers = max(1, num_workers)
+    # splits = min(len(strains), 2 * num_workers)
+    # work = np.array_split(strains, splits)
+    # samples = []
+    # bar = get_progress(strains, progress_title, "preprocess", show_progress)
+    # with cf.ProcessPoolExecutor(max_workers=num_workers) as executor:
+    #     futures = [
+    #         executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
+    #         for w in work
+    #     ]
+    #     for future in cf.as_completed(futures):
+    #         for s in future.result():
+    #             bar.update()
+    #             samples.append(s)
+    # bar.close()
+    # return samples
 
 
 def extend(
     *,
-    alignment_store,
-    metadata_db,
+    dataset,
     date,
     base_ts,
     match_db,
@@ -577,13 +603,16 @@ def extend(
         f"mutations={base_ts.num_mutations};date={previous_date}"
     )
 
-    metadata_matches = {md["strain"]: md for md in metadata_db.get(date)}
+    metadata_matches = {
+        strain: dataset.metadata[strain]
+        for strain in dataset.metadata.samples_for_date(date)
+    }
 
     logger.info(f"Got {len(metadata_matches)} metadata matches")
 
     preprocessed_samples = preprocess(
         strains=list(metadata_matches.keys()),
-        alignment_store_path=alignment_store.path,
+        dataset=dataset,
         keep_sites=base_ts.sites_position.astype(int),
         progress_title=date,
         show_progress=show_progress,
@@ -1157,13 +1186,13 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
 
     tables = ts.tables
     assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    ancestral_state = alignments.encode_alignment(
+    ancestral_state = core.encode_alignment(
         tables.sites.ancestral_state.view("S1").astype(str)
     )
     assert np.all(
         tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
     )
-    derived_state = alignments.encode_alignment(
+    derived_state = core.encode_alignment(
         tables.mutations.derived_state.view("S1").astype(str)
     )
     del tables
@@ -1268,8 +1297,8 @@ class MatchingManager:
         # Mask out the imputed sites
         m[is_missing] = MISSING
         for site_id in np.where(h != m)[0]:
-            derived_state = core.ALLELES[h[site_id]]
-            inherited_state = core.ALLELES[m[site_id]]
+            derived_state = core.IUPAC_ALLELES[h[site_id]]
+            inherited_state = core.IUPAC_ALLELES[m[site_id]]
             mutations.append(
                 MatchMutation(
                     site_id=int(site_id),

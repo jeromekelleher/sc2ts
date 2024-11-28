@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # Common arguments/options
+dataset = click.argument("dataset", type=click.Path(exists=True, dir_okay=True))
 
 num_mismatches = click.option(
     "-k",
@@ -44,6 +45,14 @@ num_mismatches = click.option(
     show_default=True,
     type=float,
     help="Number of mismatches to accept in favour of recombination",
+)
+chunk_cache_size = click.option(
+    "-C",
+    "--chunk-cache-size",
+    default=3,
+    show_default=True,
+    type=int,
+    help="Number of dataset chunks to hold in cache",
 )
 deletions_as_missing = click.option(
     "--deletions-as-missing/--no-deletions-as-missing",
@@ -62,6 +71,12 @@ memory_limit = click.option(
         "matches until it goes below the threshold. "
         "Defaults to 0 (unlimited)"
     ),
+)
+
+progress = click.option("--progress/--no-progress", default=True)
+verbose = click.option("-v", "--verbose", count=True)
+log_file = click.option(
+    "-l", "--log-file", default=None, type=click.Path(dir_okay=False)
 )
 
 __before = time.time()
@@ -172,77 +187,101 @@ def setup_logging(verbosity, log_file=None, date=None):
         logger.addHandler(warn_handler)
 
 
-# TODO add options to list keys, dump specific alignments etc
 @click.command()
-@click.argument("store", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_alignments(store, verbose, log_file):
-    """
-    Information about an alignment store
-    """
-    setup_logging(verbose, log_file)
-    with sc2ts.AlignmentStore(store) as alignment_store:
-        print(alignment_store)
-
-
-@click.command()
-@click.argument("store", type=click.Path(dir_okay=False, file_okay=True))
+@click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
 @click.argument("fastas", type=click.Path(exists=True, dir_okay=False), nargs=-1)
-@click.option("-i", "--initialise", default=False, type=bool, help="Initialise store")
-@click.option("--no-progress", default=False, type=bool, help="Don't show progress")
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def import_alignments(store, fastas, initialise, no_progress, verbose, log_file):
+@click.option(
+    "-i",
+    "--initialise",
+    is_flag=True,
+    flag_value=True,
+    help=(
+        "If true, initialise a new dataset. WARNING! This will erase and existing "
+        "store"
+    ),
+)
+@progress
+@verbose
+def import_alignments(dataset, fastas, initialise, progress, verbose):
     """
-    Import the alignments from all FASTAS into STORE.
-    """
-    setup_logging(verbose, log_file)
-    if initialise:
-        a = sc2ts.AlignmentStore.initialise(store)
-    else:
-        a = sc2ts.AlignmentStore(store, "a")
-    for fasta_path in fastas:
-        logging.info(f"Reading fasta {fasta_path}")
-        fasta = core.FastaReader(fasta_path)
-        a.append(fasta, show_progress=True)
-    a.close()
-
-
-@click.command()
-@click.argument("metadata")
-@click.argument("db")
-@click.option("-v", "--verbose", count=True)
-def import_metadata(metadata, db, verbose):
-    """
-    Convert a CSV formatted metadata file to a database for later use.
+    Import the alignments from all FASTAS into the dataset
     """
     setup_logging(verbose)
-    sc2ts.MetadataDb.import_csv(metadata, db)
+    if initialise:
+        sc2ts.Dataset.new(dataset)
+
+    f_bar = tqdm.tqdm(sorted(fastas), desc="Files", disable=not progress, position=0)
+    for fasta_path in f_bar:
+        reader = core.FastaReader(fasta_path, add_zero_base=False)
+        logger.info(f"Reading {len(reader)} alignments from {fasta_path}")
+        alignments = {}
+        a_bar = tqdm.tqdm(
+            reader.items(),
+            total=len(reader),
+            desc="Extract",
+            disable=not progress,
+            position=1,
+        )
+        for k, v in a_bar:
+            alignments[k] = sc2ts.encode_alignment(v)
+        sc2ts.Dataset.append_alignments(dataset, alignments)
 
 
 @click.command()
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_metadata(metadata, verbose, log_file):
+@click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.argument("metadata", type=click.Path(dir_okay=False, file_okay=True))
+@click.option(
+    "--viridian",
+    is_flag=True,
+    help="Do some preprocessing appropriate for the Viridian metadata "
+    "(Available at https://figshare.com/ndownloader/files/49694808)",
+)
+@verbose
+def import_metadata(dataset, metadata, viridian, verbose):
     """
-    Information about a metadata DB
+    Import a CSV/TSV metadata file into the dataset.
     """
-    setup_logging(verbose, log_file)
-    with sc2ts.MetadataDb(metadata) as metadata_db:
-        print(metadata_db)
+    setup_logging(verbose)
+    logger.info(f"Reading {metadata}")
+    dtype = {}
+    if viridian:
+        dtype = {"Artic_primer_version": str}
+    df_in = pd.read_csv(metadata, sep="\t", dtype=dtype)
+    date_field = "date"
+    index_field = "Run"
+    if viridian:
+        df_in = sc2ts.massage_viridian_metadata(df_in)
+    df = df_in.set_index(index_field)
+    sc2ts.Dataset.add_metadata(dataset, df)
+
+
+@click.command()
+@click.argument("in_dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.argument("out_dataset", type=click.Path(dir_okay=True, file_okay=False))
+@click.option("--date-field", default="date", help="The metadata field to use for dates")
+@click.option("-a", "--additional-field", default=[], help="Additional fields to sort by",
+        multiple=True)
+@chunk_cache_size
+@progress
+@verbose
+def reorder_dataset(in_dataset, out_dataset, chunk_cache_size, date_field, additional_field, progress, verbose):
+    """
+    Create a copy of the specified dataset where the samples are reordered by
+    date (and optionally other fields).
+    """
+    setup_logging(verbose)
+    ds = sc2ts.Dataset(in_dataset, chunk_cache_size=chunk_cache_size, date_field=date_field)
+    ds.reorder(out_dataset, show_progress=progress, additional_fields=additional_field)
 
 
 @click.command()
 @click.argument("match_db", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_matches(match_db, verbose, log_file):
+@verbose
+def info_matches(match_db, verbose):
     """
     Information about an alignment store
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose)
     with sc2ts.MatchDb(match_db) as db:
         print(db)
         print("last date = ", db.last_date())
@@ -257,15 +296,33 @@ def info_matches(match_db, verbose, log_file):
 
 
 @click.command()
+@dataset
+@verbose
+@click.option(
+    "-z", "--zarr-details", is_flag=True, help="Show detailed zarr information"
+)
+def info_dataset(dataset, verbose, zarr_details):
+    """
+    Information about a sc2ts Zarr dataset
+    """
+    setup_logging(verbose)
+    ds = sc2ts.Dataset(dataset)
+    print(ds)
+    if zarr_details:
+        for array in ds.root.values():
+            print(str(array.info).strip())
+            print("----")
+
+
+@click.command()
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("-R", "--recombinants", is_flag=True)
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def info_ts(ts_path, recombinants, verbose, log_file):
+@verbose
+def info_ts(ts_path, recombinants, verbose):
     """
     Information about a sc2ts inferred ARG
     """
-    setup_logging(verbose, log_file)
+    setup_logging(verbose)
     ts = tszip.load(ts_path)
 
     ti = sc2ts.TreeInfo(ts, quick=False)
@@ -353,7 +410,7 @@ def initialise(
 
 
 @click.command()
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@dataset
 @click.option("--counts/--no-counts", default=False)
 @click.option(
     "--after",
@@ -363,21 +420,22 @@ def initialise(
 @click.option(
     "--before", default="3000-01-01", help="show dates before the specified value"
 )
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def list_dates(metadata, counts, after, before, verbose, log_file):
+@verbose
+def list_dates(dataset, counts, after, before, verbose):
     """
-    List the dates included in specified metadataDB
+    List the dates included in specified dataset
     """
-    setup_logging(verbose, log_file)
-    with sc2ts.MetadataDb(metadata) as metadata_db:
-        counter = metadata_db.date_sample_counts()
-        for k in counter:
-            if after <= k < before:
-                if counts:
-                    print(k, counter[k], sep="\t")
-                else:
-                    print(k)
+    setup_logging(verbose)
+    ds = sc2ts.Dataset(dataset)
+    # This is a hack, but we probably won't keep this functionality in CLI anyway
+    # so let's not worry about it.
+    counter = collections.Counter(ds.root["sample_date"][:])
+    for k in counter:
+        if after <= k < before:
+            if counts:
+                print(k, counter[k], sep="\t")
+            else:
+                print(k)
 
 
 def summarise_base(ts, date, progress):
@@ -399,8 +457,7 @@ def parse_include_samples(fileobj):
 @click.command()
 @click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("date")
-@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
+@dataset
 @click.argument("matches", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output_ts", type=click.Path(dir_okay=False))
 @num_mismatches
@@ -507,8 +564,7 @@ def parse_include_samples(fileobj):
 def extend(
     base_ts,
     date,
-    alignments,
-    metadata,
+    dataset,
     matches,
     output_ts,
     num_mismatches,
@@ -544,8 +600,7 @@ def extend(
             f"Loaded {len(include_samples)} include samples: {include_samples}"
         )
     with contextlib.ExitStack() as exit_stack:
-        alignment_store = exit_stack.enter_context(sc2ts.AlignmentStore(alignments))
-        metadata_db = exit_stack.enter_context(sc2ts.MetadataDb(metadata))
+        ds = sc2ts.Dataset(dataset)
         match_db = exit_stack.enter_context(sc2ts.MatchDb(matches))
 
         newer_matches = match_db.count_newer(date)
@@ -558,8 +613,7 @@ def extend(
                 )
                 match_db.delete_newer(date)
         ts_out = sc2ts.extend(
-            alignment_store=alignment_store,
-            metadata_db=metadata_db,
+            dataset=ds,
             base_ts=base,
             date=date,
             match_db=match_db,
@@ -587,61 +641,94 @@ def extend(
 
 
 @click.command()
-@click.argument("alignment_db")
+@dataset
 @click.argument("ts_file")
 @deletions_as_missing
-@click.option("-v", "--verbose", count=True)
-def validate(alignment_db, ts_file, deletions_as_missing, verbose):
+@click.option(
+    "--genotypes/--no-genotypes",
+    default=True,
+    help="Validate all genotypes",
+    show_default=True,
+)
+@click.option(
+    "--metadata/--no-metadata",
+    default=True,
+    help="Validate metadata",
+    show_default=True,
+)
+@click.option(
+    "-s",
+    "--skip",
+    default=[],
+    help="Skip this metadata field during comparison",
+    show_default=True,
+    multiple=True,
+)
+@chunk_cache_size
+@verbose
+def validate(
+    dataset,
+    ts_file,
+    deletions_as_missing,
+    genotypes,
+    metadata,
+    skip,
+    chunk_cache_size,
+    verbose,
+):
     """
-    Check that the specified trees correctly encode alignments for samples.
+    Check that the specified trees correctly encode data
     """
     setup_logging(verbose)
 
     ts = tszip.load(ts_file)
-    with sc2ts.AlignmentStore(alignment_db) as alignment_store:
-        sc2ts.validate(ts, alignment_store, deletions_as_missing, show_progress=True)
+    ds = sc2ts.Dataset(dataset, chunk_cache_size=chunk_cache_size)
+    if genotypes:
+        sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
+    if metadata:
+        sc2ts.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
 
 
-@click.command()
-@click.argument("ts_file")
-@click.option("-v", "--verbose", count=True)
-def export_alignments(ts_file, verbose):
-    """
-    Export alignments from the specified tskit file to FASTA
-    """
-    setup_logging(verbose)
-    ts = tszip.load(ts_file)
-    for u, alignment in zip(ts.samples(), ts.alignments(left=1)):
-        strain = ts.node(u).metadata["strain"]
-        if strain == core.REFERENCE_STRAIN:
-            continue
-        print(f">{strain}")
-        print(alignment)
+# @click.command()
+# @click.argument("ts_file")
+# @click.option("-v", "--verbose", count=True)
+# def export_alignments(ts_file, verbose):
+#     """
+#     Export alignments from the specified tskit file to FASTA
+#     """
+#     setup_logging(verbose)
+#     ts = tszip.load(ts_file)
+#     for u, alignment in zip(ts.samples(), ts.alignments(left=1)):
+#         strain = ts.node(u).metadata["strain"]
+#         if strain == core.REFERENCE_STRAIN:
+#             continue
+#         print(f">{strain}")
+#         print(alignment)
 
 
-@click.command()
-@click.argument("ts_file")
-@click.option("-v", "--verbose", count=True)
-def export_metadata(ts_file, verbose):
-    """
-    Export metadata from the specified tskit file to TSV
-    """
-    setup_logging(verbose)
-    ts = tszip.load(ts_file)
-    data = []
-    for u in ts.samples():
-        md = ts.node(u).metadata
-        if md["strain"] == core.REFERENCE_STRAIN:
-            continue
-        try:
-            # FIXME this try/except is needed because of some samples not having full
-            # metadata. Can drop when fixed.
-            del md["sc2ts"]
-        except KeyError:
-            pass
-        data.append(md)
-    df = pd.DataFrame(data)
-    df.to_csv(sys.stdout, sep="\t", index=False)
+# @click.command()
+# @click.argument("ts_file")
+# @click.option("-v", "--verbose", count=True)
+# def export_metadata(ts_file, verbose):
+#     """
+#     Export metadata from the specified tskit file to TSV
+#     """
+#     setup_logging(verbose)
+#     ts = tszip.load(ts_file)
+#     data = []
+#     for u in ts.samples():
+#         md = ts.node(u).metadata
+#         if md["strain"] == core.REFERENCE_STRAIN:
+#             continue
+#         try:
+#             # FIXME this try/except is needed because of some samples not having full
+#             # metadata. Can drop when fixed.
+#             del md["sc2ts"]
+#         except KeyError:
+#             pass
+#         data.append(md)
+#     df = pd.DataFrame(data)
+#     df.to_csv(sys.stdout, sep="\t", index=False)
 
 
 @click.command()
@@ -718,7 +805,7 @@ def _match_worker(work):
 
 
 @click.command(name="match")
-@click.argument("alignments_path", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("strains", nargs=-1)
 @num_mismatches
@@ -746,7 +833,7 @@ def _match_worker(work):
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def _match(
-    alignments_path,
+    dataset,
     ts_path,
     strains,
     num_mismatches,
@@ -763,12 +850,13 @@ def _match(
     """
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_path)
+    ds = sc2ts.Dataset(dataset)
     if len(strains) == 0:
         return
     progress_title = "Match"
     samples = sc2ts.preprocess(
         list(strains),
-        alignments_path,
+        dataset=ds,
         show_progress=progress,
         progress_title=progress_title,
         keep_sites=ts.sites_position.astype(int),
@@ -820,7 +908,7 @@ def find_previous_date_path(date, path_pattern):
 
 
 @click.command()
-@click.argument("alignments", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("path_pattern")
 @num_mismatches
@@ -834,7 +922,7 @@ def find_previous_date_path(date, path_pattern):
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def rematch_recombinants(
-    alignments,
+    dataset,
     ts,
     path_pattern,
     num_mismatches,
@@ -865,10 +953,11 @@ def rematch_recombinants(
             strain_to_recombinant[strain] = u
             all_strains.append(strain)
 
+    ds = sc2ts.Dataset(dataset)
     progress_title = "Recomb"
     samples = sc2ts.preprocess(
         all_strains,
-        alignments,
+        datset=ds,
         show_progress=progress,
         progress_title=progress_title,
         keep_sites=ts.sites_position.astype(int),
@@ -923,12 +1012,11 @@ def cli():
 
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
-cli.add_command(info_alignments)
-cli.add_command(info_metadata)
+cli.add_command(reorder_dataset)
+
+cli.add_command(info_dataset)
 cli.add_command(info_matches)
 cli.add_command(info_ts)
-cli.add_command(export_alignments)
-cli.add_command(export_metadata)
 
 cli.add_command(initialise)
 cli.add_command(list_dates)
