@@ -82,7 +82,9 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
     cache_path = fx_data_cache / "dataset.vcz.zip"
     if not cache_path.exists():
         fs_path = tmp_path / "dataset.vcz"
-        sc2ts.Dataset.new(fs_path)
+        # Use an awkward chunk size here to make sure we're hitting across
+        # chunk stuff by default
+        sc2ts.Dataset.new(fs_path, samples_chunk_size=7)
         sc2ts.Dataset.append_alignments(
             fs_path, encoded_alignments(fx_alignments_fasta)
         )
@@ -174,8 +176,8 @@ def recombinant_alignments(dataset):
     Generate some recombinant alignments from existing haplotypes
     """
     strains = ["SRR11597188", "SRR11597163"]
-    left_a = dataset.alignments[strains[0]]
-    right_a = dataset.alignments[strains[1]]
+    left_a = dataset.haplotypes[strains[0]]
+    right_a = dataset.haplotypes[strains[1]]
     # Recombine in the middle
     bp = 9_999
     h = left_a.copy()

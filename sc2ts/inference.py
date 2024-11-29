@@ -520,7 +520,7 @@ def preprocess(
     alleles = core.IUPAC_ALLELES + "N"
     samples = []
     for strain in strains:
-        alignment = dataset.alignments[strain]
+        alignment = dataset.haplotypes[strain]
         sample = Sample(strain)
         # No padding zero site in the alignment
         a = alignment[keep_sites - 1]

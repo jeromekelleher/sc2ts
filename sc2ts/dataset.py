@@ -61,18 +61,18 @@ def massage_viridian_metadata(df):
     return df
 
 
-class CachedAlignmentMapping(collections.abc.Mapping):
+class CachedHaplotypeMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map, chunk_cache_size):
         self.call_genotype_array = root["call_genotype"]
         self.chunk_cache_size = chunk_cache_size
         self.chunk_cache = {}
         self.sample_id_map = sample_id_map
 
-    def get_alignment(self, j):
+    def get_haplotype(self, j):
         chunk_size = self.call_genotype_array.chunks[1]
         chunk = j // chunk_size
         if chunk not in self.chunk_cache:
-            logger.debug(f"Alignment chunk cache miss on {chunk}")
+            logger.debug(f"Haplotype chunk cache miss on {chunk}")
             if len(self.chunk_cache) >= self.chunk_cache_size:
                 lru = list(self.chunk_cache.keys())[0]
                 del self.chunk_cache[lru]
@@ -87,7 +87,7 @@ class CachedAlignmentMapping(collections.abc.Mapping):
 
     def __getitem__(self, key):
         j = self.sample_id_map[key]
-        return self.get_alignment(j)
+        return self.get_haplotype(j)
 
     def __iter__(self):
         return iter(self.sample_id_map)
@@ -176,7 +176,7 @@ class Variant:
     alleles: list
 
 
-class Dataset:
+class Dataset(collections.abc.Mapping):
 
     def __init__(self, path, chunk_cache_size=1, date_field="date"):
         self.date_field = date_field
@@ -186,18 +186,27 @@ class Dataset:
         else:
             self.store = zarr.DirectoryStore(path)
         self.root = zarr.open(self.store, mode="r")
+        self.sample_id = self.root["sample_id"][:].astype(str)
 
-        # TODO add sample mask
-
+        # TODO we should be storing this mapping in the Zarr somehow.
         self.sample_id_map = {
-            sample_id: k for k, sample_id in enumerate(self.root["sample_id"][:])
+            sample_id: k for k, sample_id in enumerate(self.sample_id)
         }
-        self.alignments = CachedAlignmentMapping(
+        self.haplotypes = CachedHaplotypeMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
         self.metadata = CachedMetadataMapping(
             self.root, self.sample_id_map, date_field, chunk_cache_size=chunk_cache_size
         )
+
+    def __getitem__(self, key):
+        return self.root[key]
+
+    def __iter__(self):
+        return iter(self.root)
+
+    def __len__(self):
+        return len(self.root)
 
     @property
     def samples_chunk_size(self):
@@ -211,39 +220,51 @@ class Dataset:
     def num_samples(self):
         return self.root.call_genotype.shape[1]
 
+    @property
+    def num_variants(self):
+        return self.root.call_genotype.shape[0]
+
     def __str__(self):
         return (
             f"Dataset at {self.path} with {self.num_samples} samples "
             f"and {self.metadata.num_fields} metadata fields"
         )
 
-    def variants(self, sample_id, position):
-        variant_position = self.root["variant_position"][:]
-        variant_alleles = self.root["variant_allele"][:]
-        call_genotype = self.root["call_genotype"]
+    def variants(self, sample_id=None, position=None):
+        variant_position = self["variant_position"][:]
+        variant_alleles = self["variant_allele"][:]
+        call_genotype = self["call_genotype"]
+        if sample_id is None:
+            sample_id = self.sample_id
+        if position is None:
+            position = variant_position
+
         sample_index = np.array(
             [self.sample_id_map[sid] for sid in sample_id], dtype=int
         )
-
         index = np.searchsorted(variant_position, position)
         if not np.all(variant_position[index] == position):
             raise ValueError("Unknown position")
-        variant_select = np.zeros(shape=variant_position.shape, dtype=bool)
+        v_chunk_size = call_genotype.chunks[0]
+        variant_select = zarr.zeros(
+            shape=variant_position.shape, chunks=v_chunk_size, dtype=bool
+        )
         variant_select[index] = True
 
-        j = 0
         for v_chunk in range(call_genotype.cdata_shape[0]):
-            # NOTE: could possibly save some effort here by only pulling in s_chunks
-            # that are needed.
-            G = call_genotype.blocks[v_chunk]
-            for k in range(G.shape[0]):
-                if variant_select[j]:
-                    yield Variant(
-                        variant_position[j],
-                        G[k, sample_index].squeeze(1),
-                        variant_alleles[j],
-                    )
-                j += 1
+            # NOTE: could improve performance quite a lot for small sample
+            # sets by pulling only S chunks that are needed.
+            v_select = variant_select.blocks[v_chunk]
+            if np.any(v_select):
+                G = call_genotype.blocks[v_chunk]
+                for k in range(G.shape[0]):
+                    if v_select[k]:
+                        j = v_chunk * v_chunk_size + k
+                        yield Variant(
+                            variant_position[j],
+                            G[k, sample_index].squeeze(1),
+                            variant_alleles[j],
+                        )
 
     def copy(
         self,
@@ -263,7 +284,7 @@ class Dataset:
         if variants_chunk_size is None:
             variants_chunk_size = self.variants_chunk_size
         if sample_id is None:
-            sample_id = self.root["sample_id"][:]
+            sample_id = self["sample_id"][:]
         Dataset.new(
             path,
             samples_chunk_size=samples_chunk_size,
@@ -272,7 +293,7 @@ class Dataset:
         alignments = {}
         bar = tqdm.tqdm(sample_id, desc="Samples", disable=not show_progress)
         for s in bar:
-            alignments[s] = self.alignments[s]
+            alignments[s] = self.haplotypes[s]
             if len(alignments) == samples_chunk_size:
                 Dataset.append_alignments(path, alignments)
                 alignments = {}

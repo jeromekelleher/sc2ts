@@ -3,9 +3,16 @@ import itertools
 import numpy as np
 import pytest
 import numpy.testing as nt
+import xarray.testing as xt
 import sgkit
 
 import sc2ts
+
+
+def assert_datasets_equal(ds1, ds2):
+    sg_ds1 = sgkit.load_dataset(ds1.path)
+    sg_ds2 = sgkit.load_dataset(ds2.path)
+    xt.assert_equal(sg_ds1, sg_ds2)
 
 
 def test_massaged_viridian_metadata(fx_raw_viridian_metadata_df):
@@ -153,8 +160,8 @@ class TestCreateDataset:
 
         ds1 = sc2ts.Dataset(path)
         ds2 = sc2ts.Dataset(zip_path)
-        alignments1 = dict(ds1.alignments)
-        alignments2 = dict(ds2.alignments)
+        alignments1 = dict(ds1.haplotypes)
+        alignments2 = dict(ds2.haplotypes)
         assert alignments1.keys() == alignments2.keys()
         for k in alignments1.keys():
             nt.assert_array_equal(alignments1[k], alignments2[k])
@@ -163,14 +170,110 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         fx_dataset.copy(path)
         ds = sc2ts.Dataset(path)
-        # FIXME assert_dataset_equal
-        print(ds)
+        assert_datasets_equal(ds, fx_dataset)
+
+    def test_copy_reorder(self, tmp_path, fx_dataset):
+        path = tmp_path / "dataset.vcz"
+        sample_id = fx_dataset.sample_id[::-1]
+        fx_dataset.copy(path, sample_id=sample_id)
+        sg_ds2 = sgkit.load_dataset(path).set_index({"samples": "sample_id"})
+        sg_ds1 = sgkit.load_dataset(fx_dataset.path).set_index({"samples": "sample_id"})
+        permuted = sg_ds1.sel(samples=sample_id)
+        xt.assert_equal(permuted, sg_ds2)
+
+    @pytest.mark.parametrize(
+        "sample_id",
+        [
+            [
+                "SRR11597146",
+                "SRR11597196",
+                "SRR11597178",
+                "SRR11597168",
+                "SRR11597195",
+                "SRR11597190",
+                "SRR11597164",
+                "SRR11597115",
+            ],
+            [
+                "SRR11597115",
+                "SRR11597146",
+            ],
+            [
+                "SRR11597115",
+                "SRR11597146",
+                "SRR11597164",
+                "SRR11597168",
+                "SRR11597178",
+                "SRR11597190",
+                "SRR11597195",
+                "SRR11597196",
+            ],
+        ],
+    )
+    def test_copy_subset(self, tmp_path, fx_dataset, sample_id):
+        path = tmp_path / "dataset.vcz"
+        fx_dataset.copy(path, sample_id=sample_id)
+        sg_ds2 = sgkit.load_dataset(path).set_index({"samples": "sample_id"})
+        sg_ds1 = sgkit.load_dataset(fx_dataset.path).set_index({"samples": "sample_id"})
+        permuted = sg_ds1.sel(samples=sample_id)
+        xt.assert_equal(permuted, sg_ds2)
+
+
+class TestDatasetVariants:
+
+    def test_all(self, fx_dataset):
+        G = fx_dataset["call_genotype"][:].squeeze()
+        pos = fx_dataset["variant_position"][:]
+        j = 0
+        for var in fx_dataset.variants():
+            nt.assert_array_equal(var.genotypes, G[j])
+            assert var.position == pos[j]
+            j += 1
+        assert j == fx_dataset.num_variants
+
+    @pytest.mark.parametrize(
+        ["start", "stop"],
+        [
+            [0, 29903],
+            [9999, 10002],
+            [333, 2900],
+        ],
+    )
+    def test_variant_slice(self, fx_dataset, start, stop):
+        G = fx_dataset["call_genotype"][start:stop].squeeze()
+        pos = fx_dataset["variant_position"][start:stop]
+        alleles = fx_dataset["variant_allele"][start:stop]
+        j = 0
+        for var in fx_dataset.variants(position=pos):
+            nt.assert_array_equal(var.genotypes, G[j])
+            assert var.position == pos[j]
+            nt.assert_array_equal(var.alleles, alleles[j])
+            j += 1
+        assert j == stop - start
+
+
+class TestDatasetMethods:
+
+    def test_zarr_mapping(self, fx_dataset):
+        assert len(fx_dataset) == len(fx_dataset.root)
+        assert list(fx_dataset) == list(fx_dataset.root)
+        assert dict(fx_dataset) == dict(fx_dataset.root)
+
+    def test_examples(self, fx_dataset):
+        nt.assert_array_equal(
+            fx_dataset["sample_id"][:3],
+            [
+                "SRR14631544",
+                "SRR11772659",
+                "SRR11397727",
+            ],
+        )
 
 
 class TestDatasetAlignments:
 
     def test_fetch_known(self, fx_dataset):
-        a = fx_dataset.alignments["SRR11772659"]
+        a = fx_dataset.haplotypes["SRR11772659"]
         assert a.shape == (sc2ts.REFERENCE_SEQUENCE_LENGTH - 1,)
         assert a[0] == -1
         assert a[-1] == -1
@@ -178,21 +281,21 @@ class TestDatasetAlignments:
     def test_compare_fasta(self, fx_dataset, fx_alignments_fasta):
         fr = sc2ts.FastaReader(fx_alignments_fasta)
         for k, a1 in fr.items():
-            h = fx_dataset.alignments[k]
+            h = fx_dataset.haplotypes[k]
             a2 = sc2ts.decode_alignment(h)
             nt.assert_array_equal(a1[1:], a2)
 
     def test_len(self, fx_dataset):
-        assert len(fx_dataset.alignments) == 55
+        assert len(fx_dataset.haplotypes) == 55
 
     def test_keys(self, fx_dataset):
-        keys = list(fx_dataset.alignments.keys())
-        assert len(keys) == len(fx_dataset.alignments)
+        keys = list(fx_dataset.haplotypes.keys())
+        assert len(keys) == len(fx_dataset.haplotypes)
         assert "SRR11772659" in keys
 
     def test_in(self, fx_dataset):
-        assert "SRR11772659" in fx_dataset.alignments
-        assert "NOT_IN_STORE" not in fx_dataset.alignments
+        assert "SRR11772659" in fx_dataset.haplotypes
+        assert "NOT_IN_STORE" not in fx_dataset.haplotypes
 
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
@@ -215,7 +318,7 @@ class TestDatasetAlignments:
         sc2ts.Dataset.add_metadata(path, fx_metadata_df)
         ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
         for k, v in fx_encoded_alignments.items():
-            nt.assert_array_equal(v, ds.alignments[k])
+            nt.assert_array_equal(v, ds.haplotypes[k])
 
 
 class TestDatasetMetadata:
@@ -224,7 +327,7 @@ class TestDatasetMetadata:
         assert len(fx_dataset.metadata) == 55
 
     def test_keys(self, fx_dataset):
-        assert fx_dataset.metadata.keys() == fx_dataset.alignments.keys()
+        assert fx_dataset.metadata.keys() == fx_dataset.haplotypes.keys()
 
     def test_known(self, fx_dataset):
         d = fx_dataset.metadata["SRR11772659"]
