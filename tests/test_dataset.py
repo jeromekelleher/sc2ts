@@ -3,9 +3,16 @@ import itertools
 import numpy as np
 import pytest
 import numpy.testing as nt
+import xarray.testing as xt
 import sgkit
 
 import sc2ts
+
+
+def assert_datasets_equal(ds1, ds2):
+    sg_ds1 = sgkit.load_dataset(ds1.path)
+    sg_ds2 = sgkit.load_dataset(ds2.path)
+    xt.assert_equal(sg_ds1, sg_ds2)
 
 
 def test_massaged_viridian_metadata(fx_raw_viridian_metadata_df):
@@ -163,8 +170,104 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         fx_dataset.copy(path)
         ds = sc2ts.Dataset(path)
-        # FIXME assert_dataset_equal
-        print(ds)
+        assert_datasets_equal(ds, fx_dataset)
+
+    def test_copy_reorder(self, tmp_path, fx_dataset):
+        path = tmp_path / "dataset.vcz"
+        sample_id = fx_dataset.sample_id[::-1]
+        fx_dataset.copy(path, sample_id=sample_id)
+        sg_ds2 = sgkit.load_dataset(path).set_index({"samples": "sample_id"})
+        sg_ds1 = sgkit.load_dataset(fx_dataset.path).set_index({"samples": "sample_id"})
+        permuted = sg_ds1.sel(samples=sample_id)
+        xt.assert_equal(permuted, sg_ds2)
+
+    @pytest.mark.parametrize(
+        "sample_id",
+        [
+            [
+                "SRR11597146",
+                "SRR11597196",
+                "SRR11597178",
+                "SRR11597168",
+                "SRR11597195",
+                "SRR11597190",
+                "SRR11597164",
+                "SRR11597115",
+            ],
+            [
+                "SRR11597115",
+                "SRR11597146",
+            ],
+            [
+                "SRR11597115",
+                "SRR11597146",
+                "SRR11597164",
+                "SRR11597168",
+                "SRR11597178",
+                "SRR11597190",
+                "SRR11597195",
+                "SRR11597196",
+            ],
+        ],
+    )
+    def test_copy_subset(self, tmp_path, fx_dataset, sample_id):
+        path = tmp_path / "dataset.vcz"
+        fx_dataset.copy(path, sample_id=sample_id)
+        sg_ds2 = sgkit.load_dataset(path).set_index({"samples": "sample_id"})
+        sg_ds1 = sgkit.load_dataset(fx_dataset.path).set_index({"samples": "sample_id"})
+        permuted = sg_ds1.sel(samples=sample_id)
+        xt.assert_equal(permuted, sg_ds2)
+
+
+class TestDatasetVariants:
+
+    def test_all(self, fx_dataset):
+        G = fx_dataset["call_genotype"][:].squeeze()
+        pos = fx_dataset["variant_position"][:]
+        j = 0
+        for var in fx_dataset.variants():
+            nt.assert_array_equal(var.genotypes, G[j])
+            assert var.position == pos[j]
+            j += 1
+        assert j == fx_dataset.num_variants
+
+    @pytest.mark.parametrize(
+        ["start", "stop"],
+        [
+            [0, 29903],
+            [9999, 10002],
+            [333, 2900],
+        ],
+    )
+    def test_variant_slice(self, fx_dataset, start, stop):
+        G = fx_dataset["call_genotype"][start:stop].squeeze()
+        pos = fx_dataset["variant_position"][start:stop]
+        alleles = fx_dataset["variant_allele"][start:stop]
+        j = 0
+        for var in fx_dataset.variants(position=pos):
+            nt.assert_array_equal(var.genotypes, G[j])
+            assert var.position == pos[j]
+            nt.assert_array_equal(var.alleles, alleles[j])
+            j += 1
+        assert j == stop - start
+
+
+class TestDatasetMethods:
+
+    def test_zarr_mapping(self, fx_dataset):
+        assert len(fx_dataset) == len(fx_dataset.root)
+        assert list(fx_dataset) == list(fx_dataset.root)
+        assert dict(fx_dataset) == dict(fx_dataset.root)
+
+    def test_examples(self, fx_dataset):
+        nt.assert_array_equal(
+            fx_dataset["sample_id"][:3],
+            [
+                "SRR14631544",
+                "SRR11772659",
+                "SRR11397727",
+            ],
+        )
 
 
 class TestDatasetAlignments:
