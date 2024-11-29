@@ -431,7 +431,7 @@ def list_dates(dataset, counts, after, before, verbose):
     # so let's not worry about it.
     counter = collections.Counter(ds.root["sample_date"][:])
     for k in counter:
-        if after <= k < before:
+        if after <= k < before and len(k) == 10:
             if counts:
                 print(k, counter[k], sep="\t")
             else:
