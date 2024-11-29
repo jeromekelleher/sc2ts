@@ -505,7 +505,7 @@ class TestRealData:
         strain,
         num_missing,
     ):
-        a = fx_dataset.alignments[strain]
+        a = fx_dataset.haplotypes[strain]
         a = sc2ts.mask_ambiguous(a)
 
         missing_positions = np.where(a == -1)[0] + 1
@@ -881,7 +881,7 @@ class TestSyntheticAlignments:
         strains = ["SRR11597218", "ERR4204459"]
         fake_strains = ["fake" + s for s in strains]
         alignments = {
-            name: fx_dataset.alignments[s] for name, s in zip(fake_strains, strains)
+            name: fx_dataset.haplotypes[s] for name, s in zip(fake_strains, strains)
         }
         date = "2020-03-01"
         ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
@@ -1012,7 +1012,7 @@ class TestSyntheticAlignments:
     def test_all_As(self, tmp_path, fx_ts_map, fx_dataset):
         # Same as the recombinant_example_1() function above
         # Just to get something that looks like an alignment easily
-        a = fx_dataset.alignments["SRR11597188"]
+        a = fx_dataset.haplotypes["SRR11597188"]
         a[1:] = 0
         alignments = {"crazytype": a}
         date = "2020-03-01"

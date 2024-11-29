@@ -176,8 +176,8 @@ def recombinant_alignments(dataset):
     Generate some recombinant alignments from existing haplotypes
     """
     strains = ["SRR11597188", "SRR11597163"]
-    left_a = dataset.alignments[strains[0]]
-    right_a = dataset.alignments[strains[1]]
+    left_a = dataset.haplotypes[strains[0]]
+    right_a = dataset.haplotypes[strains[1]]
     # Recombine in the middle
     bp = 9_999
     h = left_a.copy()
