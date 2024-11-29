@@ -160,8 +160,8 @@ class TestCreateDataset:
 
         ds1 = sc2ts.Dataset(path)
         ds2 = sc2ts.Dataset(zip_path)
-        alignments1 = dict(ds1.alignments)
-        alignments2 = dict(ds2.alignments)
+        alignments1 = dict(ds1.haplotypes)
+        alignments2 = dict(ds2.haplotypes)
         assert alignments1.keys() == alignments2.keys()
         for k in alignments1.keys():
             nt.assert_array_equal(alignments1[k], alignments2[k])
@@ -273,7 +273,7 @@ class TestDatasetMethods:
 class TestDatasetAlignments:
 
     def test_fetch_known(self, fx_dataset):
-        a = fx_dataset.alignments["SRR11772659"]
+        a = fx_dataset.haplotypes["SRR11772659"]
         assert a.shape == (sc2ts.REFERENCE_SEQUENCE_LENGTH - 1,)
         assert a[0] == -1
         assert a[-1] == -1
@@ -281,21 +281,21 @@ class TestDatasetAlignments:
     def test_compare_fasta(self, fx_dataset, fx_alignments_fasta):
         fr = sc2ts.FastaReader(fx_alignments_fasta)
         for k, a1 in fr.items():
-            h = fx_dataset.alignments[k]
+            h = fx_dataset.haplotypes[k]
             a2 = sc2ts.decode_alignment(h)
             nt.assert_array_equal(a1[1:], a2)
 
     def test_len(self, fx_dataset):
-        assert len(fx_dataset.alignments) == 55
+        assert len(fx_dataset.haplotypes) == 55
 
     def test_keys(self, fx_dataset):
-        keys = list(fx_dataset.alignments.keys())
-        assert len(keys) == len(fx_dataset.alignments)
+        keys = list(fx_dataset.haplotypes.keys())
+        assert len(keys) == len(fx_dataset.haplotypes)
         assert "SRR11772659" in keys
 
     def test_in(self, fx_dataset):
-        assert "SRR11772659" in fx_dataset.alignments
-        assert "NOT_IN_STORE" not in fx_dataset.alignments
+        assert "SRR11772659" in fx_dataset.haplotypes
+        assert "NOT_IN_STORE" not in fx_dataset.haplotypes
 
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
@@ -318,7 +318,7 @@ class TestDatasetAlignments:
         sc2ts.Dataset.add_metadata(path, fx_metadata_df)
         ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
         for k, v in fx_encoded_alignments.items():
-            nt.assert_array_equal(v, ds.alignments[k])
+            nt.assert_array_equal(v, ds.haplotypes[k])
 
 
 class TestDatasetMetadata:
@@ -327,7 +327,7 @@ class TestDatasetMetadata:
         assert len(fx_dataset.metadata) == 55
 
     def test_keys(self, fx_dataset):
-        assert fx_dataset.metadata.keys() == fx_dataset.alignments.keys()
+        assert fx_dataset.metadata.keys() == fx_dataset.haplotypes.keys()
 
     def test_known(self, fx_dataset):
         d = fx_dataset.metadata["SRR11772659"]

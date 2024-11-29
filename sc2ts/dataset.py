@@ -61,18 +61,18 @@ def massage_viridian_metadata(df):
     return df
 
 
-class CachedAlignmentMapping(collections.abc.Mapping):
+class CachedHaplotypeMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map, chunk_cache_size):
         self.call_genotype_array = root["call_genotype"]
         self.chunk_cache_size = chunk_cache_size
         self.chunk_cache = {}
         self.sample_id_map = sample_id_map
 
-    def get_alignment(self, j):
+    def get_haplotype(self, j):
         chunk_size = self.call_genotype_array.chunks[1]
         chunk = j // chunk_size
         if chunk not in self.chunk_cache:
-            logger.debug(f"Alignment chunk cache miss on {chunk}")
+            logger.debug(f"Haplotype chunk cache miss on {chunk}")
             if len(self.chunk_cache) >= self.chunk_cache_size:
                 lru = list(self.chunk_cache.keys())[0]
                 del self.chunk_cache[lru]
@@ -87,7 +87,7 @@ class CachedAlignmentMapping(collections.abc.Mapping):
 
     def __getitem__(self, key):
         j = self.sample_id_map[key]
-        return self.get_alignment(j)
+        return self.get_haplotype(j)
 
     def __iter__(self):
         return iter(self.sample_id_map)
@@ -192,7 +192,7 @@ class Dataset(collections.abc.Mapping):
         self.sample_id_map = {
             sample_id: k for k, sample_id in enumerate(self.sample_id)
         }
-        self.alignments = CachedAlignmentMapping(
+        self.haplotypes = CachedHaplotypeMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
         self.metadata = CachedMetadataMapping(
@@ -293,7 +293,7 @@ class Dataset(collections.abc.Mapping):
         alignments = {}
         bar = tqdm.tqdm(sample_id, desc="Samples", disable=not show_progress)
         for s in bar:
-            alignments[s] = self.alignments[s]
+            alignments[s] = self.haplotypes[s]
             if len(alignments) == samples_chunk_size:
                 Dataset.append_alignments(path, alignments)
                 alignments = {}
