@@ -507,7 +507,6 @@ def mask_ambiguous(a):
 def preprocess(
     strains,
     dataset,
-    # alignment_store_path,
     *,
     keep_sites,
     progress_title="",
@@ -519,7 +518,8 @@ def preprocess(
 
     alleles = core.IUPAC_ALLELES + "N"
     samples = []
-    for strain in strains:
+    bar = get_progress(strains, progress_title, "preprocess", show_progress)
+    for strain in bar:
         alignment = dataset.haplotypes[strain]
         sample = Sample(strain)
         # No padding zero site in the alignment
