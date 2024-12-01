@@ -722,13 +722,14 @@ def extend(
             f"Add retro group {group.summary()}:"
             f"{group.tree_quality_metrics.summary()}"
         )
-    return update_top_level_metadata(ts, date, groups, len(samples))
+    return update_top_level_metadata(ts, date, groups, samples)
 
 
-def update_top_level_metadata(ts, date, retro_groups, num_samples):
+def update_top_level_metadata(ts, date, retro_groups, samples):
     tables = ts.dump_tables()
     md = tables.metadata
     md["sc2ts"]["date"] = date
+    num_samples = len(samples)
     samples_strain = md["sc2ts"]["samples_strain"]
     new_samples = ts.samples()[len(samples_strain) :]
     for u in new_samples:
@@ -1605,7 +1606,7 @@ def characterise_match_mutations(ts, samples):
                     mutation.is_immediate_reversion = (
                         closest_mutation.node == seg.parent
                     )
-    logger.debug(f"Characterised {num_mutations}")
+    logger.debug(f"Characterised {num_mutations} mutations")
 
 
 def attach_tree(
