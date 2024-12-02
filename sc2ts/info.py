@@ -862,17 +862,32 @@ class TreeInfo:
     def samples_summary(self):
         data = []
         md = self.ts.metadata["sc2ts"]
+        samples_processed = md["samples_processed"]
         for days_ago in np.arange(self.num_samples_per_day.shape[0]):
             date = str(self.time_zero_as_date - days_ago)
-            data.append(
-                {
+            processed_by_date =  samples_processed.get(date, {})
+            count = processed_by_date.get("count", {})
+            mean_hmm_cost = processed_by_date.get("mean_hmm_cost", {})
+            datum = {}
+            total_count = 0
+            total_hmm_cost = 0
+            for scorpio in count:
+                datum[f"{scorpio}_count"] = count[scorpio]
+                datum[f"{scorpio}_hmm_cost"] = mean_hmm_cost[scorpio]
+                total_count += count[scorpio]
+                total_hmm_cost += count[scorpio] * mean_hmm_cost[scorpio]
+
+            datum = {
                     "date": self.time_zero_as_date - days_ago,
                     "samples_in_arg": self.num_samples_per_day[days_ago],
-                    "samples_processed": md["num_samples_processed"].get(date, 0),
+                    "samples_processed": total_count,
+                    "mean_hmm_cost": total_hmm_cost / max(1, total_count),
                     "exact_matches": md["exact_matches"]["date"].get(date, 0),
+                    **datum,
                 }
-            )
-        return pd.DataFrame(data)
+            data.append(datum)
+
+        return pd.DataFrame(data).fillna(0)
 
     def recombinants_summary(self):
         data = []
@@ -1572,7 +1587,8 @@ class TreeInfo:
     def resources_summary(self):
         ts = self.ts
         data = []
-        dates = sorted(list(ts.metadata["sc2ts"]["num_samples_processed"].keys()))
+        samples_processed = ts.metadata["sc2ts"]["samples_processed"]
+        dates = sorted(list(samples_processed.keys()))
         assert len(dates) == ts.num_provenances - 1
         for j in range(1, ts.num_provenances):
             p = ts.provenance(j)
@@ -1714,7 +1730,7 @@ class TreeInfo:
                     break
             tables.nodes.time = tables.nodes.time - node.time
         ts = tables.tree_sequence()
-         
+
 
         tracked_nodes = []
         if tracked_pango is not None:
