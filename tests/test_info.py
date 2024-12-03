@@ -225,7 +225,9 @@ class TestTreeInfo:
         # as-sample issue, which mucks up counts. Should be able to get rid of this
         # after closing https://github.com/jeromekelleher/sc2ts/issues/413
         df = df[df["date"] >= datetime.datetime.fromisoformat("2020-01-01")]
-        assert np.all(df["samples_processed"] >= (df["samples_in_arg"] + df["exact_matches"]))
+        assert np.all(
+            df["samples_processed"] >= (df["samples_in_arg"] + df["exact_matches"])
+        )
         assert df.shape[0] > 0
         assert np.all(df["samples_processed"] == df["._count"])
 
