@@ -1,3 +1,4 @@
+import datetime
 import inspect
 
 import pytest
@@ -217,6 +218,18 @@ class TestTreeInfo:
         df = fx_ti_2020_02_13.resources_summary()
         assert df.shape[0] == 20
         assert np.all(df.date.str.startswith("2020"))
+
+    def test_samples_summary(self, fx_ti_2020_02_13):
+        df = fx_ti_2020_02_13.samples_summary()
+        # NOTE: just doing this subsetting here to get rid of the annoying reference
+        # as-sample issue, which mucks up counts. Should be able to get rid of this
+        # after closing https://github.com/jeromekelleher/sc2ts/issues/413
+        df = df[df["date"] >= datetime.datetime.fromisoformat("2020-01-01")]
+        assert np.all(
+            df["samples_processed"] >= (df["samples_in_arg"] + df["exact_matches"])
+        )
+        assert df.shape[0] > 0
+        assert np.all(df["samples_processed"] == df["._count"])
 
 
 class TestSampleGroupInfo:
