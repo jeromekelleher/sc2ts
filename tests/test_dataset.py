@@ -269,6 +269,9 @@ class TestDatasetMethods:
             ],
         )
 
+    @pytest.mark.skip("Not implemented")
+    def test_map_deletions_to_ts(self, fx_dataset):
+        pass
 
 class TestDatasetAlignments:
 
