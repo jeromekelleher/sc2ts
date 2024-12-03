@@ -267,7 +267,7 @@ def initial_ts(problematic_sites=list()):
     tables.metadata = {
         "sc2ts": {
             "date": core.REFERENCE_DATE,
-            "samples_strain": [core.REFERENCE_STRAIN],
+            "samples_strain": [],
             "daily_stats": {},
             "cumulative_stats": {
                 "exact_matches": {
@@ -302,7 +302,7 @@ def initial_ts(problematic_sites=list()):
         },
     )
     tables.nodes.add_row(
-        flags=tskit.NODE_IS_SAMPLE,
+        flags=core.NODE_IS_REFERENCE,
         time=0,
         metadata={
             "strain": core.REFERENCE_STRAIN,
@@ -310,6 +310,8 @@ def initial_ts(problematic_sites=list()):
             "sc2ts": {"notes": "Reference sequence"},
         },
     )
+    # NOTE: we don't actually need to store this edge, we could include it
+    # at the point where we call the low-level match_tsinfer operations.
     tables.edges.add_row(0, L, 0, 1)
     return tables.tree_sequence()
 

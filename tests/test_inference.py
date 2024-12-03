@@ -91,18 +91,17 @@ class TestInitialTs:
         assert ts.reference_sequence.metadata["genbank_id"] == "MN908947"
         assert ts.reference_sequence.data == sc2ts.core.get_reference_sequence()
 
-    def test_reference_sample(self):
+    def test_reference_node(self):
         ts = sc2ts.initial_ts()
-        assert ts.num_samples == 1
-        node = ts.node(ts.samples()[0])
+        assert ts.num_samples == 0
+        node = ts.node(1)
         assert node.time == 0
         assert node.metadata == {
             "date": "2019-12-26",
             "strain": "Wuhan/Hu-1/2019",
             "sc2ts": {"notes": "Reference sequence"},
         }
-        alignment = next(ts.alignments())
-        assert alignment == sc2ts.core.get_reference_sequence()
+        assert node.flags == sc2ts.NODE_IS_REFERENCE
 
 
 class TestMatchTsinfer:
@@ -305,15 +304,12 @@ class TestRealData:
         #     0 29904
         assert ts.num_trees == 1
         assert ts.num_nodes == 3
-        assert ts.num_samples == 2
+        assert ts.num_samples == 1
         assert ts.num_mutations == 3
         assert list(ts.nodes_time) == [25, 24, 0]
         assert ts.metadata["sc2ts"]["date"] == "2020-01-19"
-        assert ts.metadata["sc2ts"]["samples_strain"] == [
-            "Wuhan/Hu-1/2019",
-            "SRR11772659",
-        ]
-        assert list(ts.samples()) == [1, 2]
+        assert ts.metadata["sc2ts"]["samples_strain"] == ["SRR11772659"]
+        assert list(ts.samples()) == [2]
         assert ts.node(1).metadata["strain"] == "Wuhan/Hu-1/2019"
         assert ts.node(2).metadata["strain"] == "SRR11772659"
         assert list(ts.mutations_node) == [2, 2, 2]
@@ -345,7 +341,7 @@ class TestRealData:
             date="2020-01-25",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
-        assert ts.num_samples == 5
+        assert ts.num_samples == 4
         assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
             "B": 2
         }
@@ -363,7 +359,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
             num_threads=num_threads,
         )
-        assert ts.num_samples == 22
+        assert ts.num_samples == 21
         assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
             "A": 2,
             "B": 2,
@@ -395,7 +391,7 @@ class TestRealData:
         }
         assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
-        assert ts.num_samples == 23
+        assert ts.num_samples == 22
 
     def test_2020_02_02_mutation_overlap(
         self,
@@ -410,7 +406,7 @@ class TestRealData:
             date="2020-02-02",
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
-        assert ts.num_samples == 22
+        assert ts.num_samples == 21
         node = ts.node(27)
         assert node.flags == sc2ts.NODE_IS_MUTATION_OVERLAP
         assert node.metadata == {"sc2ts": {"mutations": ["C17373T"], "sibs": [11, 23]}}
@@ -425,7 +421,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         new_samples = min(4, max_samples)
-        assert ts.num_samples == 18 + new_samples
+        assert ts.num_samples == 17 + new_samples
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
 
     def test_2020_02_02_max_missing_sites(
@@ -443,7 +439,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         new_samples = 2
-        assert ts.num_samples == 18 + new_samples
+        assert ts.num_samples == 17 + new_samples
 
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == new_samples
         for u in ts.samples()[-new_samples:]:
