@@ -1128,14 +1128,16 @@ class TreeInfo:
         return muts
 
     def _copying_table(self, node, edges):
-        def css_cell(allele):
+        def css_cell(allele, bold=False, show_colour=True):
             # function for the cell style - nucleotide colours faded from SNiPit
             cols = {"A": "#869eb5", "T": "#adbda8", "C": "#d19394", "G": "#c3dde6"}
-            return (
-                ' style="border: 1px solid black; background-color: '
-                + cols.get(allele, "white")
-                + '; border-collapse: collapse;"'
-            )
+            css = ""
+            if show_colour:
+                css += "border: 1px solid black; border-collapse: collapse"
+                css += ";background-color:" + cols.get(allele, "white")
+            if bold:
+                css += ";font-weight: bold"
+            return "" if css == "" else f' style="{css}"'
 
         vrl = ' style="writing-mode: vertical-rl; transform: rotate(180deg)"'
 
@@ -1160,15 +1162,19 @@ class TreeInfo:
                 pos = int(var.site.position)
                 positions.append(f"<td><span{vrl}>{pos}</span></td>")
                 ref.append(f"<td>{var.site.ancestral_state}</td>")
-                allele = var.alleles[var.genotypes[0]]
-                child.append(f"<td{css_cell(allele)}>{allele}</td>")
+                child_allele = var.alleles[var.genotypes[0]]
+                child.append(f"<td{css_cell(child_allele, True)}>{child_allele}</td>")
 
                 edge_index = np.searchsorted(edges.left, pos, side="right") - 1
                 parent_col = parent_cols[edges[edge_index].parent]
                 for j in range(1, len(var.genotypes)):
-                    allele = var.alleles[var.genotypes[j]]
-                    css = css_cell(allele) if j == parent_col else ""
-                    parents[j - 1].append(f"<td{css}>{allele}</td>")
+                    parent_allele = var.alleles[var.genotypes[j]]
+                    css = css_cell(
+                        parent_allele,
+                        bold=parent_allele==child_allele,
+                        show_colour=j == parent_col,
+                    )
+                    parents[j - 1].append(f"<td{css}>{parent_allele}</td>")
 
                 extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>")
 
