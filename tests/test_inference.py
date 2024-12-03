@@ -346,8 +346,12 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 5
-        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {"B": 2}
-        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"] == {"5": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
+            "B": 2
+        }
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"] == {
+            "5": 2
+        }
         ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
 
     @pytest.mark.parametrize("num_threads", [0, 1, 3, 10])
@@ -360,7 +364,10 @@ class TestRealData:
             num_threads=num_threads,
         )
         assert ts.num_samples == 22
-        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
+            "A": 2,
+            "B": 2,
+        }
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
         assert "SRR11597115" not in ts.metadata["sc2ts"]["samples_strain"]
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
@@ -382,7 +389,10 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
             include_samples=include_samples,
         )
-        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
+            "A": 2,
+            "B": 2,
+        }
         assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
         assert ts.num_samples == 23
@@ -873,7 +883,7 @@ class TestRealData:
         ts = fx_ts_map[self.dates[-1]]
         md = ts.metadata["sc2ts"]
         assert strain not in md["samples_strain"]
-        assert md["exact_matches"]["node"][str(parent)] >= 1
+        assert md["cumulative_stats"]["exact_matches"]["node"][str(parent)] >= 1
 
 
 class TestSyntheticAlignments:
@@ -898,12 +908,21 @@ class TestSyntheticAlignments:
         assert ts.num_nodes == base_ts.num_nodes
 
         assert (
-            sum(ts.metadata["sc2ts"]["exact_matches"]["pango"].values())
-            == sum(base_ts.metadata["sc2ts"]["exact_matches"]["pango"].values()) + 2
+            sum(
+                ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"][
+                    "pango"
+                ].values()
+            )
+            == sum(
+                base_ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"][
+                    "pango"
+                ].values()
+            )
+            + 2
         )
         samples = ts.samples()
         samples_strain = ts.metadata["sc2ts"]["samples_strain"]
-        node_count = ts.metadata["sc2ts"]["exact_matches"]["node"]
+        node_count = ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"]
         for strain, fake_strain in zip(strains, fake_strains):
             node = samples[samples_strain.index(strain)]
             assert node_count[str(node)] == 1

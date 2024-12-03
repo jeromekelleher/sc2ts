@@ -638,6 +638,10 @@ def extend(
     logger.info(resource_usage)
     if progress:
         print(resource_usage, file=sys.stderr)
+        daily_stats = ts_out.metadata["sc2ts"]["daily_stats"][date]
+        # Temporary
+        import pprint
+        pprint.pprint(daily_stats)
 
 
 @click.command()
