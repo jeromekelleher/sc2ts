@@ -346,8 +346,8 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 5
-        assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"B": 2}
-        assert ts.metadata["sc2ts"]["exact_matches"]["node"] == {"5": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {"B": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"] == {"5": 2}
         ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
 
     @pytest.mark.parametrize("num_threads", [0, 1, 3, 10])
@@ -360,7 +360,7 @@ class TestRealData:
             num_threads=num_threads,
         )
         assert ts.num_samples == 22
-        assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 4
         assert "SRR11597115" not in ts.metadata["sc2ts"]["samples_strain"]
         ts.tables.assert_equals(fx_ts_map["2020-02-02"].tables, ignore_provenance=True)
@@ -382,7 +382,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
             include_samples=include_samples,
         )
-        assert ts.metadata["sc2ts"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
+        assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {"A": 2, "B": 2}
         assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
         assert ts.num_samples == 23
@@ -746,15 +746,17 @@ class TestRealData:
                 assert "group_id" in md
 
     def test_exact_match_count(self, fx_ts_map):
-        ts = fx_ts_map[self.dates[-1]]
-        # exact_matches = 0
-        md = ts.metadata["sc2ts"]["exact_matches"]
+        date = self.dates[-1]
+        ts = fx_ts_map[date]
+        md = ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]
         nodes_num_exact_matches = md["node"]
-        by_date = md["date"]
         by_pango = md["pango"]
         total = sum(nodes_num_exact_matches.values())
         assert total == sum(by_pango.values())
-        assert total == sum(by_date.values())
+        by_date = 0
+        for d in ts.metadata["sc2ts"]["daily_stats"].values():
+            by_date += sum(d["exact_matches"].values())
+        assert total == by_date
         assert total == 8
 
     @pytest.mark.parametrize(
