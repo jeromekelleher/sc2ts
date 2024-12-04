@@ -756,7 +756,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
         overall_hmm_cost[sample.scorpio] += float(sample.hmm_match.cost)
         if sample.strain not in inserted_samples and sample.hmm_match.cost > 0:
             rejected[sample.scorpio] += 1
-            rejected[sample.scorpio] += float(sample.hmm_match.cost)
+            rejected_hmm_cost[sample.scorpio] += float(sample.hmm_match.cost)
         if sample.hmm_match.cost == 0:
             exact_matches[sample.scorpio] += 1
 
