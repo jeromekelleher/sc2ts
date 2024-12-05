@@ -746,35 +746,26 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
         inserted_samples.add(s)
     md["sc2ts"]["samples_strain"] = samples_strain
 
-    overall_processed = collections.Counter()
-    overall_hmm_cost = collections.Counter()
+    overall_processed = collections.defaultdict(list)
     rejected = collections.Counter()
-    rejected_hmm_cost = collections.Counter()
-    exact_matches = collections.Counter()
     for sample in samples:
-        overall_processed[sample.scorpio] += 1
-        overall_hmm_cost[sample.scorpio] += float(sample.hmm_match.cost)
+        overall_processed[sample.scorpio].append(sample.hmm_match.cost)
         if sample.strain not in inserted_samples and sample.hmm_match.cost > 0:
             rejected[sample.scorpio] += 1
-            rejected_hmm_cost[sample.scorpio] += float(sample.hmm_match.cost)
-        if sample.hmm_match.cost == 0:
-            exact_matches[sample.scorpio] += 1
 
-    for scorpio in overall_processed.keys():
-        overall_hmm_cost[scorpio] /= overall_processed[scorpio]
-    for scorpio in rejected.keys():
-        rejected_hmm_cost[scorpio] /= rejected[scorpio]
+    samples_processed = {}
+    for scorpio, hmm_cost in overall_processed.items():
+        hmm_cost = np.array(hmm_cost)
+        samples_processed[scorpio] = {
+            "total": hmm_cost.shape[0],
+            "rejected": rejected[scorpio],
+            "exact_matches": int(np.sum(hmm_cost == 0)),
+            "mean_hmm_cost": round(float(np.mean(hmm_cost)), 2),
+            "median_hmm_cost": float(np.median(hmm_cost)),
+        }
 
     daily_stats = {
-        "samples_processed": {
-            "count": dict(overall_processed),
-            "mean_hmm_cost": dict(overall_hmm_cost),
-        },
-        "samples_rejected": {
-            "count": dict(rejected),
-            "mean_hmm_cost": dict(rejected_hmm_cost),
-        },
-        "exact_matches": dict(exact_matches),
+        "samples_processed": samples_processed,
         "arg": {
             "nodes": ts.num_nodes,
             "edges": ts.num_edges,

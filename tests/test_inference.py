@@ -751,8 +751,8 @@ class TestRealData:
                 assert "hmm_match" in md
                 assert "group_id" in md
 
-    def test_exact_match_count(self, fx_ts_map):
-        date = self.dates[-1]
+    @pytest.mark.parametrize("date", dates)
+    def test_exact_match_count(self, fx_ts_map, date):
         ts = fx_ts_map[date]
         md = ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]
         nodes_num_exact_matches = md["node"]
@@ -761,9 +761,13 @@ class TestRealData:
         assert total == sum(by_pango.values())
         by_date = 0
         for d in ts.metadata["sc2ts"]["daily_stats"].values():
-            by_date += sum(d["exact_matches"].values())
+            date_count = 0
+            for record in d["samples_processed"].values():
+                date_count += record["exact_matches"]
+            by_date += date_count
         assert total == by_date
-        assert total == 8
+        if date == self.dates[-1]:
+            assert total == 8
 
     @pytest.mark.parametrize(
         ["strain", "num_deletions"],
