@@ -753,16 +753,19 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
         if sample.strain not in inserted_samples and sample.hmm_match.cost > 0:
             rejected[sample.scorpio] += 1
 
-    samples_processed = {}
+    samples_processed = []
     for scorpio, hmm_cost in overall_processed.items():
         hmm_cost = np.array(hmm_cost)
-        samples_processed[scorpio] = {
-            "total": hmm_cost.shape[0],
-            "rejected": rejected[scorpio],
-            "exact_matches": int(np.sum(hmm_cost == 0)),
-            "mean_hmm_cost": round(float(np.mean(hmm_cost)), 2),
-            "median_hmm_cost": float(np.median(hmm_cost)),
-        }
+        samples_processed.append(
+            {
+                "scorpio": scorpio,
+                "total": hmm_cost.shape[0],
+                "rejected": rejected[scorpio],
+                "exact_matches": int(np.sum(hmm_cost == 0)),
+                "mean_hmm_cost": round(float(np.mean(hmm_cost)), 2),
+                "median_hmm_cost": float(np.median(hmm_cost)),
+            }
+        )
 
     daily_stats = {
         "samples_processed": samples_processed,

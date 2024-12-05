@@ -258,19 +258,36 @@ def import_metadata(dataset, metadata, viridian, verbose):
 @click.command()
 @click.argument("in_dataset", type=click.Path(dir_okay=True, file_okay=False))
 @click.argument("out_dataset", type=click.Path(dir_okay=True, file_okay=False))
-@click.option("--date-field", default="date", help="The metadata field to use for dates")
-@click.option("-a", "--additional-field", default=[], help="Additional fields to sort by",
-        multiple=True)
+@click.option(
+    "--date-field", default="date", help="The metadata field to use for dates"
+)
+@click.option(
+    "-a",
+    "--additional-field",
+    default=[],
+    help="Additional fields to sort by",
+    multiple=True,
+)
 @chunk_cache_size
 @progress
 @verbose
-def reorder_dataset(in_dataset, out_dataset, chunk_cache_size, date_field, additional_field, progress, verbose):
+def reorder_dataset(
+    in_dataset,
+    out_dataset,
+    chunk_cache_size,
+    date_field,
+    additional_field,
+    progress,
+    verbose,
+):
     """
     Create a copy of the specified dataset where the samples are reordered by
     date (and optionally other fields).
     """
     setup_logging(verbose)
-    ds = sc2ts.Dataset(in_dataset, chunk_cache_size=chunk_cache_size, date_field=date_field)
+    ds = sc2ts.Dataset(
+        in_dataset, chunk_cache_size=chunk_cache_size, date_field=date_field
+    )
     ds.reorder(out_dataset, show_progress=progress, additional_fields=additional_field)
 
 
@@ -638,10 +655,10 @@ def extend(
     logger.info(resource_usage)
     if progress:
         print(resource_usage, file=sys.stderr)
-        daily_stats = ts_out.metadata["sc2ts"]["daily_stats"][date]
-        # Temporary
-        import pprint
-        pprint.pprint(daily_stats)
+        df = pd.DataFrame(
+                ts_out.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
+            ).set_index("scorpio")
+        print(df)
 
 
 @click.command()

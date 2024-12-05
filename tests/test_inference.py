@@ -762,7 +762,7 @@ class TestRealData:
         by_date = 0
         for d in ts.metadata["sc2ts"]["daily_stats"].values():
             date_count = 0
-            for record in d["samples_processed"].values():
+            for record in d["samples_processed"]:
                 date_count += record["exact_matches"]
             by_date += date_count
         assert total == by_date
