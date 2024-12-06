@@ -1110,7 +1110,7 @@ def add_matching_results(
     tables.compute_mutation_parents()
     ts = tables.tree_sequence()
     ts = tree_ops.push_up_reversions(ts, attach_nodes, date)
-    ts = tree_ops.coalesce_mutations(ts, attach_nodes)
+    ts = tree_ops.coalesce_mutations(ts, attach_nodes, date)
     ts = delete_immediate_reversion_nodes(ts, attach_nodes)
     return ts, added_groups
 
