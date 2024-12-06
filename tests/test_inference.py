@@ -409,7 +409,13 @@ class TestRealData:
         assert ts.num_samples == 21
         node = ts.node(27)
         assert node.flags == sc2ts.NODE_IS_MUTATION_OVERLAP
-        assert node.metadata == {"sc2ts": {"mutations": ["C17373T"], "sibs": [11, 23]}}
+        assert node.metadata == {
+            "sc2ts": {
+                "date_added": "2020-02-02",
+                "mutations": ["C17373T"],
+                "sibs": [11, 23],
+            }
+        }
 
     @pytest.mark.parametrize("max_samples", range(1, 6))
     def test_2020_02_02_max_samples(self, tmp_path, fx_ts_map, fx_dataset, max_samples):
