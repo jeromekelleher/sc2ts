@@ -658,6 +658,7 @@ def extend(
         df = pd.DataFrame(
                 ts_out.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
             ).set_index("scorpio")
+        df = df[list(df.columns)[::-1]].sort_values("total")
         print(df)
 
 
