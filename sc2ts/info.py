@@ -759,12 +759,12 @@ class TreeInfo:
             md = md["sc2ts"]
             if flags == 1 << 21:
                 try:
-                    strain = f"Overlap added={md['date_added']} {md['mutations']}"
+                    strain = f"O{md['date_added']} {','.join(md['mutations'])}"
                 except KeyError:
                     strain = "Overlap debug missing"
             elif flags == 1 << 22:
                 try:
-                    strain = f"Push added={md['date_added']} {md['mutations']}"
+                    strain = f"P{md['date_added']} {','.join(md['mutations'])}"
                 except KeyError:
                     strain = "Push debug missing"
             elif "group_id" in md:
