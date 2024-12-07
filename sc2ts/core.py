@@ -109,7 +109,7 @@ def decode_flags(f):
 
 
 def flags_summary(f):
-    return "".join([v.short if (v.value & f) > 0 else "-" for v in flag_values])
+    return "".join([v.short if (v.value & f) > 0 else "_" for v in flag_values])
 
 
 class FastaReader(collections.abc.Mapping):

@@ -753,7 +753,7 @@ class TreeInfo:
         flags = self.ts.nodes_flags[u]
 
         strain = ""
-        if (flags & tskit.NODE_IS_SAMPLE) != 0:
+        if flags & (tskit.NODE_IS_SAMPLE | core.NODE_IS_REFERENCE) > 0:
             strain = md["strain"]
         else:
             md = md["sc2ts"]
@@ -763,7 +763,9 @@ class TreeInfo:
                 except KeyError:
                     strain = "debug missing"
             elif "group_id" in md:
-                strain = md["group_id"]
+                # FIXME clipping this artificially for now
+                # see https://github.com/jeromekelleher/sc2ts/issues/434
+                strain = md["group_id"][:8]
 
         pango = md.get(self.pango_source, None)
         imputed_pango = md.get("Imputed_" + self.pango_source, None)
