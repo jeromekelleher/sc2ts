@@ -286,7 +286,7 @@ class TestExtend:
         ts = tskit.load(output_ts_path)
         assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
-        assert ts.num_samples == 23
+        assert ts.num_samples == 22
 
 
 @pytest.mark.skip("Broken by dataset")

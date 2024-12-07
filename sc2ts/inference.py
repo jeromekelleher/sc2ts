@@ -267,14 +267,14 @@ def initial_ts(problematic_sites=list()):
     tables.metadata = {
         "sc2ts": {
             "date": core.REFERENCE_DATE,
-            "samples_strain": [core.REFERENCE_STRAIN],
-            "exact_matches": {
-                "pango": {},
-                "date": {},
-                "node": {},
+            "samples_strain": [],
+            "daily_stats": {},
+            "cumulative_stats": {
+                "exact_matches": {
+                    "pango": {},
+                    "node": {},
+                }
             },
-            "samples_processed": {},
-            "samples_rejected": {},
             "retro_groups": [],
         }
     }
@@ -302,7 +302,7 @@ def initial_ts(problematic_sites=list()):
         },
     )
     tables.nodes.add_row(
-        flags=tskit.NODE_IS_SAMPLE,
+        flags=core.NODE_IS_REFERENCE,
         time=0,
         metadata={
             "strain": core.REFERENCE_STRAIN,
@@ -310,6 +310,8 @@ def initial_ts(problematic_sites=list()):
             "sc2ts": {"notes": "Reference sequence"},
         },
     )
+    # NOTE: we don't actually need to store this edge, we could include it
+    # at the point where we call the low-level match_tsinfer operations.
     tables.edges.add_row(0, L, 0, 1)
     return tables.tree_sequence()
 
@@ -345,6 +347,7 @@ class Sample:
     haplotype: List = None
     hmm_match: HmmMatch = None
     hmm_reruns: Dict = dataclasses.field(default_factory=dict)
+    flags: int = tskit.NODE_IS_SAMPLE
 
     @property
     def is_recombinant(self):
@@ -643,6 +646,7 @@ def extend(
             f"deletions={num_deletion_sites}"
         )
         if s.strain in include_strains:
+            s.flags |= core.NODE_IS_UNCONDITIONALLY_INCLUDED
             unconditional_include_samples.append(s)
         elif num_missing_sites <= max_missing_sites:
             samples.append(s)
@@ -742,36 +746,42 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
         s = node.metadata["strain"]
         samples_strain.append(s)
         inserted_samples.add(s)
+    md["sc2ts"]["samples_strain"] = samples_strain
 
-    overall_processed = collections.Counter()
-    overall_hmm_cost = collections.Counter()
+    overall_processed = collections.defaultdict(list)
     rejected = collections.Counter()
-    rejected_hmm_cost = collections.Counter()
     for sample in samples:
-        overall_processed[sample.scorpio] += 1
-        overall_hmm_cost[sample.scorpio] += float(sample.hmm_match.cost)
+        overall_processed[sample.scorpio].append(sample.hmm_match.cost)
         if sample.strain not in inserted_samples and sample.hmm_match.cost > 0:
             rejected[sample.scorpio] += 1
-            rejected[sample.scorpio] += float(sample.hmm_match.cost)
 
-    for scorpio in overall_processed.keys():
-        overall_hmm_cost[scorpio] /= overall_processed[scorpio]
-    for scorpio in rejected.keys():
-        rejected_hmm_cost[scorpio] /= rejected[scorpio]
+    samples_processed = []
+    for scorpio, hmm_cost in overall_processed.items():
+        hmm_cost = np.array(hmm_cost)
+        samples_processed.append(
+            {
+                "scorpio": scorpio,
+                "total": hmm_cost.shape[0],
+                "rejected": rejected[scorpio],
+                "exact_matches": int(np.sum(hmm_cost == 0)),
+                # Store the total as well to make later aggregation easier
+                "total_hmm_cost": float(np.sum(hmm_cost)),
+                "mean_hmm_cost": round(float(np.mean(hmm_cost)), 2),
+                "median_hmm_cost": float(np.median(hmm_cost)),
+            }
+        )
 
-    md["sc2ts"]["samples_strain"] = samples_strain
-    md["sc2ts"]["samples_processed"][date] = {
-        "count": dict(overall_processed),
-        "mean_hmm_cost": dict(overall_hmm_cost),
+    daily_stats = {
+        "samples_processed": samples_processed,
+        "arg": {
+            "nodes": ts.num_nodes,
+            "edges": ts.num_edges,
+            "mutations": ts.num_mutations,
+        },
     }
-    md["sc2ts"]["samples_rejected"][date] = {
-        "count": dict(rejected),
-        "mean_hmm_cost": dict(rejected_hmm_cost),
-    }
+    md["sc2ts"]["daily_stats"][date] = daily_stats
+
     existing_retro_groups = md["sc2ts"].get("retro_groups", [])
-    if isinstance(existing_retro_groups, dict):
-        # Hack to implement metadata format change
-        existing_retro_groups = []
     for group in retro_groups:
         d = group.tree_quality_metrics.asdict()
         d["group_id"] = group.sample_hash
@@ -781,7 +791,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
     return tables.tree_sequence()
 
 
-def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=None):
+def add_sample_to_tables(sample, tables, group_id=None):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
         "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
@@ -791,7 +801,7 @@ def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=No
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
-    return tables.nodes.add_row(flags=flags, metadata=metadata)
+    return tables.nodes.add_row(flags=sample.flags, metadata=metadata)
 
 
 def match_path_ts(group):
@@ -849,17 +859,10 @@ def add_exact_matches(match_db, ts, date):
         # JSON treats dictionary keys as strings
         node_counts[str(parent)] += 1
         pango_counts[sample.pango] += 1
-        # node_id = add_sample_to_tables(
-        #     sample,
-        #     tables,
-        #     flags=tskit.NODE_IS_SAMPLE | core.NODE_IS_EXACT_MATCH,
-        # )
-        # logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
-        # tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
     tables = ts.dump_tables()
     md = tables.metadata
-    exact_matches_md = md["sc2ts"]["exact_matches"]
-    exact_matches_md["date"][date] = sum(pango_counts.values())
+    cstats = md["sc2ts"]["cumulative_stats"]
+    exact_matches_md = cstats["exact_matches"]
     pango_counts.update(exact_matches_md["pango"])
     exact_matches_md["pango"] = dict(pango_counts)
     node_counts.update(exact_matches_md["node"])
@@ -1104,7 +1107,7 @@ def add_matching_results(
     tables.compute_mutation_parents()
     ts = tables.tree_sequence()
     ts = tree_ops.push_up_reversions(ts, attach_nodes, date)
-    ts = tree_ops.coalesce_mutations(ts, attach_nodes)
+    ts = tree_ops.coalesce_mutations(ts, attach_nodes, date)
     ts = delete_immediate_reversion_nodes(ts, attach_nodes)
     return ts, added_groups
 
