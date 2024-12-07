@@ -392,6 +392,9 @@ class TestRealData:
         assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
         assert ts.num_samples == 22
+        u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index("SRR11597115")]
+        assert ts.nodes_flags[u] & tskit.NODE_IS_SAMPLE > 0
+        assert ts.nodes_flags[u] & sc2ts.NODE_IS_UNCONDITIONALLY_INCLUDED > 0
 
     def test_2020_02_02_mutation_overlap(
         self,

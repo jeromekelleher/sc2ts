@@ -4,10 +4,19 @@ import pathlib
 import collections.abc
 import csv
 
+import tskit
 import numba
 import pyfaidx
 import numpy as np
 
+
+__version__ = "undefined"
+try:
+    from . import _version
+
+    __version__ = _version.version
+except ImportError:
+    pass
 
 TIME_UNITS = "days"
 
@@ -27,13 +36,80 @@ NODE_IS_REFERENCE = 1 << 28
 NODE_IS_UNCONDITIONALLY_INCLUDED = 1 << 29
 
 
-__version__ = "undefined"
-try:
-    from . import _version
+@dataclasses.dataclass(frozen=True)
+class FlagValue:
+    value: int
+    short: str
+    long: str
+    description: str
 
-    __version__ = _version.version
-except ImportError:
-    pass
+
+flag_values = [
+    FlagValue(tskit.NODE_IS_SAMPLE, "S", "Sample", "Tskit defined sample node"),
+    FlagValue(
+        NODE_IS_MUTATION_OVERLAP,
+        "O",
+        "MutationOverlap",
+        "Node created by coalescing mutations shared by siblings",
+    ),
+    FlagValue(
+        NODE_IS_REVERSION_PUSH,
+        "P",
+        "ReversionPush",
+        "Node created by pushing immediate reversions upwards",
+    ),
+    FlagValue(
+        NODE_IS_RECOMBINANT,
+        "R",
+        "Recombinant",
+        "Node has two or more parents",
+    ),
+    FlagValue(
+        NODE_IS_EXACT_MATCH,
+        "E",
+        "ExactMatch",
+        "Node is an exact match of its parent",
+    ),
+    FlagValue(
+        NODE_IS_IMMEDIATE_REVERSION_MARKER,
+        "I",
+        "ImmediateReversion",
+        "Node is marking the existance of an immediate reversion which "
+        "has not been removed for technical reasons",
+    ),
+    FlagValue(
+        NODE_IN_SAMPLE_GROUP,
+        "G",
+        "SampleGroup",
+        "Node is a member of a sample group",
+    ),
+    FlagValue(
+        NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
+        "Q",
+        "RetroSampleGroup",
+        "Node is a member of a retrospective sample group",
+    ),
+    FlagValue(
+        NODE_IS_REFERENCE,
+        "F",
+        "Reference",
+        "Node is a reference sequence",
+    ),
+    FlagValue(
+        NODE_IS_UNCONDITIONALLY_INCLUDED,
+        "U",
+        "UnconditionalInclude",
+        "A sample that was flagged for unconditional inclusion",
+    ),
+]
+
+
+def decode_flags(f):
+    return [v for v in flag_values if (v.value & f) > 0]
+
+
+def flags_summary(f):
+    return "".join([v.short if (v.value & f) > 0 else "-" for v in flag_values])
 
 
 class FastaReader(collections.abc.Mapping):

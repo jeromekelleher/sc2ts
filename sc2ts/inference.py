@@ -347,6 +347,7 @@ class Sample:
     haplotype: List = None
     hmm_match: HmmMatch = None
     hmm_reruns: Dict = dataclasses.field(default_factory=dict)
+    flags: int = tskit.NODE_IS_SAMPLE
 
     @property
     def is_recombinant(self):
@@ -645,6 +646,7 @@ def extend(
             f"deletions={num_deletion_sites}"
         )
         if s.strain in include_strains:
+            s.flags |= core.NODE_IS_UNCONDITIONALLY_INCLUDED
             unconditional_include_samples.append(s)
         elif num_missing_sites <= max_missing_sites:
             samples.append(s)
@@ -789,7 +791,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
     return tables.tree_sequence()
 
 
-def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=None):
+def add_sample_to_tables(sample, tables, group_id=None):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
         "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
@@ -799,7 +801,7 @@ def add_sample_to_tables(sample, tables, flags=tskit.NODE_IS_SAMPLE, group_id=No
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
-    return tables.nodes.add_row(flags=flags, metadata=metadata)
+    return tables.nodes.add_row(flags=sample.flags, metadata=metadata)
 
 
 def match_path_ts(group):
@@ -857,13 +859,6 @@ def add_exact_matches(match_db, ts, date):
         # JSON treats dictionary keys as strings
         node_counts[str(parent)] += 1
         pango_counts[sample.pango] += 1
-        # node_id = add_sample_to_tables(
-        #     sample,
-        #     tables,
-        #     flags=tskit.NODE_IS_SAMPLE | core.NODE_IS_EXACT_MATCH,
-        # )
-        # logger.debug(f"ARG add exact match {sample.strain}:{node_id}->{parent}")
-        # tables.edges.add_row(0, ts.sequence_length, parent=parent, child=node_id)
     tables = ts.dump_tables()
     md = tables.metadata
     cstats = md["sc2ts"]["cumulative_stats"]
