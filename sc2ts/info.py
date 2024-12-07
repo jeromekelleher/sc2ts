@@ -426,6 +426,7 @@ class TreeInfo:
     ):
         self.ts = ts
         self.pango_source = pango_source
+        self.scorpio_source = "Viridian_scorpio"
         self.strain_map = {}
         self.recombinants = np.where(ts.nodes_flags == core.NODE_IS_RECOMBINANT)[0]
 
@@ -494,8 +495,8 @@ class TreeInfo:
         samples = ts.samples()
 
         self.time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
-        self.earliest_pango_lineage = {}
         self.pango_lineage_samples = collections.defaultdict(list)
+        self.first_scorpio_sample = {}
 
         iterator = tqdm(
             ts.nodes(),
@@ -514,6 +515,9 @@ class TreeInfo:
             if node.is_sample():
                 self.nodes_date[node.id] = md["date"]
                 pango = md.get(self.pango_source, "unknown")
+                scorpio = md.get(self.scorpio_source, ".")
+                if scorpio != "." and scorpio not in self.first_scorpio_sample:
+                    self.first_scorpio_sample[scorpio] = node.id
                 self.pango_lineage_samples[pango].append(node.id)
                 self.nodes_num_missing_sites[node.id] = sc2ts_md.get(
                     "num_missing_sites", 0
@@ -1555,17 +1559,32 @@ class TreeInfo:
         df_scorpio = df_scorpio.divide(df_scorpio.sum(axis="columns"), axis="index")
         # Remove columns that don't have more than the threshold
         keep_cols = []
+        first_scorpio_date = []
         for col in df_scorpio:
             if np.any(df_scorpio[col] >= scorpio_fraction):
                 keep_cols.append(col)
-        df_scorpio = df_scorpio[keep_cols]
+                try:
+                    first_date = self.nodes_date[self.first_scorpio_sample[col]]
+                    first_scorpio_date.append((first_date, col))
+                except KeyError:
+                    warnings.warn(f"No samples for Scorpio {col} present")
 
+        df_scorpio = df_scorpio[keep_cols]
+        ax4.set_title("Scorpio composition of processed samples")
         ax4.stackplot(
             df_scorpio.index,
             *[df_scorpio[s] for s in df_scorpio],
             labels=[" ".join(s.split("_")) for s in df_scorpio],
         )
-        ax4.legend(loc="upper left")
+        ax4.legend(loc="upper left", ncol=2)
+
+        j = 0
+        n = 5
+        for date, scorpio in sorted(first_scorpio_date):
+            y = (j + 1) / n
+            ax4.annotate(f"{scorpio}", xy=(date, y), xycoords="data")
+            ax4.axvline(date, color="grey", alpha=0.5)
+            j = (j + 1) % (n - 1)
 
         return fig, [ax1, ax2, ax3, ax4]
 
