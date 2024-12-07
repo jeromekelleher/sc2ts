@@ -762,6 +762,8 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
                 "total": hmm_cost.shape[0],
                 "rejected": rejected[scorpio],
                 "exact_matches": int(np.sum(hmm_cost == 0)),
+                # Store the total as well to make later aggregation easier
+                "total_hmm_cost": float(np.sum(hmm_cost)),
                 "mean_hmm_cost": round(float(np.mean(hmm_cost)), 2),
                 "median_hmm_cost": float(np.median(hmm_cost)),
             }

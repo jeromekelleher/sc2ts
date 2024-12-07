@@ -902,7 +902,10 @@ class TreeInfo:
                 data.append({"date": date, **row})
         df = pd.DataFrame(data)
         df["inserted"] = df["total"] - df["rejected"] - df["exact_matches"]
-        return df
+        if "total_hmm_cost" not in df:
+            # TMP! Remove this once we've got total_hmm_cost in the actual m
+            df["total_hmm_cost"] = df["mean_hmm_cost"] * df["total"]
+        return df.astype({"date": "datetime64[s]"})
 
     def recombinants_summary(self):
         data = []
@@ -1532,65 +1535,72 @@ class TreeInfo:
         ax.set_ylabel("Overlapping deletions")
         return fig, [ax]
 
-    def plot_samples_per_day(self, start_date="2020-01-01"):
+    def plot_samples_per_day(
+        self, start_date="2020-01-01", end_date="3000-01-01", scorpio_fraction=0.05
+    ):
+        start_date = np.datetime64(start_date)
+        end_date = np.datetime64(end_date)
         df = self.samples_summary()
-        df = df[df.date >= start_date]
-        # FIXME
-        df = df.groupby("date").sum().reset_index()
+        df = df[(df.date >= start_date) & (df.date < end_date)]
+
+        dfa = df.groupby("date").sum().reset_index()
+        dfa["mean_hmm_cost"] = dfa["total_hmm_cost"] / dfa["total"]
         fig, (ax1, ax2, ax3, ax4) = self._wide_plot(4, height=12, sharex=True)
         exact_col = "tab:red"
         in_col = "tab:purple"
-        ax1.plot(df.date, df.inserted, label="In ARG", color=in_col)
-        ax1.plot(df.date, df.total, label="Processed")
-        ax1.plot(df.date, df.exact_matches, label="Exact matches", color=exact_col)
+        ax1.plot(dfa.date, dfa.inserted, label="In ARG", color=in_col)
+        ax1.plot(dfa.date, dfa.total, label="Processed")
+        ax1.plot(dfa.date, dfa.exact_matches, label="Exact matches", color=exact_col)
 
         ax2.plot(
-            df.date,
-            df.inserted / df.total,
+            dfa.date,
+            dfa.inserted / dfa.total,
             label="Fraction processed in ARG",
             color=in_col,
         )
         ax2.plot(
-            df.date,
-            df.exact_matches / df.total,
+            dfa.date,
+            dfa.exact_matches / dfa.total,
             label="Fraction processed exact matches",
             color=exact_col,
         )
-        excluded = df.rejected
-        ax3.plot(df.date, excluded / df.total, label="Fraction excluded")
+
+        ax3.plot(dfa.date, dfa.rejected / dfa.total, label="Fraction excluded")
         ax3_2 = ax3.twinx()
-        ax3_2.plot(df.date, df.mean_hmm_cost, color="tab:orange")
-        ax3.set_xlabel("Date")
+        ax3_2.plot(
+            dfa.date, dfa.mean_hmm_cost, label="mean HMM cost", color="tab:orange"
+        )
+        ax2.set_ylabel("Fraction of samples")
+        ax3.set_ylabel("Fraction of samples")
+        ax4.set_xlabel("Date")
         ax3_2.set_ylabel("Mean HMM cost")
         ax1.set_ylabel("Number of samples")
         ax1.legend()
         ax2.legend()
-        ax3.legend()
+        ax3.legend(loc="upper right")
+        ax3_2.legend(loc="upper left")
 
-        # FIXME compute the pivot table for scorpios first
+        for ax in [ax1, ax2, ax3]:
+            ax.grid()
 
-        # df_major_voc = merge_scorpio_columns(df).set_index("date")
-        # df_voc = compute_fractions(df_major_voc)
-        # ax4.stackplot(
-        #     df_voc.index,
-        #     *[df_voc[voc] for voc in df_voc],
-        #     labels=[" ".join(k.split("_")) for k in df_voc],
-        #     alpha=0.7,
-        # )
-        # ax4.legend()
+        df_scorpio = df.pivot_table(
+            columns="scorpio", index="date", values="total", aggfunc="sum", fill_value=0
+        )
+        # convert to fractions
+        df_scorpio = df_scorpio.divide(df_scorpio.sum(axis="columns"), axis="index")
+        # Remove columns that don't have more than the threshold
+        keep_cols = []
+        for col in df_scorpio:
+            if np.any(df_scorpio[col] >= scorpio_fraction):
+                keep_cols.append(col)
+        df_scorpio = df_scorpio[keep_cols]
 
-        for lin in major_lineages:
-            if lin.date < self.date and lin.who_label not in ["Beta", "Gamma"]:
-                x_first = None
-                if len(self.pango_lineage_samples[lin.pango_lineage]) > 0:
-                    first_sample_date = self.nodes_metadata[
-                        self.pango_lineage_samples[lin.pango_lineage][0]
-                    ]["date"]
-                    x_first = np.array([first_sample_date], dtype="datetime64[D]")[0]
-                    ax4.annotate(
-                        f"first\n{lin.pango_lineage}", xy=(x_first, 0), xycoords="data"
-                    )
-                    ax4.axvline(x_first, color="grey", alpha=0.5)
+        ax4.stackplot(
+            df_scorpio.index,
+            *[df_scorpio[s] for s in df_scorpio],
+            labels=[" ".join(s.split("_")) for s in df_scorpio],
+        )
+        ax4.legend(loc="upper left")
 
         return fig, [ax1, ax2, ax3, ax4]
 
