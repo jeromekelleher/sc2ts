@@ -757,16 +757,11 @@ class TreeInfo:
             strain = md["strain"]
         else:
             md = md["sc2ts"]
-            if flags == 1 << 21:
+            if flags & (core.NODE_IS_MUTATION_OVERLAP | core.NODE_IS_REVERSION_PUSH) > 0:
                 try:
-                    strain = f"O{md['date_added']} {','.join(md['mutations'])}"
+                    strain = f"{md['date_added']}:{', '.join(md['mutations'])}"
                 except KeyError:
-                    strain = "Overlap debug missing"
-            elif flags == 1 << 22:
-                try:
-                    strain = f"P{md['date_added']} {','.join(md['mutations'])}"
-                except KeyError:
-                    strain = "Push debug missing"
+                    strain = "debug missing"
             elif "group_id" in md:
                 strain = md["group_id"]
 
@@ -782,6 +777,7 @@ class TreeInfo:
 
         return {
             "node": u,
+            "flags": core.flags_summary(flags),
             "strain": strain,
             "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
