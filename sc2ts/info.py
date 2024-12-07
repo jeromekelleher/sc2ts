@@ -24,41 +24,6 @@ from . import utils
 logger = logging.getLogger(__name__)
 
 
-def scorpio_to_major_voc(scorpio):
-    keys = {"Alpha", "Delta", "BA.1", "BA.2", "BA.4", "BA.5", "BQ.1", "XBB"}
-    for k in keys:
-        if k in scorpio:
-            return k
-    if "Omicron" in scorpio:
-        return "Other_Omicron"
-    return "Other"
-
-
-def merge_scorpio_columns(df):
-    out_cols = {}
-    for col, values in df.items():
-        if col.endswith("_count"):
-            col = col[: -len("_count")]
-            voc = scorpio_to_major_voc(col)
-            if voc not in out_cols:
-                out_cols[voc] = values.copy()
-            else:
-                out_cols[voc] += values
-        elif col == "date":
-            out_cols[col] = values
-    return pd.DataFrame(out_cols)
-
-
-def compute_fractions(df):
-    sum_col = sum(col for _, col in df.items())
-    # print(df.copy)
-    copy = df.copy()
-    # print(copy)
-    for k, v in df.items():
-        copy[k] = v / sum_col
-    return copy
-
-
 @dataclasses.dataclass
 class LineageDetails:
     """
@@ -1604,18 +1569,24 @@ class TreeInfo:
 
         return fig, [ax1, ax2, ax3, ax4]
 
-    def plot_resources(self, start_date="2020-04-01"):
+    def plot_resources(self, start_date="2020-01-01", end_date="3000-01-01"):
         ts = self.ts
         fig, ax = self._wide_plot(3, height=8, sharex=True)
 
+        start_date = np.datetime64(start_date)
+        end_date = np.datetime64(end_date)
+        df = self.samples_summary()
+
         dfs = self.samples_summary().set_index("date")
+        dfa = dfs.groupby("date").sum()
+        dfa["mean_hmm_cost"] = dfa["total_hmm_cost"] / dfa["total"]
         df = self.resources_summary().set_index("date")
         # Should be able to do this with join, but I failed
-        df["samples_in_arg"] = dfs.loc[df.index]["inserted"]
-        df["samples_processed"] = dfs.loc[df.index]["total"]
-        df["mean_hmm_cost"] = dfs.loc[df.index]["mean_hmm_cost"]
+        df["samples_in_arg"] = dfa.loc[df.index]["inserted"]
+        df["samples_processed"] = dfa.loc[df.index]["total"]
+        df["mean_hmm_cost"] = dfa.loc[df.index]["mean_hmm_cost"]
+        df = df[(df.index >= start_date) & (df.index < end_date)]
 
-        df = df[df.index >= start_date]
         df["cpu_time"] = df.user_time + df.sys_time
         x = np.array(df.index, dtype="datetime64[D]")
 
@@ -1627,7 +1598,6 @@ class TreeInfo:
             f"(utilisation = {np.sum(df.cpu_time) / np.sum(df.elapsed_time):.2f})"
         )
 
-        # df.max_mem /= 1024**3  # Convert to GiB
         ax[0].set_title(title)
         ax[0].plot(x, df.elapsed_time / 60, label="elapsed time")
         ax[-1].set_xlabel("Date")
@@ -1635,19 +1605,28 @@ class TreeInfo:
         ax_twin.plot(
             x, df.samples_processed, color="tab:red", alpha=0.5, label="samples"
         )
+        ax_twin.legend(loc="upper left")
         ax_twin.set_ylabel("Samples processed")
         ax[0].set_ylabel("Elapsed time (mins)")
         ax[0].legend()
         ax_twin.legend()
-        ax[1].plot(x, df.elapsed_time / df.samples_processed)
+        ax[1].plot(
+            x, df.elapsed_time / df.samples_processed, label="Mean time per sample"
+        )
         ax[1].set_ylabel("Elapsed time per sample (s)")
+        ax[1].legend(loc="upper right")
+
         ax_twin = ax[1].twinx()
         ax_twin.plot(
-            x, df.mean_hmm_cost, color="tab:purple", alpha=0.5, label="HMM cost"
+            x, df.mean_hmm_cost, color="tab:orange", alpha=0.5, label="HMM cost"
         )
         ax_twin.set_ylabel("HMM cost")
+        ax_twin.legend(loc="upper left")
         ax[2].plot(x, df.max_memory / 1024**3)
         ax[2].set_ylabel("Max memory (GiB)")
+
+        for a in ax:
+            a.grid()
         return fig, ax
 
     def resources_summary(self):
@@ -1663,7 +1642,7 @@ class TreeInfo:
                 # Just double checking that this is the same date the provenance is for
                 # when using production data from CLI (test fixtures don't have this).
                 text_date = record["parameters"]["args"][2]
-                assert text_date == dates[j - 1]
+                assert text_date == str(dates[j - 1]).split(" ")[0]
             except IndexError:
                 pass
             resources = record["resources"]
