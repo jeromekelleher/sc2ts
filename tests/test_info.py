@@ -197,6 +197,13 @@ class TestTreeInfo:
         for ax in axes:
             assert isinstance(ax, matplotlib.axes.Axes)
 
+    def test_exact_match_counts(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        counts = ti.ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"]
+        for j in range(ti.ts.num_nodes):
+            c = counts.get(str(j), 0)
+            assert ti.nodes_num_exact_matches[j] == c
+
     def test_draw_pango_lineage_subtree(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         svg = ti.draw_pango_lineage_subtree("A")

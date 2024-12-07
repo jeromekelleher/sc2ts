@@ -490,6 +490,7 @@ class TreeInfo:
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
         self.nodes_num_missing_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_num_deletion_sites = np.zeros(ts.num_nodes, dtype=np.int32)
+        self.nodes_num_exact_matches = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
         self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
@@ -497,6 +498,11 @@ class TreeInfo:
         self.time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
         self.pango_lineage_samples = collections.defaultdict(list)
         self.first_scorpio_sample = {}
+
+        # NOTE: keyed by *string* because of JSON
+        exact_matches = ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"][
+            "node"
+        ]
 
         iterator = tqdm(
             ts.nodes(),
@@ -507,6 +513,7 @@ class TreeInfo:
         for node in iterator:
             md = node.metadata
             self.nodes_metadata[node.id] = md
+            self.nodes_num_exact_matches[node.id] = exact_matches.get(str(node.id), 0)
             group_id = None
             sc2ts_md = md["sc2ts"]
             group_id = sc2ts_md.get("group_id", None)
@@ -744,6 +751,7 @@ class TreeInfo:
     def _node_summary(self, u, child_mutations=True):
         md = self.nodes_metadata[u]
         flags = self.ts.nodes_flags[u]
+
         strain = ""
         if (flags & tskit.NODE_IS_SAMPLE) != 0:
             strain = md["strain"]
@@ -778,6 +786,7 @@ class TreeInfo:
             "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
             "children": np.sum(self.ts.edges_parent == u),
+            "exact_matches": self.nodes_num_exact_matches[u],
             "descendants": self.nodes_max_descendant_samples[u],
             "date": self.nodes_date[u],
             **self._node_mutation_summary(u, child_mutations=child_mutations),
