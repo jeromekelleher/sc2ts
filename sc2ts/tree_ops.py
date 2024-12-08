@@ -276,7 +276,7 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     return tables.tree_sequence()
 
 
-def coalesce_mutations(ts, samples=None):
+def coalesce_mutations(ts, samples=None, date="1999-01-01"):
     """
     Examine all time-0 samples and their (full-sequence) sibs and create
     new nodes to represent overlapping sets of mutations. The algorithm
@@ -380,6 +380,7 @@ def coalesce_mutations(ts, samples=None):
                 "sc2ts": {
                     "mutations": md_overlap,
                     "sibs": md_sibs,
+                    "date_added": date,
                 }
             },
         )

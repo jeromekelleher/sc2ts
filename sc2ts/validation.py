@@ -14,11 +14,11 @@ DELETION = sc2ts.IUPAC_ALLELES.index("-")
 
 
 def validate_genotypes(ts, dataset, deletions_as_missing=False, show_progress=False):
-    sample_id = ts.metadata["sc2ts"]["samples_strain"][1:]
+    sample_id = ts.metadata["sc2ts"]["samples_strain"]
     logger.info(f"Validating ARG for with {len(sample_id)} samples")
     bar = tqdm.tqdm(total=ts.num_sites, desc="Genotypes", disable=not show_progress)
     for var1, var2 in zip(
-        ts.variants(samples=ts.samples()[1:], alleles=tuple(sc2ts.IUPAC_ALLELES)),
+        ts.variants(alleles=tuple(sc2ts.IUPAC_ALLELES)),
         dataset.variants(sample_id, ts.sites_position),
     ):
         assert var1.site.position == var2.position

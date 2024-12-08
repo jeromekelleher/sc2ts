@@ -24,41 +24,6 @@ from . import utils
 logger = logging.getLogger(__name__)
 
 
-def scorpio_to_major_voc(scorpio):
-    keys = {"Alpha", "Delta", "BA.1", "BA.2", "BA.4", "BA.5", "BQ.1", "XBB"}
-    for k in keys:
-        if k in scorpio:
-            return k
-    if "Omicron" in scorpio:
-        return "Other_Omicron"
-    return "Other"
-
-
-def merge_scorpio_columns(df):
-    out_cols = {}
-    for col, values in df.items():
-        if col.endswith("_count"):
-            col = col[: -len("_count")]
-            voc = scorpio_to_major_voc(col)
-            if voc not in out_cols:
-                out_cols[voc] = values.copy()
-            else:
-                out_cols[voc] += values
-        elif col == "date":
-            out_cols[col] = values
-    return pd.DataFrame(out_cols)
-
-
-def compute_fractions(df):
-    sum_col = sum(col for _, col in df.items())
-    # print(df.copy)
-    copy = df.copy()
-    # print(copy)
-    for k, v in df.items():
-        copy[k] = v / sum_col
-    return copy
-
-
 @dataclasses.dataclass
 class LineageDetails:
     """
@@ -461,6 +426,7 @@ class TreeInfo:
     ):
         self.ts = ts
         self.pango_source = pango_source
+        self.scorpio_source = "Viridian_scorpio"
         self.strain_map = {}
         self.recombinants = np.where(ts.nodes_flags == core.NODE_IS_RECOMBINANT)[0]
 
@@ -524,13 +490,19 @@ class TreeInfo:
         self.nodes_date = np.zeros(ts.num_nodes, dtype="datetime64[D]")
         self.nodes_num_missing_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_num_deletion_sites = np.zeros(ts.num_nodes, dtype=np.int32)
+        self.nodes_num_exact_matches = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
         self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
 
         self.time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
-        self.earliest_pango_lineage = {}
         self.pango_lineage_samples = collections.defaultdict(list)
+        self.first_scorpio_sample = {}
+
+        # NOTE: keyed by *string* because of JSON
+        exact_matches = ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"][
+            "node"
+        ]
 
         iterator = tqdm(
             ts.nodes(),
@@ -541,6 +513,7 @@ class TreeInfo:
         for node in iterator:
             md = node.metadata
             self.nodes_metadata[node.id] = md
+            self.nodes_num_exact_matches[node.id] = exact_matches.get(str(node.id), 0)
             group_id = None
             sc2ts_md = md["sc2ts"]
             group_id = sc2ts_md.get("group_id", None)
@@ -549,6 +522,9 @@ class TreeInfo:
             if node.is_sample():
                 self.nodes_date[node.id] = md["date"]
                 pango = md.get(self.pango_source, "unknown")
+                scorpio = md.get(self.scorpio_source, ".")
+                if scorpio != "." and scorpio not in self.first_scorpio_sample:
+                    self.first_scorpio_sample[scorpio] = node.id
                 self.pango_lineage_samples[pango].append(node.id)
                 self.nodes_num_missing_sites[node.id] = sc2ts_md.get(
                     "num_missing_sites", 0
@@ -775,23 +751,21 @@ class TreeInfo:
     def _node_summary(self, u, child_mutations=True):
         md = self.nodes_metadata[u]
         flags = self.ts.nodes_flags[u]
+
         strain = ""
-        if (flags & tskit.NODE_IS_SAMPLE) != 0:
+        if flags & (tskit.NODE_IS_SAMPLE | core.NODE_IS_REFERENCE) > 0:
             strain = md["strain"]
         else:
             md = md["sc2ts"]
-            if flags == 1 << 21:
-                if "overlap" in md:
-                    strain = f"Overlap {len(md['overlap'])} mut {len(md['sibs'])} sibs"
-                else:
-                    strain = "Overlap debug missing"
-            elif flags == 1 << 22:
-                if "sites" in md:
-                    strain = f"Push {len(md['sites'])} reversions"
-                else:
-                    strain = "Push debug missing"
+            if flags & (core.NODE_IS_MUTATION_OVERLAP | core.NODE_IS_REVERSION_PUSH) > 0:
+                try:
+                    strain = f"{md['date_added']}:{', '.join(md['mutations'])}"
+                except KeyError:
+                    strain = "debug missing"
             elif "group_id" in md:
-                strain = md["group_id"]
+                # FIXME clipping this artificially for now
+                # see https://github.com/jeromekelleher/sc2ts/issues/434
+                strain = md["group_id"][:8]
 
         pango = md.get(self.pango_source, None)
         imputed_pango = md.get("Imputed_" + self.pango_source, None)
@@ -805,10 +779,12 @@ class TreeInfo:
 
         return {
             "node": u,
+            "flags": core.flags_summary(flags),
             "strain": strain,
             "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
             "children": np.sum(self.ts.edges_parent == u),
+            "exact_matches": self.nodes_num_exact_matches[u],
             "descendants": self.nodes_max_descendant_samples[u],
             "date": self.nodes_date[u],
             **self._node_mutation_summary(u, child_mutations=child_mutations),
@@ -896,33 +872,16 @@ class TreeInfo:
 
     def samples_summary(self):
         data = []
-        md = self.ts.metadata["sc2ts"]
-        samples_processed = md["samples_processed"]
-        for days_ago in np.arange(self.num_samples_per_day.shape[0]):
-            date = str(self.time_zero_as_date - days_ago)
-            processed_by_date = samples_processed.get(date, {})
-            count = processed_by_date.get("count", {})
-            mean_hmm_cost = processed_by_date.get("mean_hmm_cost", {})
-            datum = {}
-            total_count = 0
-            total_hmm_cost = 0
-            for scorpio in count:
-                datum[f"{scorpio}_count"] = count[scorpio]
-                datum[f"{scorpio}_hmm_cost"] = mean_hmm_cost[scorpio]
-                total_count += count[scorpio]
-                total_hmm_cost += count[scorpio] * mean_hmm_cost[scorpio]
-
-            datum = {
-                "date": self.time_zero_as_date - days_ago,
-                "samples_in_arg": self.num_samples_per_day[days_ago],
-                "samples_processed": total_count,
-                "mean_hmm_cost": total_hmm_cost / max(1, total_count),
-                "exact_matches": md["exact_matches"]["date"].get(date, 0),
-                **datum,
-            }
-            data.append(datum)
-
-        return pd.DataFrame(data).fillna(0)
+        md = self.ts.metadata["sc2ts"]["daily_stats"]
+        for date, daily_stats in md.items():
+            for row in daily_stats["samples_processed"]:
+                data.append({"date": date, **row})
+        df = pd.DataFrame(data)
+        df["inserted"] = df["total"] - df["rejected"] - df["exact_matches"]
+        if "total_hmm_cost" not in df:
+            # TMP! Remove this once we've got total_hmm_cost in the actual m
+            df["total_hmm_cost"] = df["mean_hmm_cost"] * df["total"]
+        return df.astype({"date": "datetime64[s]"})
 
     def recombinants_summary(self):
         data = []
@@ -1558,76 +1517,108 @@ class TreeInfo:
         ax.set_ylabel("Overlapping deletions")
         return fig, [ax]
 
-    def plot_samples_per_day(self, start_date="2020-04-01"):
+    def plot_samples_per_day(
+        self, start_date="2020-01-01", end_date="3000-01-01", scorpio_fraction=0.05
+    ):
+        start_date = np.datetime64(start_date)
+        end_date = np.datetime64(end_date)
         df = self.samples_summary()
-        df = df[df.date >= start_date]
+        df = df[(df.date >= start_date) & (df.date < end_date)]
+
+        dfa = df.groupby("date").sum().reset_index()
+        dfa["mean_hmm_cost"] = dfa["total_hmm_cost"] / dfa["total"]
         fig, (ax1, ax2, ax3, ax4) = self._wide_plot(4, height=12, sharex=True)
         exact_col = "tab:red"
         in_col = "tab:purple"
-        ax1.plot(df.date, df.samples_in_arg, label="In ARG", color=in_col)
-        ax1.plot(df.date, df.samples_processed, label="Processed")
-        ax1.plot(df.date, df.exact_matches, label="Exact matches", color=exact_col)
+        ax1.plot(dfa.date, dfa.inserted, label="In ARG", color=in_col)
+        ax1.plot(dfa.date, dfa.total, label="Processed")
+        ax1.plot(dfa.date, dfa.exact_matches, label="Exact matches", color=exact_col)
 
         ax2.plot(
-            df.date,
-            df.samples_in_arg / df.samples_processed,
+            dfa.date,
+            dfa.inserted / dfa.total,
             label="Fraction processed in ARG",
             color=in_col,
         )
         ax2.plot(
-            df.date,
-            df.exact_matches / df.samples_processed,
+            dfa.date,
+            dfa.exact_matches / dfa.total,
             label="Fraction processed exact matches",
             color=exact_col,
         )
-        excluded = df.samples_processed - df.exact_matches - df.samples_in_arg
-        ax3.plot(df.date, excluded / df.samples_processed, label="Fraction excluded")
+
+        ax3.plot(dfa.date, dfa.rejected / dfa.total, label="Fraction excluded")
         ax3_2 = ax3.twinx()
-        ax3_2.plot(df.date, df.mean_hmm_cost, color="tab:orange")
-        ax3.set_xlabel("Date")
+        ax3_2.plot(
+            dfa.date, dfa.mean_hmm_cost, label="mean HMM cost", color="tab:orange"
+        )
+        ax2.set_ylabel("Fraction of samples")
+        ax3.set_ylabel("Fraction of samples")
+        ax4.set_xlabel("Date")
         ax3_2.set_ylabel("Mean HMM cost")
         ax1.set_ylabel("Number of samples")
         ax1.legend()
         ax2.legend()
-        ax3.legend()
+        ax3.legend(loc="upper right")
+        ax3_2.legend(loc="upper left")
 
-        df_major_voc = merge_scorpio_columns(df).set_index("date")
-        df_voc = compute_fractions(df_major_voc)
-        ax4.stackplot(
-            df_voc.index,
-            *[df_voc[voc] for voc in df_voc],
-            labels=[" ".join(k.split("_")) for k in df_voc],
-            alpha=0.7,
+        for ax in [ax1, ax2, ax3]:
+            ax.grid()
+
+        df_scorpio = df.pivot_table(
+            columns="scorpio", index="date", values="total", aggfunc="sum", fill_value=0
         )
-        ax4.legend()
+        # convert to fractions
+        df_scorpio = df_scorpio.divide(df_scorpio.sum(axis="columns"), axis="index")
+        # Remove columns that don't have more than the threshold
+        keep_cols = []
+        first_scorpio_date = []
+        for col in df_scorpio:
+            if np.any(df_scorpio[col] >= scorpio_fraction):
+                keep_cols.append(col)
+                try:
+                    first_date = self.nodes_date[self.first_scorpio_sample[col]]
+                    first_scorpio_date.append((first_date, col))
+                except KeyError:
+                    warnings.warn(f"No samples for Scorpio {col} present")
 
-        for lin in major_lineages:
-            if lin.date < self.date and lin.who_label not in ["Beta", "Gamma"]:
-                x_first = None
-                if len(self.pango_lineage_samples[lin.pango_lineage]) > 0:
-                    first_sample_date = self.nodes_metadata[
-                        self.pango_lineage_samples[lin.pango_lineage][0]
-                    ]["date"]
-                    x_first = np.array([first_sample_date], dtype="datetime64[D]")[0]
-                    ax4.annotate(
-                        f"first\n{lin.pango_lineage}", xy=(x_first, 0), xycoords="data"
-                    )
-                    ax4.axvline(x_first, color="grey", alpha=0.5)
+        df_scorpio = df_scorpio[keep_cols]
+        ax4.set_title("Scorpio composition of processed samples")
+        ax4.stackplot(
+            df_scorpio.index,
+            *[df_scorpio[s] for s in df_scorpio],
+            labels=[" ".join(s.split("_")) for s in df_scorpio],
+        )
+        ax4.legend(loc="upper left", ncol=2)
+
+        j = 0
+        n = 5
+        for date, scorpio in sorted(first_scorpio_date):
+            y = (j + 1) / n
+            ax4.annotate(f"{scorpio}", xy=(date, y), xycoords="data")
+            ax4.axvline(date, color="grey", alpha=0.5)
+            j = (j + 1) % (n - 1)
 
         return fig, [ax1, ax2, ax3, ax4]
 
-    def plot_resources(self, start_date="2020-04-01"):
+    def plot_resources(self, start_date="2020-01-01", end_date="3000-01-01"):
         ts = self.ts
         fig, ax = self._wide_plot(3, height=8, sharex=True)
 
+        start_date = np.datetime64(start_date)
+        end_date = np.datetime64(end_date)
+        df = self.samples_summary()
+
         dfs = self.samples_summary().set_index("date")
+        dfa = dfs.groupby("date").sum()
+        dfa["mean_hmm_cost"] = dfa["total_hmm_cost"] / dfa["total"]
         df = self.resources_summary().set_index("date")
         # Should be able to do this with join, but I failed
-        df["samples_in_arg"] = dfs.loc[df.index]["samples_in_arg"]
-        df["samples_processed"] = dfs.loc[df.index]["samples_processed"]
-        df["mean_hmm_cost"] = dfs.loc[df.index]["mean_hmm_cost"]
+        df["samples_in_arg"] = dfa.loc[df.index]["inserted"]
+        df["samples_processed"] = dfa.loc[df.index]["total"]
+        df["mean_hmm_cost"] = dfa.loc[df.index]["mean_hmm_cost"]
+        df = df[(df.index >= start_date) & (df.index < end_date)]
 
-        df = df[df.index >= start_date]
         df["cpu_time"] = df.user_time + df.sys_time
         x = np.array(df.index, dtype="datetime64[D]")
 
@@ -1639,7 +1630,6 @@ class TreeInfo:
             f"(utilisation = {np.sum(df.cpu_time) / np.sum(df.elapsed_time):.2f})"
         )
 
-        # df.max_mem /= 1024**3  # Convert to GiB
         ax[0].set_title(title)
         ax[0].plot(x, df.elapsed_time / 60, label="elapsed time")
         ax[-1].set_xlabel("Date")
@@ -1647,26 +1637,35 @@ class TreeInfo:
         ax_twin.plot(
             x, df.samples_processed, color="tab:red", alpha=0.5, label="samples"
         )
+        ax_twin.legend(loc="upper left")
         ax_twin.set_ylabel("Samples processed")
         ax[0].set_ylabel("Elapsed time (mins)")
         ax[0].legend()
         ax_twin.legend()
-        ax[1].plot(x, df.elapsed_time / df.samples_processed)
+        ax[1].plot(
+            x, df.elapsed_time / df.samples_processed, label="Mean time per sample"
+        )
         ax[1].set_ylabel("Elapsed time per sample (s)")
+        ax[1].legend(loc="upper right")
+
         ax_twin = ax[1].twinx()
         ax_twin.plot(
-            x, df.mean_hmm_cost, color="tab:purple", alpha=0.5, label="HMM cost"
+            x, df.mean_hmm_cost, color="tab:orange", alpha=0.5, label="HMM cost"
         )
         ax_twin.set_ylabel("HMM cost")
+        ax_twin.legend(loc="upper left")
         ax[2].plot(x, df.max_memory / 1024**3)
         ax[2].set_ylabel("Max memory (GiB)")
+
+        for a in ax:
+            a.grid()
         return fig, ax
 
     def resources_summary(self):
         ts = self.ts
         data = []
-        samples_processed = ts.metadata["sc2ts"]["samples_processed"]
-        dates = sorted(list(samples_processed.keys()))
+        df_samples = self.samples_summary()
+        dates = df_samples["date"].unique()
         assert len(dates) == ts.num_provenances - 1
         for j in range(1, ts.num_provenances):
             p = ts.provenance(j)
@@ -1675,7 +1674,7 @@ class TreeInfo:
                 # Just double checking that this is the same date the provenance is for
                 # when using production data from CLI (test fixtures don't have this).
                 text_date = record["parameters"]["args"][2]
-                assert text_date == dates[j - 1]
+                assert text_date == str(dates[j - 1]).split(" ")[0]
             except IndexError:
                 pass
             resources = record["resources"]

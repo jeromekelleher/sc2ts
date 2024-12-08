@@ -197,6 +197,13 @@ class TestTreeInfo:
         for ax in axes:
             assert isinstance(ax, matplotlib.axes.Axes)
 
+    def test_exact_match_counts(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        counts = ti.ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"]
+        for j in range(ti.ts.num_nodes):
+            c = counts.get(str(j), 0)
+            assert ti.nodes_num_exact_matches[j] == c
+
     def test_draw_pango_lineage_subtree(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         svg = ti.draw_pango_lineage_subtree("A")
@@ -217,19 +224,24 @@ class TestTreeInfo:
     def test_resources_summary(self, fx_ti_2020_02_13):
         df = fx_ti_2020_02_13.resources_summary()
         assert df.shape[0] == 20
-        assert np.all(df.date.str.startswith("2020"))
+        assert np.all(df.date.astype(str).str.startswith("2020"))
 
     def test_samples_summary(self, fx_ti_2020_02_13):
         df = fx_ti_2020_02_13.samples_summary()
-        # NOTE: just doing this subsetting here to get rid of the annoying reference
-        # as-sample issue, which mucks up counts. Should be able to get rid of this
-        # after closing https://github.com/jeromekelleher/sc2ts/issues/413
-        df = df[df["date"] >= datetime.datetime.fromisoformat("2020-01-01")]
-        assert np.all(
-            df["samples_processed"] >= (df["samples_in_arg"] + df["exact_matches"])
-        )
+        assert np.all(df["total"] >= (df["inserted"] + df["exact_matches"]))
         assert df.shape[0] > 0
-        assert np.all(df["samples_processed"] == df["._count"])
+
+    def test_node_summary(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        for u in range(ti.ts.num_nodes):
+            d = ti._node_summary(u)
+            assert d["node"] == u
+            assert len(d["flags"]) == 10
+
+    def test_node_report(self, fx_ti_2020_02_13):
+        ti = fx_ti_2020_02_13
+        report = ti.node_report(strain="SRR11597190")
+        assert len(report) > 0
 
 
 class TestSampleGroupInfo:
