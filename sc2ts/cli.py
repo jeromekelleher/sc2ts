@@ -13,6 +13,7 @@ import time
 import os
 from typing import List
 
+import tomli
 import numpy as np
 import tqdm
 import tskit
@@ -656,10 +657,86 @@ def extend(
     if progress:
         print(resource_usage, file=sys.stderr)
         df = pd.DataFrame(
-                ts_out.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
-            ).set_index("scorpio")
+            ts_out.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
+        ).set_index("scorpio")
         df = df[list(df.columns)[::-1]].sort_values("total")
         print(df)
+
+
+@click.command()
+@click.argument("config_file", type=click.File(mode="rb"))
+# @click.option(
+#     "-s",
+#     "--start",
+#     default=None,
+#     help="Skip this metadata field during comparison",
+# )
+def infer(config_file):
+    """
+    Run the full inference pipeline based on values in the config file.
+    """
+    config = tomli.load(config_file)
+    print(config)
+    run_id = config["run_id"]
+    results_dir = pathlib.Path(config["results_dir"]) / run_id
+    log_dir = pathlib.Path(config["log_dir"])
+    matches_dir = pathlib.Path(config["matches_dir"])
+    for path in [matches_dir, results_dir, log_dir]:
+        path.mkdir(exist_ok=True, parents=True)
+
+    log_file = log_dir / run_id
+    match_db = matches_dir / f"matches_{run_id}.db"
+
+    base_ts = sc2ts.initial_ts(config["exclude_sites"])
+    sc2ts.MatchDb.initialise(match_db)
+    print("made", match_db)
+    
+    ds = sc2ts.Dataset(config["dataset"])
+    for date in np.unique(ds["sample_date"][:]):
+        if date in config["exclude_dates"]:
+            print("SKIPPING", date)
+            continue
+        if len(date) < 10:
+            # Imprecise or malformed date
+            continue
+
+        params = dict(config["extend_parameters"])
+        # TODO apply date-range updates
+
+
+        # TODO call sc2ts.extend in a subprocess, and move the logic about 
+        # recording provenance in there. There's no real point in having a 
+        # separate init/extend command in the CLI now, it's a pain to use.
+
+        # ts_out = sc2ts.extend(
+        #     dataset=ds,
+        #     base_ts=base_ts,
+        #     date=date,
+        #     match_db=match_db,
+        #     **config,
+        #     # num_mismatches=num_mismatches,
+        #     # include_samples=include_samples,
+        #     # hmm_cost_threshold=hmm_cost_threshold,
+        #     # min_group_size=min_group_size,
+        #     # min_root_mutations=min_root_mutations,
+        #     # max_mutations_per_sample=max_mutations_per_sample,
+        #     # max_recurrent_mutations=max_recurrent_mutations,
+        #     # retrospective_window=retrospective_window,
+        #     # deletions_as_missing=deletions_as_missing,
+        #     # max_daily_samples=max_daily_samples,
+        #     # max_missing_sites=max_missing_sites,
+        #     # random_seed=random_seed,
+        #     # num_threads=num_threads,
+        #     # memory_limit=memory_limit * 2**30,
+        #     show_progress=progress,
+        # )
+
+        # base_ts = ts_out
+
+
+
+
+
 
 
 @click.command()
@@ -1043,6 +1120,7 @@ cli.add_command(info_ts)
 cli.add_command(initialise)
 cli.add_command(list_dates)
 cli.add_command(extend)
+cli.add_command(infer)
 cli.add_command(validate)
 cli.add_command(_match)
 cli.add_command(rematch_recombinants)
