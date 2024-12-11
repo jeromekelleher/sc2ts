@@ -59,10 +59,11 @@ jobs:
       - name: Create basedir 
         run: |
           mkdir -p testrun
+          gunzip -k tests/data/alignments.fasta.gz
 
       - name: Import alignments
         run: |
-          sc2ts import-alignments -i testrun/dataset.zarr tests/data/alignments.fasta.gz
+          sc2ts import-alignments -i testrun/dataset.zarr tests/data/alignments.fasta
 
       - name: Import metadata
         run: |

@@ -1666,16 +1666,16 @@ class TreeInfo:
         data = []
         df_samples = self.samples_summary()
         dates = df_samples["date"].unique()
-        assert len(dates) == ts.num_provenances - 1
-        for j in range(1, ts.num_provenances):
+        assert len(dates) == ts.num_provenances 
+        for j in range(ts.num_provenances):
             p = ts.provenance(j)
             record = json.loads(p.record)
             try:
-                # Just double checking that this is the same date the provenance is for
-                # when using production data from CLI (test fixtures don't have this).
-                text_date = record["parameters"]["args"][2]
-                assert text_date == str(dates[j - 1]).split(" ")[0]
+                text_date = record["parameters"]["date"]
+                assert text_date == str(dates[j]).split(" ")[0]
             except IndexError:
+                # NOTE this will only fail on older versions of provenance, so
+                # can be removed at some point
                 pass
             resources = record["resources"]
             data.append({"date": dates[j - 1], **resources})

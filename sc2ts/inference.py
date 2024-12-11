@@ -40,7 +40,7 @@ def get_provenance_dict(command, args, start_time):
     document = {
         "schema_version": "1.0.0",
         "software": {"name": "sc2ts", "version": core.__version__},
-        "parameters": {"command": command, "args": args},
+        "parameters": {"command": command, **args},
         "environment": tskit.provenance.get_environment(
             extra_libs={"tsinfer": {"version": tsinfer.__version__}}
         ),
