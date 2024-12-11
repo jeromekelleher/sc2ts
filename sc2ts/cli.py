@@ -312,7 +312,7 @@ def _run_extend(out_path, verbose, log_file, **params):
 @click.command()
 @click.argument("config_file", type=click.File(mode="rb"))
 @click.option(
-    "-s", "--start", default=None, help="Start inference at this date (inclusive). "
+    "--start", default=None, help="Start inference at this date (inclusive). "
 )
 @click.option(
     "--stop",
@@ -331,7 +331,9 @@ def infer(config_file, start, stop, force):
     Run the full inference pipeline based on values in the config file.
     """
     config = tomli.load(config_file)
-    # print(config)
+    import pprint
+
+    pprint.pprint(config)
     run_id = config["run_id"]
     results_dir = pathlib.Path(config["results_dir"]) / run_id
     log_dir = pathlib.Path(config["log_dir"])
@@ -357,6 +359,7 @@ def infer(config_file, start, stop, force):
         start = "2000"
     else:
         base_ts = find_previous_date_path(start, ts_file_pattern)
+        print(f"Starting from {base_ts}")
         with sc2ts.MatchDb(match_db) as mdb:
             newer_matches = mdb.count_newer(start)
             if newer_matches > 0:
@@ -366,9 +369,10 @@ def infer(config_file, start, stop, force):
                         f"from MatchDB >= {start}?",
                         abort=True,
                     )
-                    mdb.delete_newer(start)
+                mdb.delete_newer(start)
 
     exclude_dates = set(config.get("exclude_dates", []))
+    param_overrides = config.get("override", [])
 
     ds = sc2ts.Dataset(config["dataset"])
     for date in np.unique(ds["sample_date"][:]):
@@ -387,7 +391,10 @@ def infer(config_file, start, stop, force):
             "match_db": str(match_db),
             **config["extend_parameters"],
         }
-        # TODO apply date-range updates
+        for override_set in param_overrides:
+            if override_set["start"] <= date < override_set["stop"]:
+                print(f"{date} overriding {override_set}")
+                params.update(override_set["parameters"])
 
         base_ts = ts_file_pattern.format(date=date)
         with cf.ProcessPoolExecutor(1) as executor:
@@ -445,48 +452,6 @@ def validate(
         sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:
         sc2ts.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
-
-
-# @click.command()
-# @click.argument("ts_file")
-# @click.option("-v", "--verbose", count=True)
-# def export_alignments(ts_file, verbose):
-#     """
-#     Export alignments from the specified tskit file to FASTA
-#     """
-#     setup_logging(verbose)
-#     ts = tszip.load(ts_file)
-#     for u, alignment in zip(ts.samples(), ts.alignments(left=1)):
-#         strain = ts.node(u).metadata["strain"]
-#         if strain == core.REFERENCE_STRAIN:
-#             continue
-#         print(f">{strain}")
-#         print(alignment)
-
-
-# @click.command()
-# @click.argument("ts_file")
-# @click.option("-v", "--verbose", count=True)
-# def export_metadata(ts_file, verbose):
-#     """
-#     Export metadata from the specified tskit file to TSV
-#     """
-#     setup_logging(verbose)
-#     ts = tszip.load(ts_file)
-#     data = []
-#     for u in ts.samples():
-#         md = ts.node(u).metadata
-#         if md["strain"] == core.REFERENCE_STRAIN:
-#             continue
-#         try:
-#             # FIXME this try/except is needed because of some samples not having full
-#             # metadata. Can drop when fixed.
-#             del md["sc2ts"]
-#         except KeyError:
-#             pass
-#         data.append(md)
-#     df = pd.DataFrame(data)
-#     df.to_csv(sys.stdout, sep="\t", index=False)
 
 
 @click.command()
