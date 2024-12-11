@@ -5,6 +5,7 @@ import datetime
 import dataclasses
 import collections
 import concurrent.futures as cf
+import inspect
 import time
 import json
 import pickle
@@ -16,7 +17,9 @@ import threading
 
 import tqdm
 import tskit
+import tszip
 import _tsinfer
+import tsinfer
 import numpy as np
 import zarr
 import numba
@@ -25,11 +28,25 @@ import pandas as pd
 
 from . import core
 from . import tree_ops
+from . import dataset as _dataset
 
 logger = logging.getLogger(__name__)
 
 MISSING = -1
 DELETION = core.IUPAC_ALLELES.index("-")
+
+
+def get_provenance_dict(command, args, start_time):
+    document = {
+        "schema_version": "1.0.0",
+        "software": {"name": "sc2ts", "version": core.__version__},
+        "parameters": {"command": command, "args": args},
+        "environment": tskit.provenance.get_environment(
+            extra_libs={"tsinfer": {"version": tsinfer.__version__}}
+        ),
+        "resources": tskit.provenance.get_resources(start_time),
+    }
+    return document
 
 
 def get_progress(iterable, title, phase, show_progress, total=None):
@@ -579,6 +596,7 @@ def extend(
     num_threads=0,
     memory_limit=0,
 ):
+
     if num_mismatches is None:
         num_mismatches = 3
     if hmm_cost_threshold is None:
@@ -602,6 +620,67 @@ def extend(
     if include_samples is None:
         include_samples = []
 
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    params = {a: values[a] for a in args}
+    del frame
+
+    start_time = time.time()  # wall time
+    base_ts = tszip.load(base_ts)
+    ds = _dataset.Dataset(dataset)
+
+    with MatchDb(match_db) as matches:
+        tables = _extend(
+            dataset=ds,
+            base_ts=base_ts,
+            date=date,
+            match_db=matches,
+            include_samples=include_samples,
+            num_mismatches=num_mismatches,
+            hmm_cost_threshold=hmm_cost_threshold,
+            min_group_size=min_group_size,
+            min_root_mutations=min_root_mutations,
+            min_different_dates=min_different_dates,
+            max_mutations_per_sample=max_mutations_per_sample,
+            max_recurrent_mutations=max_recurrent_mutations,
+            deletions_as_missing=deletions_as_missing,
+            max_daily_samples=max_daily_samples,
+            retrospective_window=retrospective_window,
+            max_missing_sites=max_missing_sites,
+            show_progress=show_progress,
+            random_seed=random_seed,
+            num_threads=num_threads,
+            memory_limit=memory_limit,
+        )
+
+    prov = get_provenance_dict("extend", params, start_time)
+    tables.provenances.add_row(json.dumps(prov))
+    return tables.tree_sequence()
+
+
+def _extend(
+    *,
+    dataset,
+    date,
+    base_ts,
+    match_db,
+    include_samples,
+    num_mismatches,
+    hmm_cost_threshold,
+    min_group_size,
+    min_root_mutations,
+    min_different_dates,
+    max_mutations_per_sample,
+    max_recurrent_mutations,
+    deletions_as_missing,
+    max_daily_samples,
+    show_progress,
+    retrospective_window,
+    max_missing_sites,
+    random_seed,
+    num_threads,
+    memory_limit,
+):
     previous_date = check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
@@ -730,6 +809,7 @@ def extend(
             f"Add retro group {group.summary()}:"
             f"{group.tree_quality_metrics.summary()}"
         )
+
     return update_top_level_metadata(ts, date, groups, samples)
 
 
@@ -788,7 +868,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
         existing_retro_groups.append(d)
     md["sc2ts"]["retro_groups"] = existing_retro_groups
     tables.metadata = md
-    return tables.tree_sequence()
+    return tables
 
 
 def add_sample_to_tables(sample, tables, group_id=None):

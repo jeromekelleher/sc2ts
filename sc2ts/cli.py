@@ -3,14 +3,12 @@ import collections
 import concurrent.futures as cf
 import logging
 import itertools
-import platform
 import pathlib
 import sys
 import contextlib
 import dataclasses
 import datetime
 import time
-import os
 from typing import List
 
 import tomli
@@ -22,11 +20,6 @@ import tsinfer
 import click
 import humanize
 import pandas as pd
-
-try:
-    import resource
-except ImportError:
-    resource = None  # resource.getrusage absent on windows, so skip outputting max mem
 
 import sc2ts
 from . import core
@@ -80,30 +73,6 @@ log_file = click.option(
     "-l", "--log-file", default=None, type=click.Path(dir_okay=False)
 )
 
-__before = time.time()
-
-
-def get_resources():
-    # Measure all times in seconds
-    wall_time = time.time() - __before
-    os_times = os.times()
-    user_time = os_times.user + os_times.children_user
-    sys_time = os_times.system + os_times.children_system
-    if resource is None:
-        # Don't report max memory on Windows. We could do this using the psutil lib, via
-        # psutil.Process(os.getpid()).get_ext_memory_info().peak_wset if demand exists
-        maxmem = -1
-    else:
-        max_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        if sys.platform != "darwin":
-            max_mem *= 1024  # Linux and other OSs (e.g. freeBSD) report maxrss in kb
-    return {
-        "elapsed_time": wall_time,
-        "user_time": user_time,
-        "sys_time": sys_time,
-        "max_memory": max_mem,  # bytes
-    }
-
 
 def summarise_usage():
     d = get_resources()
@@ -115,46 +84,6 @@ def summarise_usage():
     if max_mem > 0:
         maxmem_str = "; max_memory=" + humanize.naturalsize(max_mem, binary=True)
     return f"elapsed={wall_time:.2f}m; user={user_time:.2f}m; sys={sys_time:.2f}m{maxmem_str}"
-
-
-def get_environment():
-    """
-    Returns a dictionary describing the environment in which sc2ts
-    is currently running.
-    """
-    env = {
-        "os": {
-            "system": platform.system(),
-            "node": platform.node(),
-            "release": platform.release(),
-            "version": platform.version(),
-            "machine": platform.machine(),
-        },
-        "python": {
-            "implementation": platform.python_implementation(),
-            "version": platform.python_version(),
-        },
-        "libraries": {
-            "tsinfer": {"version": tsinfer.__version__},
-            "tskit": {"version": tskit.__version__},
-        },
-    }
-    return env
-
-
-def get_provenance_dict():
-    """
-    Returns a dictionary encoding an execution of stdpopsim conforming to the
-    tskit provenance schema.
-    """
-    document = {
-        "schema_version": "1.0.0",
-        "software": {"name": "sc2ts", "version": core.__version__},
-        "parameters": {"command": sys.argv[0], "args": sys.argv[1:]},
-        "environment": get_environment(),
-        "resources": get_resources(),
-    }
-    return document
 
 
 def setup_logging(verbosity, log_file=None, date=None):
@@ -687,56 +616,35 @@ def infer(config_file):
     log_file = log_dir / run_id
     match_db = matches_dir / f"matches_{run_id}.db"
 
-    base_ts = sc2ts.initial_ts(config["exclude_sites"])
+    init_ts = sc2ts.initial_ts(config["exclude_sites"])
     sc2ts.MatchDb.initialise(match_db)
-    print("made", match_db)
-    
+    base_ts = results_dir / f"{run_id}_init.ts"
+    init_ts.dump(base_ts)
+
     ds = sc2ts.Dataset(config["dataset"])
     for date in np.unique(ds["sample_date"][:]):
         if date in config["exclude_dates"]:
             print("SKIPPING", date)
             continue
-        if len(date) < 10:
-            # Imprecise or malformed date
+        if len(date) < 10 or date < "2020":
+            # Imprecise, malformed or ludicrous date
             continue
 
-        params = dict(config["extend_parameters"])
+        params = {
+            "dataset": config["dataset"],
+            "base_ts": str(base_ts),
+            "date": date,
+            "match_db": str(match_db),
+            **config["extend_parameters"],
+        }
         # TODO apply date-range updates
 
-
-        # TODO call sc2ts.extend in a subprocess, and move the logic about 
-        # recording provenance in there. There's no real point in having a 
+        # TODO call sc2ts.extend in a subprocess, and move the logic about
+        # recording provenance in there. There's no real point in having a
         # separate init/extend command in the CLI now, it's a pain to use.
-
-        # ts_out = sc2ts.extend(
-        #     dataset=ds,
-        #     base_ts=base_ts,
-        #     date=date,
-        #     match_db=match_db,
-        #     **config,
-        #     # num_mismatches=num_mismatches,
-        #     # include_samples=include_samples,
-        #     # hmm_cost_threshold=hmm_cost_threshold,
-        #     # min_group_size=min_group_size,
-        #     # min_root_mutations=min_root_mutations,
-        #     # max_mutations_per_sample=max_mutations_per_sample,
-        #     # max_recurrent_mutations=max_recurrent_mutations,
-        #     # retrospective_window=retrospective_window,
-        #     # deletions_as_missing=deletions_as_missing,
-        #     # max_daily_samples=max_daily_samples,
-        #     # max_missing_sites=max_missing_sites,
-        #     # random_seed=random_seed,
-        #     # num_threads=num_threads,
-        #     # memory_limit=memory_limit * 2**30,
-        #     show_progress=progress,
-        # )
-
-        # base_ts = ts_out
-
-
-
-
-
+        ts = sc2ts.extend(show_progress=True, **params)
+        base_ts = results_dir / f"{run_id}_{date}.ts"
+        ts.dump(base_ts)
 
 
 @click.command()
