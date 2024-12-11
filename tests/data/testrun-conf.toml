@@ -1,7 +1,7 @@
 
 dataset="testrun/dataset.zarr"
 
-run_id=""
+run_id="test"
 results_dir = "testrun/results"
 log_dir = "testrun/logs"
 matches_dir= "testrun/"

@@ -284,7 +284,6 @@ def info_ts(ts_path, recombinants, verbose):
         print(ti.recombinants_summary())
 
 
-
 @click.command()
 @click.argument("ts", type=click.Path(dir_okay=False))
 @click.argument("match_db", type=click.Path(dir_okay=False))
@@ -585,18 +584,22 @@ def extend(
 
 @click.command()
 @click.argument("config_file", type=click.File(mode="rb"))
-# @click.option(
-#     "-s",
-#     "--start",
-#     default=None,
-#     help="Skip this metadata field during comparison",
-# )
+@click.option(
+    "-s", "--start", default=None, help="Start inference at this date (inclusive). "
+)
 @click.option(
     "--stop",
     default="3000",
-    help="Stop and exit at this date (non-inclusive",
+    help="Stop and exit at this date (non-inclusive)",
 )
-def infer(config_file, stop):
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    flag_value=True,
+    help="Force destructive updates to Match DB",
+)
+def infer(config_file, start, stop, force):
     """
     Run the full inference pipeline based on values in the config file.
     """
@@ -610,12 +613,35 @@ def infer(config_file, stop):
         path.mkdir(exist_ok=True, parents=True)
 
     log_file = log_dir / run_id
-    match_db = matches_dir / f"matches_{run_id}.db"
+    match_db = matches_dir / f"{run_id}.mdb"
 
-    init_ts = sc2ts.initial_ts(config.get("exclude_sites", []))
-    sc2ts.MatchDb.initialise(match_db)
-    base_ts = results_dir / f"{run_id}_init.ts"
-    init_ts.dump(base_ts)
+    ts_file_pattern = str(results_dir / f"{run_id}_{{date}}.ts")
+
+    if start is None:
+        if match_db.exists() and not force:
+            click.confirm(
+                f"Do you want to overwrite MatchDB at {match_db}",
+                abort=True,
+            )
+        init_ts = sc2ts.initial_ts(config.get("exclude_sites", []))
+        sc2ts.MatchDb.initialise(match_db)
+        base_ts = results_dir / f"{run_id}_init.ts"
+        init_ts.dump(base_ts)
+        start = "2000"
+    else:
+        base_ts = find_previous_date_path(start, ts_file_pattern)
+        print("previous = ", base_ts)
+
+        with sc2ts.MatchDb(match_db) as mdb:
+            newer_matches = mdb.count_newer(start)
+            if newer_matches > 0:
+                if not force:
+                    click.confirm(
+                        f"Do you want to remove {newer_matches} newer matches "
+                        f"from MatchDB >= {start}?",
+                        abort=True,
+                    )
+                    mdb.delete_newer(start)
 
     exclude_dates = set(config.get("exclude_dates", []))
 
@@ -623,7 +649,7 @@ def infer(config_file, stop):
     for date in np.unique(ds["sample_date"][:]):
         if date >= stop:
             break
-        if date in exclude_dates:
+        if date < start or date in exclude_dates:
             print("SKIPPING", date)
             continue
         if len(date) < 10 or date < "2020":
@@ -643,7 +669,8 @@ def infer(config_file, stop):
         # recording provenance in there. There's no real point in having a
         # separate init/extend command in the CLI now, it's a pain to use.
         ts = sc2ts.extend(show_progress=True, **params)
-        base_ts = results_dir / f"{run_id}_{date}.ts"
+        base_ts = ts_file_pattern.format(date=date)
+        print(base_ts)
         ts.dump(base_ts)
 
 
@@ -903,7 +930,7 @@ def find_previous_date_path(date, path_pattern):
     date = datetime.date.fromisoformat(date)
     for j in range(1, 30):
         previous_date = date - datetime.timedelta(days=j)
-        path = pathlib.Path(path_pattern.format(previous_date))
+        path = pathlib.Path(path_pattern.format(date=previous_date))
         logger.debug(f"Trying {path}")
         if path.exists():
             break
