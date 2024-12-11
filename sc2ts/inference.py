@@ -619,6 +619,9 @@ def extend(
         deletions_as_missing = False
     if include_samples is None:
         include_samples = []
+    base_ts = str(base_ts)
+    dataset = str(dataset)
+    match_db = str(match_db)
 
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)

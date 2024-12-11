@@ -132,24 +132,28 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
         # anyway; https://github.com/jeromekelleher/sc2ts/issues/282
         last_ts = sc2ts.initial_ts([56, 57, 58, 59, 60])
         cache_path = fx_data_cache / "initial.ts"
-        cli.add_provenance(last_ts, cache_path)
+        last_ts.dump(cache_path)
         for date in dates:
             # Load the ts from file to get the provenance data
             last_ts = tskit.load(cache_path)
             last_ts = sc2ts.extend(
-                dataset=fx_dataset,
-                base_ts=last_ts,
+                dataset=fx_dataset.path,
+                base_ts=cache_path,
                 date=date,
-                match_db=fx_match_db,
+                match_db=fx_match_db.path,
             )
             print(
                 f"INFERRED {date} nodes={last_ts.num_nodes} mutations={last_ts.num_mutations}"
             )
             cache_path = fx_data_cache / f"{date}.ts"
-            # The values recorded for resources are nonsense here, but at least it's
-            # something to use for tests
-            cli.add_provenance(last_ts, cache_path)
-    return {date: tskit.load(fx_data_cache / f"{date}.ts") for date in dates}
+            last_ts.dump(cache_path)
+    d = {}
+    for date in dates:
+        path = fx_data_cache / f"{date}.ts"
+        ts = tskit.load(path)
+        ts.path = path
+        d[date] = ts
+    return d
 
 
 def tmp_alignment_store(tmp_path, alignments):
@@ -200,11 +204,11 @@ def recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_path):
     ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
     base_ts = fx_ts_map["2020-02-13"]
     ts = sc2ts.extend(
-        dataset=ds,
-        base_ts=base_ts,
+        dataset=ds.path,
+        base_ts=base_ts.path,
         date=date,
         num_mismatches=2,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
     )
     return ts
 

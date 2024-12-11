@@ -14,6 +14,16 @@ import sc2ts
 import util
 
 
+def run_extend(dataset, base_ts, date, match_db, **kwargs):
+    return sc2ts.extend(
+        dataset=dataset.path,
+        base_ts=base_ts.path,
+        date=date,
+        match_db=match_db.path,
+        **kwargs,
+    )
+
+
 def recombinant_example_1(ts_map):
     """
     Example recombinant created by cherry picking two samples that differ
@@ -288,9 +298,7 @@ class TestRealData:
     ]
 
     def test_first_day(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = sc2ts.extend(
-            # alignment_store=fx_alignment_store,
-            # metadata_db=fx_metadata_db,
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map[self.dates[0]],
             date="2020-01-19",
@@ -335,7 +343,7 @@ class TestRealData:
         ts.tables.assert_equals(fx_ts_map["2020-01-19"].tables, ignore_provenance=True)
 
     def test_2020_01_25(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-01-24"],
             date="2020-01-25",
@@ -352,7 +360,7 @@ class TestRealData:
 
     @pytest.mark.parametrize("num_threads", [0, 1, 3, 10])
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_dataset, num_threads):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -378,7 +386,7 @@ class TestRealData:
         fx_dataset,
         include_samples,
     ):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -403,7 +411,7 @@ class TestRealData:
         fx_dataset,
     ):
         base_ts = fx_ts_map["2020-02-01"]
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -422,7 +430,7 @@ class TestRealData:
 
     @pytest.mark.parametrize("max_samples", range(1, 6))
     def test_2020_02_02_max_samples(self, tmp_path, fx_ts_map, fx_dataset, max_samples):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -440,7 +448,7 @@ class TestRealData:
         fx_dataset,
     ):
         max_missing_sites = 123
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -471,7 +479,7 @@ class TestRealData:
         length,
         deletions_as_missing,
     ):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -501,7 +509,7 @@ class TestRealData:
     ):
         base_ts = fx_ts_map["2020-02-02"]
         assert ord("-") in base_ts.tables.mutations.derived_state
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=base_ts,
             date="2020-02-03",
@@ -546,7 +554,7 @@ class TestRealData:
         fx_dataset,
         deletions_as_missing,
     ):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
@@ -558,7 +566,7 @@ class TestRealData:
         assert np.sum(ti.mutations_derived_state == "-") == expected
 
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-07"],
             date="2020-02-08",
@@ -600,7 +608,7 @@ class TestRealData:
     def test_2020_02_14_all_matches(self, tmp_path, fx_ts_map, fx_dataset, fx_match_db):
         date = "2020-02-14"
         assert len(list(fx_dataset.metadata.samples_for_date(date))) == 0
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-13"],
             date="2020-02-15",
@@ -636,7 +644,7 @@ class TestRealData:
         date = "2020-02-14"
         assert len(list(fx_dataset.metadata.samples_for_date(date))) == 0
         with caplog.at_level("DEBUG", logger="sc2ts.inference"):
-            ts = sc2ts.extend(
+            ts = run_extend(
                 dataset=fx_dataset,
                 base_ts=fx_ts_map["2020-02-13"],
                 date="2020-02-15",
@@ -662,7 +670,7 @@ class TestRealData:
         date = "2020-02-14"
         assert len(list(fx_dataset.metadata.samples_for_date(date))) == 0
         with caplog.at_level("DEBUG", logger="sc2ts.inference"):
-            ts = sc2ts.extend(
+            ts = run_extend(
                 dataset=fx_dataset,
                 base_ts=fx_ts_map["2020-02-13"],
                 date="2020-02-15",
@@ -692,7 +700,7 @@ class TestRealData:
         date = "2020-02-14"
         assert len(list(fx_dataset.metadata.samples_for_date(date))) == 0
         with caplog.at_level("DEBUG", logger="sc2ts.inference"):
-            ts = sc2ts.extend(
+            ts = run_extend(
                 dataset=fx_dataset,
                 base_ts=fx_ts_map["2020-02-13"],
                 date="2020-02-15",
@@ -717,7 +725,7 @@ class TestRealData:
         date = "2020-02-14"
         assert len(list(fx_dataset.metadata.samples_for_date(date))) == 0
         with caplog.at_level("DEBUG", logger="sc2ts.inference"):
-            ts = sc2ts.extend(
+            ts = run_extend(
                 dataset=fx_dataset,
                 base_ts=fx_ts_map["2020-02-13"],
                 date="2020-02-15",
@@ -908,7 +916,7 @@ class TestSyntheticAlignments:
         ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
         base_ts = fx_ts_map["2020-02-13"]
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=ds,
             base_ts=base_ts,
             date=date,
@@ -1047,7 +1055,7 @@ class TestSyntheticAlignments:
         alignments = {"crazytype": a}
         date = "2020-03-01"
         base_ts = fx_ts_map["2020-02-13"]
-        ts = sc2ts.extend(
+        ts = run_extend(
             dataset=sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date),
             base_ts=base_ts,
             date=date,
