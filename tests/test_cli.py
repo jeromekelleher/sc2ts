@@ -175,7 +175,7 @@ class TestInfer:
         filename = tmp_path / "config.toml"
         with open(filename, "w") as f:
             toml = tomli_w.dumps(config)
-            print("Generated", toml)
+            # print("Generated", toml)
             f.write(toml)
         return filename
 
@@ -214,52 +214,44 @@ class TestInfer:
         match_db = sc2ts.MatchDb(match_db_path)
         assert len(match_db) == 0
 
-
-@pytest.mark.skip("stuff")
-class TestExtend:
-
     def test_first_day(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = fx_ts_map["2020-01-01"]
-        ts_path = tmp_path / "ts.ts"
-        output_ts_path = tmp_path / "out.ts"
-        ts.dump(ts_path)
-        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        config_file = self.make_config(
+            tmp_path, fx_dataset, exclude_sites=[56, 57, 58, 59, 60]
+        )
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"extend {ts_path} 2020-01-19 {fx_dataset.path} "
-            f"{match_db.path} {output_ts_path}",
+            f"infer {config_file} --stop 2020-01-20",
             catch_exceptions=False,
         )
+        date = "2020-01-19"
         assert result.exit_code == 0
-        out_ts = tskit.load(output_ts_path)
-        out_ts.tables.assert_equals(
-            fx_ts_map["2020-01-19"].tables, ignore_provenance=True
-        )
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        out_ts = tskit.load(ts_path)
+        out_ts.tables.assert_equals(fx_ts_map[date].tables, ignore_provenance=True)
 
     def test_include_samples(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = fx_ts_map["2020-02-01"]
-        ts_path = tmp_path / "ts.ts"
-        output_ts_path = tmp_path / "out.ts"
-        ts.dump(ts_path)
-        include_samples_path = tmp_path / "include_samples.txt"
-        with open(include_samples_path, "w") as f:
-            print("SRR11597115 This is a test strain", file=f)
-            print("ABCD this is a strain that doesn't exist", file=f)
-        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            exclude_sites=[56, 57, 58, 59, 60],
+            include_samples=["SRR14631544", "NO_SUCH_STRAIN"],
+        )
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"extend {ts_path} 2020-02-02 {fx_dataset.path} "
-            f"{match_db.path} {output_ts_path} "
-            f"--include-samples={include_samples_path}",
+            f"infer {config_file} --stop 2020-01-02",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        ts = tskit.load(output_ts_path)
-        assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
-        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
-        assert ts.num_samples == 22
+        date = "2020-01-01"
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+
+        assert result.exit_code == 0
+        ts = tskit.load(ts_path)
+        assert "SRR14631544" in ts.metadata["sc2ts"]["samples_strain"]
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 1
+        assert ts.num_samples == 1
 
 
 @pytest.mark.skip("Broken by dataset")
@@ -348,18 +340,3 @@ class TestInfoDataset:
         assert result.exit_code == 0
         # Pick arbitrary field as a basic check
         assert "/sample_Genbank_N" in result.stdout
-
-
-class TestParseIncludeSamples:
-    @pytest.mark.parametrize(
-        ["text", "parsed"],
-        [
-            ("ABCD\n1234\n56", ["ABCD", "1234", "56"]),
-            ("   ABCD\n\t1234\n 56", ["ABCD", "1234", "56"]),
-            ("ABCD the rest is a comment", ["ABCD"]),
-            ("", []),
-        ],
-    )
-    def test_examples(self, text, parsed):
-        result = cli.parse_include_samples(io.StringIO(text))
-        assert result == parsed
