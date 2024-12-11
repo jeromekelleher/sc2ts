@@ -80,11 +80,11 @@ jobs:
            
       - name: Validate
         run: |
-          sc2ts validate -v testrun/dataset.zarr testrun/test/test_2020-02-02.ts
+          sc2ts validate -v testrun/dataset.zarr testrun/results/test/test_2020-02-02.ts
 
       - name: Info
         run: |
-          sc2ts info-ts testrun/test/test_2020-02-02.ts
+          sc2ts info-ts testrun/results/test/test_2020-02-02.ts
 
       - name: MatchDB
         run: |

@@ -74,8 +74,9 @@ log_file = click.option(
 )
 
 
-def summarise_usage():
-    d = get_resources()
+def summarise_usage(ts):
+    record = json.loads(ts.provenance(-1).record)
+    d = record["resources"]
     # Report times in minutes
     wall_time = d["elapsed_time"] / 60
     user_time = d["user_time"] / 60
@@ -582,6 +583,22 @@ def extend(
         print(df)
 
 
+def _run_extend(out_path, verbose, log_file, **params):
+    date = params["date"]
+    setup_logging(verbose, log_file, date=date)
+    ts = sc2ts.extend(show_progress=True, **params)
+    ts.dump(out_path)
+    resource_usage = summarise_usage(ts)
+    logger.info(resource_usage)
+    print("resources:", resource_usage, file=sys.stderr)
+    df = pd.DataFrame(
+        ts.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
+    ).set_index("scorpio")
+    del df["total_hmm_cost"]
+    df = df[list(df.columns)[::-1]].sort_values("total")
+    print(df, file=sys.stderr)
+
+
 @click.command()
 @click.argument("config_file", type=click.File(mode="rb"))
 @click.option(
@@ -612,7 +629,7 @@ def infer(config_file, start, stop, force):
     for path in [matches_dir, results_dir, log_dir]:
         path.mkdir(exist_ok=True, parents=True)
 
-    log_file = log_dir / run_id
+    log_file = log_dir / f"{run_id}.log"
     match_db = matches_dir / f"{run_id}.matches.db"
 
     ts_file_pattern = str(results_dir / f"{run_id}_{{date}}.ts")
@@ -630,8 +647,6 @@ def infer(config_file, start, stop, force):
         start = "2000"
     else:
         base_ts = find_previous_date_path(start, ts_file_pattern)
-        print("previous = ", base_ts)
-
         with sc2ts.MatchDb(match_db) as mdb:
             newer_matches = mdb.count_newer(start)
             if newer_matches > 0:
@@ -650,7 +665,6 @@ def infer(config_file, start, stop, force):
         if date >= stop:
             break
         if date < start or date in exclude_dates:
-            print("SKIPPING", date)
             continue
         if len(date) < 10 or date < "2020":
             # Imprecise, malformed or ludicrous date
@@ -665,13 +679,13 @@ def infer(config_file, start, stop, force):
         }
         # TODO apply date-range updates
 
-        # TODO call sc2ts.extend in a subprocess, and move the logic about
-        # recording provenance in there. There's no real point in having a
-        # separate init/extend command in the CLI now, it's a pain to use.
-        ts = sc2ts.extend(show_progress=True, **params)
         base_ts = ts_file_pattern.format(date=date)
-        print(base_ts)
-        ts.dump(base_ts)
+        with cf.ProcessPoolExecutor(1) as executor:
+            future = executor.submit(
+                _run_extend, base_ts, params.get("log_level", 2), log_file, **params
+            )
+            # Block and wait, raising exception if it occured
+            future.result()
 
 
 @click.command()
