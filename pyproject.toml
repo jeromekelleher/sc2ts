@@ -36,6 +36,7 @@ dev = [
   "sgkit",
   "pytest",
   "pytest-coverage",
+  "biopython", # For reading bgzipped Fasta
 ]
 analysis = [
   "matplotlib",
