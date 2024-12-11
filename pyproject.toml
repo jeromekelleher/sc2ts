@@ -36,6 +36,7 @@ dev = [
   "sgkit",
   "pytest",
   "pytest-coverage",
+  "tomli-w",
 ]
 analysis = [
   "matplotlib",

@@ -6,6 +6,7 @@ import numpy as np
 import click.testing as ct
 import pytest
 import tskit
+import tomli_w
 
 import sc2ts
 from sc2ts import __main__ as main
@@ -75,101 +76,6 @@ class TestImportMetadata:
             f"import-metadata {ds_path} {fx_raw_viridian_metadata_tsv} --viridian",
             catch_exceptions=False,
         )
-
-
-@pytest.mark.skip("stuff")
-class TestInitialise:
-    def test_defaults(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts()
-        other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
-        match_db = sc2ts.MatchDb(match_db_path)
-        assert len(match_db) == 0
-
-    @pytest.mark.parametrize("problematic", [[100], [100, 200]])
-    def test_problematic_sites(self, tmp_path, problematic):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        problematic_path = tmp_path / "problematic.txt"
-        np.savetxt(problematic_path, problematic)
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path} "
-            f"--problematic-sites {problematic_path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts(problematic_sites=problematic)
-        other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
-        match_db = sc2ts.MatchDb(match_db_path)
-        assert len(match_db) == 0
-
-    def test_mask_flanks(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path} --mask-flanks",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        sites = sc2ts.get_masked_sites(ts)
-        # < 266 (leftmost coordinate of ORF1a)
-        # > 29674 (rightmost coordinate of ORF10)
-        assert list(sites) == list(range(1, 266)) + list(range(29675, 29904))
-
-    def test_mask_problematic_regions(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path} --mask-problematic-regions",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        sites = sc2ts.get_masked_sites(ts)
-        # NTD: [21602-22472)
-        # ORF8: [27894, 28260)
-        assert list(sites) == list(range(21602, 22472)) + list(range(27894, 28260))
-
-    def test_provenance(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        assert ts.num_provenances == 1
-        prov = ts.provenance(0)
-        record = json.loads(prov.record)
-        assert "software" in record
-        assert "parameters" in record
-        assert "environment" in record
-        assert "resources" in record
-        resources = record["resources"]
-        assert "elapsed_time" in resources
-        assert "user_time" in resources
-        assert "sys_time" in resources
-        assert "max_memory" in resources
 
 
 class TestMatch:
@@ -242,6 +148,71 @@ class TestMatch:
         assert d["direction"] == "reverse"
         assert len(d["match"]["path"]) == 1
         assert len(d["match"]["mutations"]) == 5
+
+
+class TestInfer:
+
+    def make_config(
+        self,
+        tmp_path,
+        dataset,
+        run_id="test",
+        results_dir="results",
+        log_dir="logs",
+        matches_dir="matches",
+        exclude_sites=list(),
+        **kwargs,
+    ):
+        config = {
+            "dataset": str(dataset.path),
+            "run_id": run_id,
+            "results_dir": str(tmp_path / results_dir),
+            "log_dir": str(tmp_path / log_dir),
+            "matches_dir": str(tmp_path / matches_dir),
+            "exclude_sites": exclude_sites,
+            "extend_parameters": {**kwargs},
+        }
+        filename = tmp_path / "config.toml"
+        with open(filename, "w") as f:
+            toml = tomli_w.dumps(config)
+            print("Generated", toml)
+            f.write(toml)
+        return filename
+
+    def test_initialise_defaults(self, tmp_path, fx_dataset):
+        config_file = self.make_config(tmp_path, fx_dataset)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-01",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        init_ts_path = tmp_path / "results" / "test" / "test_init.ts"
+        init_ts = tskit.load(init_ts_path)
+        other_ts = sc2ts.initial_ts()
+        other_ts.tables.assert_equals(init_ts.tables)
+        match_db_path = tmp_path / "matches" / "test.matches.db"
+        match_db = sc2ts.MatchDb(match_db_path)
+        assert len(match_db) == 0
+
+    @pytest.mark.parametrize("problematic", [[100], [100, 200]])
+    def test_problematic_sites(self, tmp_path, fx_dataset, problematic):
+        config_file = self.make_config(tmp_path, fx_dataset, exclude_sites=problematic)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-01",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        init_ts_path = tmp_path / "results" / "test" / "test_init.ts"
+        init_ts = tskit.load(init_ts_path)
+        other_ts = sc2ts.initial_ts(problematic_sites=problematic)
+        other_ts.tables.assert_equals(init_ts.tables)
+        match_db_path = tmp_path / "matches" / "test.matches.db"
+        match_db = sc2ts.MatchDb(match_db_path)
+        assert len(match_db) == 0
 
 
 @pytest.mark.skip("stuff")

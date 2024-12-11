@@ -285,67 +285,6 @@ def info_ts(ts_path, recombinants, verbose):
         print(ti.recombinants_summary())
 
 
-@click.command()
-@click.argument("ts", type=click.Path(dir_okay=False))
-@click.argument("match_db", type=click.Path(dir_okay=False))
-@click.option(
-    "--problematic-sites",
-    default=None,
-    type=click.Path(exists=True, dir_okay=False),
-    help=(
-        "File containing the list of problematic sites to exclude. "
-        "Note this is combined with the sites defined by --mask-flanks "
-        "and --mask-problematic-regions options"
-    ),
-)
-@click.option(
-    "--mask-flanks",
-    is_flag=True,
-    flag_value=True,
-    help=(
-        "If true, add the non-genic regions at either end of the genome to "
-        "problematic sites"
-    ),
-)
-@click.option(
-    "--mask-problematic-regions",
-    is_flag=True,
-    flag_value=True,
-    help=("If true, add the problematic regions problematic sites"),
-)
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def initialise(
-    ts,
-    match_db,
-    problematic_sites,
-    mask_flanks,
-    mask_problematic_regions,
-    verbose,
-    log_file,
-):
-    """
-    Initialise a new base tree sequence to begin inference.
-    """
-    setup_logging(verbose, log_file)
-
-    problematic = np.array([], dtype=int)
-    if problematic_sites is not None:
-        problematic = np.loadtxt(problematic_sites, ndmin=1).astype(int)
-        logger.info(f"Loaded {len(problematic)} problematic sites")
-    if mask_flanks:
-        flanks = core.get_flank_coordinates()
-        logger.info(f"Masking {len(flanks)} sites in flanks")
-        problematic = np.concatenate((flanks, problematic))
-    if mask_problematic_regions:
-        known_regions = core.get_problematic_regions()
-        logger.info(f"Masking {len(known_regions)} sites in known problematic regions")
-        problematic = np.concatenate((known_regions, problematic))
-
-    base_ts = sc2ts.initial_ts(np.unique(problematic))
-    logger.info(f"New base ts at {ts}")
-    sc2ts.MatchDb.initialise(match_db)
-
 
 @click.command()
 @dataset
@@ -908,7 +847,6 @@ def _match(
         show_progress=progress,
         progress_title=progress_title,
         keep_sites=ts.sites_position.astype(int),
-        num_workers=num_threads,
     )
     for sample in samples:
         if sample.haplotype is None:
@@ -1066,7 +1004,6 @@ cli.add_command(info_dataset)
 cli.add_command(info_matches)
 cli.add_command(info_ts)
 
-cli.add_command(initialise)
 cli.add_command(list_dates)
 cli.add_command(extend)
 cli.add_command(infer)
