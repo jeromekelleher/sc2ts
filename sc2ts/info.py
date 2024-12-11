@@ -1666,14 +1666,14 @@ class TreeInfo:
         data = []
         df_samples = self.samples_summary()
         dates = df_samples["date"].unique()
-        assert len(dates) == ts.num_provenances 
+        assert len(dates) == ts.num_provenances
         for j in range(ts.num_provenances):
             p = ts.provenance(j)
             record = json.loads(p.record)
             text_date = record["parameters"]["date"]
             assert text_date == str(dates[j]).split(" ")[0]
             resources = record["resources"]
-            data.append({"date": dates[j - 1], **resources})
+            data.append({"date": dates[j], **resources})
         return pd.DataFrame(data)
 
     def draw_pango_lineage_subtree(
