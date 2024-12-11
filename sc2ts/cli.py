@@ -613,7 +613,7 @@ def infer(config_file, start, stop, force):
         path.mkdir(exist_ok=True, parents=True)
 
     log_file = log_dir / run_id
-    match_db = matches_dir / f"{run_id}.mdb"
+    match_db = matches_dir / f"{run_id}.matches.db"
 
     ts_file_pattern = str(results_dir / f"{run_id}_{{date}}.ts")
 

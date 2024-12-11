@@ -1670,13 +1670,8 @@ class TreeInfo:
         for j in range(ts.num_provenances):
             p = ts.provenance(j)
             record = json.loads(p.record)
-            try:
-                text_date = record["parameters"]["date"]
-                assert text_date == str(dates[j]).split(" ")[0]
-            except IndexError:
-                # NOTE this will only fail on older versions of provenance, so
-                # can be removed at some point
-                pass
+            text_date = record["parameters"]["date"]
+            assert text_date == str(dates[j]).split(" ")[0]
             resources = record["resources"]
             data.append({"date": dates[j - 1], **resources})
         return pd.DataFrame(data)
