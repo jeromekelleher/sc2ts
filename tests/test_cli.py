@@ -161,6 +161,7 @@ class TestInfer:
         log_dir="logs",
         matches_dir="matches",
         exclude_sites=list(),
+        override=list(),
         **kwargs,
     ):
         config = {
@@ -171,11 +172,12 @@ class TestInfer:
             "matches_dir": str(tmp_path / matches_dir),
             "exclude_sites": exclude_sites,
             "extend_parameters": {**kwargs},
+            "override": override,
         }
         filename = tmp_path / "config.toml"
         with open(filename, "w") as f:
             toml = tomli_w.dumps(config)
-            # print("Generated", toml)
+            print("Generated", toml)
             f.write(toml)
         return filename
 
@@ -252,6 +254,74 @@ class TestInfer:
         assert "SRR14631544" in ts.metadata["sc2ts"]["samples_strain"]
         assert np.sum(ts.nodes_time[ts.samples()] == 0) == 1
         assert ts.num_samples == 1
+
+    def test_override(self, tmp_path, fx_ts_map, fx_dataset):
+        hmm_cost_threshold = 47
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            exclude_sites=[56, 57, 58, 59, 60],
+            override=[
+                {
+                    "start": "2020-01-01",
+                    "stop": "2020-01-02",
+                    "parameters": {"hmm_cost_threshold": hmm_cost_threshold},
+                }
+            ],
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-02",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        date = "2020-01-01"
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        ts = tskit.load(ts_path)
+        params = json.loads(ts.provenance(-1).record)["parameters"]
+        assert params["hmm_cost_threshold"] == hmm_cost_threshold
+
+        assert "SRR14631544" in ts.metadata["sc2ts"]["samples_strain"]
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 1
+        assert ts.num_samples == 1
+
+    def test_multiple_override(self, tmp_path, fx_ts_map, fx_dataset):
+        hmm_cost_threshold = 3
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            exclude_sites=[56, 57, 58, 59, 60],
+            # Overrides get applied sequentially, and last overlapping value wins.
+            override=[
+                {
+                    "start": "2020-01-01",
+                    "stop": "2020-01-02",
+                    "parameters": {"hmm_cost_threshold": 123},
+                },
+                {
+                    "start": "2020",
+                    "stop": "2020-07-01",
+                    "parameters": {"hmm_cost_threshold": hmm_cost_threshold},
+                },
+            ],
+            hmm_cost_threshold=4000,
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-02",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        date = "2020-01-01"
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        ts = tskit.load(ts_path)
+        params = json.loads(ts.provenance(-1).record)["parameters"]
+        assert params["hmm_cost_threshold"] == hmm_cost_threshold
+
+        assert "SRR14631544" not in ts.metadata["sc2ts"]["samples_strain"]
+        assert ts.num_samples == 0
 
 
 @pytest.mark.skip("Broken by dataset")
