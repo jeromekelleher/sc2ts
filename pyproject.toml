@@ -11,14 +11,15 @@ dependencies = [
   # "tsinfer==0.3.3", # https://github.com/jeromekelleher/sc2ts/issues/201
   # FIXME
   "tsinfer @ git+https://github.com/jeromekelleher/tsinfer.git@experimental-hmm",
-  "pyfaidx",
   "tskit>=0.6.0",
+  "pyfaidx",
   "tszip",
   "pandas",
   "numba",
   "tqdm",
   "scipy",
   "click",
+  "tomli",
   "zarr<2.18",
   "humanize",
   "resource",
@@ -35,11 +36,11 @@ dev = [
   "sgkit",
   "pytest",
   "pytest-coverage",
+  "tomli-w",
 ]
 analysis = [
   "matplotlib",
   "scikit-learn",
-  "pandas",
   "IPython",
   "networkx",
 ]
