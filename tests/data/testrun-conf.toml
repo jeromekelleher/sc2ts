@@ -8,14 +8,3 @@ matches_dir = "testrun"
 [extend_parameters]
 min_group_size = 2
 num_threads = 1
-
-[[override]]
-start = "2020"
-stop = "2020-03-01"
-parameters.max_missing_sites = 1000
-
-[[override]]
-start = "2020-01-02"
-stop = "2020-01-03"
-parameters.max_missing_sites = 750
-parameters.min_group_size = 200
