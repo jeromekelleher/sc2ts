@@ -286,35 +286,6 @@ def info_ts(ts_path, recombinants, verbose):
 
 
 
-@click.command()
-@dataset
-@click.option("--counts/--no-counts", default=False)
-@click.option(
-    "--after",
-    default="1900-01-01",
-    help="show dates equal to or after the specified value",
-)
-@click.option(
-    "--before", default="3000-01-01", help="show dates before the specified value"
-)
-@verbose
-def list_dates(dataset, counts, after, before, verbose):
-    """
-    List the dates included in specified dataset
-    """
-    setup_logging(verbose)
-    ds = sc2ts.Dataset(dataset)
-    # This is a hack, but we probably won't keep this functionality in CLI anyway
-    # so let's not worry about it.
-    counter = collections.Counter(ds.root["sample_date"][:])
-    for k in counter:
-        if after <= k < before and len(k) == 10:
-            if counts:
-                print(k, counter[k], sep="\t")
-            else:
-                print(k)
-
-
 def summarise_base(ts, date, progress):
     ti = sc2ts.TreeInfo(ts, quick=True)
     node_info = "; ".join(f"{k}:{v}" for k, v in ti.node_counts().items())
@@ -1004,7 +975,6 @@ cli.add_command(info_dataset)
 cli.add_command(info_matches)
 cli.add_command(info_ts)
 
-cli.add_command(list_dates)
 cli.add_command(extend)
 cli.add_command(infer)
 cli.add_command(validate)
