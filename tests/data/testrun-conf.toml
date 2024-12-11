@@ -1,0 +1,12 @@
+
+dataset="testrun/dataset.zarr"
+
+run_id=""
+results_dir = "testrun/results"
+log_dir = "testrun/logs"
+matches_dir= "testrun/"
+
+[extend_parameters]
+min_group_size=2
+num_threads=1
+

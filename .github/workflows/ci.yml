@@ -56,19 +56,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install '.[dev,analysis]'
 
-      - name: Create basedir and copy data
+      - name: Create basedir 
         run: |
           mkdir -p testrun
-          cp -R tests/data testrun/data
-          gunzip testrun/data/alignments.fasta.gz
 
       - name: Import alignments
         run: |
-          sc2ts import-alignments -i testrun/dataset.zarr testrun/data/alignments.fasta
+          sc2ts import-alignments -i testrun/dataset.zarr tests/data/alignments.fasta.gz
 
       - name: Import metadata
         run: |
-          sc2ts import-metadata testrun/dataset.zarr testrun/data/metadata.tsv
+          sc2ts import-metadata testrun/dataset.zarr tests/data/metadata.tsv
 
       - name: Info dataset
         run: |
@@ -76,17 +74,9 @@ jobs:
 
       - name: Run inference
         run: |
-          # doing 10 days here as this is taking a while
-          last_ts=testrun/initial.ts
-          sc2ts initialise -v $last_ts testrun/match.db
-          for date in `sc2ts list-dates testrun/dataset.zarr | head -n 10`; do
-              out_ts=testrun/$date.ts
-              sc2ts extend $last_ts $date \
-                  testrun/dataset.zarr \
-                  testrun/match.db $out_ts -v --min-group-size=2
-              last_ts=$out_ts
-          done
-
+          # doing ~10 days here as this is taking a while
+          sc2ts infer tests/data/testrun-conf.toml --stop 2020-02-03
+           
       - name: Validate
         run: |
           sc2ts validate -v testrun/dataset.zarr testrun/2020-02-02.ts

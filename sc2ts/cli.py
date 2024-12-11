@@ -284,14 +284,6 @@ def info_ts(ts_path, recombinants, verbose):
         print(ti.recombinants_summary())
 
 
-def add_provenance(ts, output_file):
-    # Record provenance here because this is where the arguments are provided.
-    provenance = get_provenance_dict()
-    tables = ts.dump_tables()
-    tables.provenances.add_row(json.dumps(provenance))
-    tables.dump(output_file)
-    logger.info(f"Wrote {output_file}")
-
 
 @click.command()
 @click.argument("ts", type=click.Path(dir_okay=False))
@@ -351,7 +343,6 @@ def initialise(
         problematic = np.concatenate((known_regions, problematic))
 
     base_ts = sc2ts.initial_ts(np.unique(problematic))
-    add_provenance(base_ts, ts)
     logger.info(f"New base ts at {ts}")
     sc2ts.MatchDb.initialise(match_db)
 
@@ -600,12 +591,17 @@ def extend(
 #     default=None,
 #     help="Skip this metadata field during comparison",
 # )
-def infer(config_file):
+@click.option(
+    "--stop",
+    default="3000",
+    help="Stop and exit at this date (non-inclusive",
+)
+def infer(config_file, stop):
     """
     Run the full inference pipeline based on values in the config file.
     """
     config = tomli.load(config_file)
-    print(config)
+    # print(config)
     run_id = config["run_id"]
     results_dir = pathlib.Path(config["results_dir"]) / run_id
     log_dir = pathlib.Path(config["log_dir"])
@@ -616,14 +612,18 @@ def infer(config_file):
     log_file = log_dir / run_id
     match_db = matches_dir / f"matches_{run_id}.db"
 
-    init_ts = sc2ts.initial_ts(config["exclude_sites"])
+    init_ts = sc2ts.initial_ts(config.get("exclude_sites", []))
     sc2ts.MatchDb.initialise(match_db)
     base_ts = results_dir / f"{run_id}_init.ts"
     init_ts.dump(base_ts)
 
+    exclude_dates = set(config.get("exclude_dates", []))
+
     ds = sc2ts.Dataset(config["dataset"])
     for date in np.unique(ds["sample_date"][:]):
-        if date in config["exclude_dates"]:
+        if date >= stop:
+            break
+        if date in exclude_dates:
             print("SKIPPING", date)
             continue
         if len(date) < 10 or date < "2020":
