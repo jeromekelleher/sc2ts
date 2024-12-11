@@ -177,7 +177,7 @@ class TestInfer:
         filename = tmp_path / "config.toml"
         with open(filename, "w") as f:
             toml = tomli_w.dumps(config)
-            print("Generated", toml)
+            # print("Generated", toml)
             f.write(toml)
         return filename
 
@@ -227,6 +227,27 @@ class TestInfer:
             catch_exceptions=False,
         )
         date = "2020-01-19"
+        assert result.exit_code == 0
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        out_ts = tskit.load(ts_path)
+        out_ts.tables.assert_equals(fx_ts_map[date].tables, ignore_provenance=True)
+
+    def test_start(self, tmp_path, fx_ts_map, fx_dataset):
+        config_file = self.make_config(
+            tmp_path, fx_dataset, exclude_sites=[56, 57, 58, 59, 60]
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-20",
+            catch_exceptions=False,
+        )
+        date = "2020-01-19"
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --start={date} --stop 2020-01-20 -f",
+            catch_exceptions=False,
+        )
         assert result.exit_code == 0
         ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
         out_ts = tskit.load(ts_path)
