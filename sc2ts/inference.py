@@ -504,7 +504,6 @@ def check_base_ts(ts):
     return sc2ts_md["date"]
 
 
-
 def mask_ambiguous(a):
     a = a.copy()
     a[a > DELETION] = -1
@@ -620,7 +619,7 @@ def extend(
             show_progress=show_progress,
             random_seed=random_seed,
             num_threads=num_threads,
-            memory_limit=memory_limit * 2**30, # Convert to bytes
+            memory_limit=memory_limit * 2**30,  # Convert to bytes
         )
 
     prov = get_provenance_dict("extend", params, start_time)
@@ -751,7 +750,6 @@ def _extend(
             match_db=match_db,
             date=date,
             min_group_size=1,
-            additional_node_flags=core.NODE_IN_SAMPLE_GROUP,
             show_progress=show_progress,
             phase="close",
         )
@@ -769,7 +767,6 @@ def _extend(
         min_root_mutations=min_root_mutations,
         max_mutations_per_sample=max_mutations_per_sample,
         max_recurrent_mutations=max_recurrent_mutations,
-        additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="retro",
     )
@@ -864,9 +861,10 @@ def match_path_ts(group):
     site_id_map = {}
     first_sample = len(tables.nodes)
     root = len(group)
+    group_id = group.sample_hash
     for sample in group:
         assert sample.hmm_match.path == list(group.path)
-        node_id = add_sample_to_tables(sample, tables, group_id=group.sample_hash)
+        node_id = add_sample_to_tables(sample, tables, group_id=group_id)
         tables.edges.add_row(0, tables.sequence_length, parent=root, child=node_id)
         for mut in sample.hmm_match.mutations:
             if (mut.site_id, mut.derived_state) in group.immediate_reversions:
@@ -968,7 +966,6 @@ class SampleGroup:
     samples: List = None
     path: List = None
     immediate_reversions: List = None
-    additional_keys: Dict = None
     sample_hash: str = None
     tree_quality_metrics: GroupTreeQualityMetrics = None
 
@@ -1002,7 +999,6 @@ class SampleGroup:
             f"{dict(self.date_count)} "
             f"{dict(self.pango_count)} "
             f"immediate_reversions={self.immediate_reversions} "
-            f"additional_keys={self.additional_keys} "
             f"path={path_summary(self.path)} "
             f"strains={self.strains}"
         )
@@ -1034,9 +1030,7 @@ def add_matching_results(
     min_root_mutations=0,
     max_mutations_per_sample=np.inf,
     max_recurrent_mutations=np.inf,
-    additional_node_flags=None,
     show_progress=False,
-    additional_group_metadata_keys=list(),
     phase=None,
 ):
     logger.info(f"Querying match DB WHERE: {where_clause}")
@@ -1057,10 +1051,7 @@ def add_matching_results(
             for mut in sample.hmm_match.mutations
             if mut.is_immediate_reversion
         )
-        additional_metadata = [
-            sample.metadata.get(k, None) for k in additional_group_metadata_keys
-        ]
-        key = (path, immediate_reversions, *additional_metadata)
+        key = (path, immediate_reversions)
         grouped_matches[key].append(sample)
         num_samples += 1
 
@@ -1073,7 +1064,6 @@ def add_matching_results(
             samples,
             key[0],
             key[1],
-            {k: v for k, v in zip(additional_group_metadata_keys, key[2:])},
         )
         for key, samples in grouped_matches.items()
     ]
@@ -1120,7 +1110,7 @@ def add_matching_results(
                     f"exceeds threshold: {group.summary()}"
                 )
                 continue
-            nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
+            nodes = attach_tree(ts, tables, group, poly_ts, date)
             logger.debug(
                 f"Attach {phase} metrics:{tqm.summary()}"
                 f"attach_nodes={len(nodes)} "
@@ -1701,7 +1691,6 @@ def attach_tree(
     group,
     child_ts,
     date,
-    additional_node_flags,
     epsilon=None,
 ):
     attach_path = group.path
@@ -1742,6 +1731,7 @@ def attach_tree(
     if child_ts.nodes_time[tree.root] != 1.0:
         raise ValueError("Time must be scaled from 0 to 1.")
 
+    group_id = group.sample_hash
     num_internal_nodes_visited = 0
     for u in tree.postorder()[:-1]:
         node = child_ts.node(u)
@@ -1756,14 +1746,12 @@ def attach_tree(
         if tree.is_internal(u):
             metadata = {
                 "sc2ts": {
-                    "group_id": group.sample_hash,
+                    "group_id": group_id,
                     "date_added": date,
                 }
             }
         new_id = parent_tables.nodes.append(
-            node.replace(
-                flags=node.flags | additional_node_flags, time=time, metadata=metadata
-            )
+            node.replace(flags=node.flags, time=time, metadata=metadata)
         )
         node_id_map[node.id] = new_id
         for v in tree.children(u):
@@ -1790,9 +1778,7 @@ def attach_tree(
                 node=node_id_map[mutation.node],
                 derived_state=mutation.derived_state,
                 time=node_time[mutation.node],
-                metadata={
-                    "sc2ts": {"type": "parsimony", "group_id": group.sample_hash}
-                },
+                metadata={"sc2ts": {"type": "parsimony", "group_id": group_id}},
             )
 
     if len(group.immediate_reversions) > 0:

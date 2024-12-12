@@ -30,10 +30,8 @@ NODE_IS_REVERSION_PUSH = 1 << 22
 NODE_IS_RECOMBINANT = 1 << 23
 NODE_IS_EXACT_MATCH = 1 << 24
 NODE_IS_IMMEDIATE_REVERSION_MARKER = 1 << 25
-NODE_IN_SAMPLE_GROUP = 1 << 26
-NODE_IN_RETROSPECTIVE_SAMPLE_GROUP = 1 << 27
-NODE_IS_REFERENCE = 1 << 28
-NODE_IS_UNCONDITIONALLY_INCLUDED = 1 << 29
+NODE_IS_REFERENCE = 1 << 26
+NODE_IS_UNCONDITIONALLY_INCLUDED = 1 << 27
 
 
 @dataclasses.dataclass(frozen=True)
@@ -76,18 +74,6 @@ flag_values = [
         "ImmediateReversion",
         "Node is marking the existance of an immediate reversion which "
         "has not been removed for technical reasons",
-    ),
-    FlagValue(
-        NODE_IN_SAMPLE_GROUP,
-        "G",
-        "SampleGroup",
-        "Node is a member of a sample group",
-    ),
-    FlagValue(
-        NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
-        "Q",
-        "RetroSampleGroup",
-        "Node is a member of a retrospective sample group",
     ),
     FlagValue(
         NODE_IS_REFERENCE,

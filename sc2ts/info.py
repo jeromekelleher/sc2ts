@@ -451,6 +451,14 @@ class TreeInfo:
         # The number of samples per day in time-ago (i.e., the nodes_time units).
         self.num_samples_per_day = np.bincount(ts.nodes_time[samples].astype(int))
 
+        self.sample_group_id_prefix_len = 8
+        self.sample_group_nodes = collections.defaultdict(list)
+        self.sample_group_mutations = collections.defaultdict(list)
+        self.retro_sample_groups = {}
+        for retro_group in top_level_md["retro_groups"]:
+            gid = retro_group["group_id"][: self.sample_group_id_prefix_len]
+            self.retro_sample_groups[gid] = retro_group
+
         if not quick:
             self._preprocess_nodes(show_progress)
             self._preprocess_sites(show_progress)
@@ -461,10 +469,7 @@ class TreeInfo:
         pr_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
-        sg_nodes = np.sum((self.ts.nodes_flags & core.NODE_IN_SAMPLE_GROUP) > 0)
-        rsg_nodes = np.sum(
-            (self.ts.nodes_flags & core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP) > 0
-        )
+        u_nodes = np.sum((self.ts.nodes_flags & core.NODE_IS_UNCONDITIONALLY_INCLUDED) > 0)
         immediate_reversion_marker = np.sum(
             (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
         )
@@ -476,8 +481,7 @@ class TreeInfo:
             "mc": mc_nodes,
             "pr": pr_nodes,
             "re": re_nodes,
-            "sg": sg_nodes,
-            "rsg": rsg_nodes,
+            "u": u_nodes,
             "imr": immediate_reversion_marker,
             "zero_muts": nodes_with_zero_muts,
         }
@@ -492,7 +496,6 @@ class TreeInfo:
         self.nodes_num_deletion_sites = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_num_exact_matches = np.zeros(ts.num_nodes, dtype=np.int32)
         self.nodes_metadata = {}
-        self.nodes_sample_group = collections.defaultdict(list)
         samples = ts.samples()
 
         self.time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
@@ -518,7 +521,9 @@ class TreeInfo:
             sc2ts_md = md["sc2ts"]
             group_id = sc2ts_md.get("group_id", None)
             if group_id is not None:
-                self.nodes_sample_group[group_id].append(node.id)
+                # Shorten key for readability.
+                gid = group_id[: self.sample_group_id_prefix_len]
+                self.sample_group_nodes[gid].append(node.id)
             if node.is_sample():
                 self.nodes_date[node.id] = md["date"]
                 pango = md.get(self.pango_source, "unknown")
@@ -617,6 +622,7 @@ class TreeInfo:
         iterator = tqdm(
             np.arange(N), desc="Classifying mutations", disable=not show_progress
         )
+        mutation_table = ts.tables.mutations
         for mut_id in iterator:
             tree.seek(self.mutations_position[mut_id])
             mutation_node = ts.mutations_node[mut_id]
@@ -644,6 +650,13 @@ class TreeInfo:
             site = ts.mutations_site[mut_id]
             sites_num_transitions[site] += mutations_is_transition[mut_id]
             sites_num_transversions[site] += mutations_is_transversion[mut_id]
+
+            # classify by origin
+            md = mutation_table[mut_id].metadata["sc2ts"]
+            inference_type = md.get("type", None)
+            if inference_type == "parsimony":
+                gid = md["group_id"][: self.sample_group_id_prefix_len]
+                self.sample_group_mutations[gid].append(mut_id)
 
         # Note: no real good reason for not just using self.mutations_num_descendants
         # etc above
@@ -717,6 +730,8 @@ class TreeInfo:
             ),
             ("max_samples_per_day", np.max(self.num_samples_per_day)),
             ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
+            ("sample_groups", len(self.sample_group_nodes)),
+            ("retro_sample_groups", len(self.retro_sample_groups)),
         ]
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
@@ -757,7 +772,10 @@ class TreeInfo:
             strain = md["strain"]
         else:
             md = md["sc2ts"]
-            if flags & (core.NODE_IS_MUTATION_OVERLAP | core.NODE_IS_REVERSION_PUSH) > 0:
+            if (
+                flags & (core.NODE_IS_MUTATION_OVERLAP | core.NODE_IS_REVERSION_PUSH)
+                > 0
+            ):
                 try:
                     strain = f"{md['date_added']}:{', '.join(md['mutations'])}"
                 except KeyError:
@@ -883,16 +901,50 @@ class TreeInfo:
             df["total_hmm_cost"] = df["mean_hmm_cost"] * df["total"]
         return df.astype({"date": "datetime64[s]"})
 
+    def sample_groups_summary(self):
+        data = []
+        for group_id, nodes in self.sample_group_nodes.items():
+            samples = []
+            full_hashes = []
+            for u in nodes:
+                node = self.ts.node(u)
+                if node.is_sample():
+                    samples.append(u)
+                    full_hashes.append(node.metadata["sc2ts"]["group_id"])
+            assert len(set(full_hashes)) == 1
+            assert full_hashes[0].startswith(group_id)
+            data.append(
+                {
+                    "group_id": group_id,
+                    "nodes": len(nodes),
+                    "samples": len(samples),
+                    "mutations": len(self.sample_group_mutations[group_id]),
+                    "is_retro": group_id in self.retro_sample_groups,
+                }
+            )
+        return pd.DataFrame(data).set_index("group_id")
+
+    def retro_sample_groups_summary(self):
+        data = []
+        for group_id, retro_group in self.retro_sample_groups.items():
+            d = dict(retro_group)
+            d["group_id"] = group_id
+            d["dates"] = len(set(d["dates"]))
+            d["samples"] = len(d.pop("strains"))
+            d["pango_lineages"] = len(set(d["pango_lineages"]))
+            data.append(d)
+        return pd.DataFrame(data).set_index("group_id")
+
     def recombinants_summary(self):
         data = []
         for u in self.recombinants:
             md = self.nodes_metadata[u]["sc2ts"]
-            group_id = md["group_id"]
+            group_id = md["group_id"][: self.sample_group_id_prefix_len]
             # NOTE this is overlapping quite a bit with the SampleGroupInfo
             # class functionality here, but we just want something quick for
             # now here.
             causal_lineages = collections.Counter()
-            for v in self.nodes_sample_group[group_id]:
+            for v in self.sample_group_nodes[group_id]:
                 if self.ts.nodes_flags[v] & tskit.NODE_IS_SAMPLE > 0:
                     pango = self.nodes_metadata[v].get(self.pango_source, "Unknown")
                     causal_lineages[pango] += 1
@@ -1130,7 +1182,7 @@ class TreeInfo:
                     parent_allele = var.alleles[var.genotypes[j]]
                     css = css_cell(
                         parent_allele,
-                        bold=parent_allele==child_allele,
+                        bold=parent_allele == child_allele,
                         show_colour=j == parent_col,
                     )
                     parents[j - 1].append(f"<td{css}>{parent_allele}</td>")
@@ -1305,7 +1357,9 @@ class TreeInfo:
             closest_recombinant, path_length = self._get_closest_recombinant(tree, node)
             sample_is_recombinant = False
             if closest_recombinant != -1:
-                recomb_date = self.ts.node(closest_recombinant).metadata["sc2ts"]["date_added"]
+                recomb_date = self.ts.node(closest_recombinant).metadata["sc2ts"][
+                    "date_added"
+                ]
                 sample_is_recombinant = recomb_date == str(node_summary["date"])
             summary = {
                 "recombinant": closest_recombinant,
@@ -1972,12 +2026,13 @@ class TreeInfo:
     def get_sample_group_info(self, group_id):
         samples = []
 
-        for u in self.nodes_sample_group[group_id]:
+        group_nodes = self.sample_group_nodes[group_id]
+        for u in group_nodes:
             if self.ts.nodes_flags[u] & tskit.NODE_IS_SAMPLE > 0:
                 samples.append(u)
 
         tree = self.ts.first()
-        while self.nodes_metadata[u]["sc2ts"].get("group_id", None) == group_id:
+        while u in group_nodes:
             u = tree.parent(u)
         attach_date = self.nodes_date[u]
         ts = self.ts.simplify(samples + [u])
@@ -2004,7 +2059,7 @@ class TreeInfo:
 
         return SampleGroupInfo(
             group_id,
-            self.nodes_sample_group[group_id],
+            group_nodes,
             ts=tables.tree_sequence(),
             attach_date=attach_date,
         )

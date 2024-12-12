@@ -19,6 +19,12 @@ def fx_ti_2020_02_13(fx_ts_map):
     return info.TreeInfo(ts, show_progress=False)
 
 
+@pytest.fixture
+def fx_ti_2020_02_15(fx_ts_map):
+    ts = fx_ts_map["2020-02-15"]
+    return info.TreeInfo(ts, show_progress=False)
+
+
 def test_get_gene_coordinates():
     d = sc2ts.get_gene_coordinates()
     assert len(d) == 11
@@ -231,23 +237,57 @@ class TestTreeInfo:
         assert np.all(df["total"] >= (df["inserted"] + df["exact_matches"]))
         assert df.shape[0] > 0
 
+    def test_sample_group_summary(self, fx_ti_2020_02_13):
+        df = fx_ti_2020_02_13.sample_groups_summary()
+        assert df.shape[0] == 26
+        assert np.all(df["nodes"] >= df["samples"])
+        assert np.all(df["nodes"] > 0)
+        assert np.all(~df["is_retro"])
+
+    def test_sample_group_summary_with_retro(self, fx_ti_2020_02_15):
+        df = fx_ti_2020_02_15.sample_groups_summary()
+        assert df.shape[0] == 27
+        assert np.all(df["nodes"] >= df["samples"])
+        assert np.all(df["nodes"] > 0)
+        assert np.all(~df["is_retro"][:-1])
+        assert df["is_retro"].iloc[-1]
+
+    def test_retro_sample_group_summary(self, fx_ti_2020_02_15):
+        df1 = fx_ti_2020_02_15.sample_groups_summary()
+        df1 = df1[df1.is_retro]
+        df2 = fx_ti_2020_02_15.retro_sample_groups_summary()
+        assert df1.shape[0] == 1
+        assert df2.shape[0] == 1
+        assert np.all(df1.index == df2.index)
+        row1 = df1.iloc[0]
+        row2 = df2.iloc[0]
+        assert row1.samples == row2.samples
+        # Mutations may be deleted later through parsimony hueristics
+        assert row1.mutations <= row2.num_mutations
+
     def test_node_summary(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         for u in range(ti.ts.num_nodes):
             d = ti._node_summary(u)
             assert d["node"] == u
-            assert len(d["flags"]) == 10
+            assert len(d["flags"]) == 8
 
     def test_node_report(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         report = ti.node_report(strain="SRR11597190")
         assert len(report) > 0
 
+    def test_summary(self, fx_ti_2020_02_15):
+        df = fx_ti_2020_02_15.summary()
+        assert df.loc["samples"].value == 43
+        assert df.loc["sample_groups"].value == 27
+        assert df.loc["retro_sample_groups"].value == 1
+
 
 class TestSampleGroupInfo:
     def test_draw_svg(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
-        sg = list(ti.nodes_sample_group.keys())[0]
+        sg = list(ti.sample_group_nodes.keys())[0]
         sg_info = ti.get_sample_group_info(sg)
         svg = sg_info.draw_svg()
         assert svg.startswith("<svg")
