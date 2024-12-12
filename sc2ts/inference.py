@@ -751,7 +751,7 @@ def _extend(
             match_db=match_db,
             date=date,
             min_group_size=1,
-            additional_node_flags=core.NODE_IN_SAMPLE_GROUP,
+            # additional_node_flags=core.NODE_IN_SAMPLE_GROUP,
             show_progress=show_progress,
             phase="close",
         )
@@ -769,7 +769,7 @@ def _extend(
         min_root_mutations=min_root_mutations,
         max_mutations_per_sample=max_mutations_per_sample,
         max_recurrent_mutations=max_recurrent_mutations,
-        additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
+        # additional_node_flags=core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP,
         show_progress=show_progress,
         phase="retro",
     )
@@ -864,9 +864,10 @@ def match_path_ts(group):
     site_id_map = {}
     first_sample = len(tables.nodes)
     root = len(group)
+    group_id = None if len(group) == 1 else group.sample_hash
     for sample in group:
         assert sample.hmm_match.path == list(group.path)
-        node_id = add_sample_to_tables(sample, tables, group_id=group.sample_hash)
+        node_id = add_sample_to_tables(sample, tables, group_id=group_id)
         tables.edges.add_row(0, tables.sequence_length, parent=root, child=node_id)
         for mut in sample.hmm_match.mutations:
             if (mut.site_id, mut.derived_state) in group.immediate_reversions:
@@ -1034,7 +1035,6 @@ def add_matching_results(
     min_root_mutations=0,
     max_mutations_per_sample=np.inf,
     max_recurrent_mutations=np.inf,
-    additional_node_flags=None,
     show_progress=False,
     additional_group_metadata_keys=list(),
     phase=None,
@@ -1120,7 +1120,7 @@ def add_matching_results(
                     f"exceeds threshold: {group.summary()}"
                 )
                 continue
-            nodes = attach_tree(ts, tables, group, poly_ts, date, additional_node_flags)
+            nodes = attach_tree(ts, tables, group, poly_ts, date) #, additional_node_flags)
             logger.debug(
                 f"Attach {phase} metrics:{tqm.summary()}"
                 f"attach_nodes={len(nodes)} "
@@ -1701,7 +1701,6 @@ def attach_tree(
     group,
     child_ts,
     date,
-    additional_node_flags,
     epsilon=None,
 ):
     attach_path = group.path
@@ -1762,7 +1761,7 @@ def attach_tree(
             }
         new_id = parent_tables.nodes.append(
             node.replace(
-                flags=node.flags | additional_node_flags, time=time, metadata=metadata
+                flags=node.flags, time=time, metadata=metadata
             )
         )
         node_id_map[node.id] = new_id

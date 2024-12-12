@@ -810,18 +810,6 @@ class TestRealData:
         ["gid", "date", "internal", "strains"],
         [
             (
-                "02984ed831cd3c72d206959449dcf8c9",
-                "2020-01-19",
-                0,
-                ["SRR11772659"],
-            ),
-            (
-                "635b05f53af60d8385226cd0e00e97ab",
-                "2020-02-08",
-                0,
-                ["SRR11597163"],
-            ),
-            (
                 "0c36395a702379413ffc855f847873c6",
                 "2020-01-24",
                 1,
@@ -844,7 +832,7 @@ class TestRealData:
             md = node.metadata
             group = md["sc2ts"].get("group_id", None)
             if group == gid:
-                assert node.flags & sc2ts.NODE_IN_SAMPLE_GROUP > 0
+                # assert node.flags & sc2ts.NODE_IN_SAMPLE_GROUP > 0
                 if node.is_sample():
                     got_strains.append(md["strain"])
                     assert md["date"] == date
@@ -853,6 +841,26 @@ class TestRealData:
                     num_internal += 1
         assert num_internal == internal
         assert got_strains == strains
+
+    @pytest.mark.parametrize(
+        ["date", "strain"],
+        [
+            (
+                "2020-01-19",
+                "SRR11772659",
+            ),
+            (
+                "2020-02-08",
+                "SRR11597163",
+            ),
+        ],
+    )
+    def test_singleton_group(self, fx_ts_map, date, strain):
+        ts = fx_ts_map[date]
+        u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
+        node = ts.node(u)
+        assert "group_id" not in node.metadata["sc2ts"]
+        assert node.flags & sc2ts.NODE_IN_SAMPLE_GROUP == 0
 
     @pytest.mark.parametrize("date", dates[1:])
     def test_node_mutation_counts(self, fx_ts_map, date):
