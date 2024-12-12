@@ -270,12 +270,18 @@ class TestTreeInfo:
         for u in range(ti.ts.num_nodes):
             d = ti._node_summary(u)
             assert d["node"] == u
-            assert len(d["flags"]) == 10
+            assert len(d["flags"]) == 8
 
     def test_node_report(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         report = ti.node_report(strain="SRR11597190")
         assert len(report) > 0
+
+    def test_summary(self, fx_ti_2020_02_15):
+        df = fx_ti_2020_02_15.summary()
+        assert df.loc["samples"].value == 43
+        assert df.loc["sample_groups"].value == 27
+        assert df.loc["retro_sample_groups"].value == 1
 
 
 class TestSampleGroupInfo:

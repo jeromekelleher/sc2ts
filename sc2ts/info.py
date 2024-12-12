@@ -469,10 +469,7 @@ class TreeInfo:
         pr_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
-        sg_nodes = np.sum((self.ts.nodes_flags & core.NODE_IN_SAMPLE_GROUP) > 0)
-        rsg_nodes = np.sum(
-            (self.ts.nodes_flags & core.NODE_IN_RETROSPECTIVE_SAMPLE_GROUP) > 0
-        )
+        u_nodes = np.sum((self.ts.nodes_flags & core.NODE_IS_UNCONDITIONALLY_INCLUDED) > 0)
         immediate_reversion_marker = np.sum(
             (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
         )
@@ -484,8 +481,7 @@ class TreeInfo:
             "mc": mc_nodes,
             "pr": pr_nodes,
             "re": re_nodes,
-            "sg": sg_nodes,
-            "rsg": rsg_nodes,
+            "u": u_nodes,
             "imr": immediate_reversion_marker,
             "zero_muts": nodes_with_zero_muts,
         }
@@ -734,6 +730,8 @@ class TreeInfo:
             ),
             ("max_samples_per_day", np.max(self.num_samples_per_day)),
             ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
+            ("sample_groups", len(self.sample_group_nodes)),
+            ("retro_sample_groups", len(self.retro_sample_groups)),
         ]
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
@@ -936,7 +934,6 @@ class TreeInfo:
             d["pango_lineages"] = len(set(d["pango_lineages"]))
             data.append(d)
         return pd.DataFrame(data).set_index("group_id")
-
 
     def recombinants_summary(self):
         data = []
