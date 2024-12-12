@@ -5,6 +5,7 @@ import datetime
 import dataclasses
 import collections
 import concurrent.futures as cf
+import inspect
 import time
 import json
 import pickle
@@ -12,11 +13,14 @@ import hashlib
 import sqlite3
 import pathlib
 import random
+import os
 import threading
 
 import tqdm
 import tskit
+import tszip
 import _tsinfer
+import tsinfer
 import numpy as np
 import zarr
 import numba
@@ -25,11 +29,25 @@ import pandas as pd
 
 from . import core
 from . import tree_ops
+from . import dataset as _dataset
 
 logger = logging.getLogger(__name__)
 
 MISSING = -1
 DELETION = core.IUPAC_ALLELES.index("-")
+
+
+def get_provenance_dict(command, args, start_time):
+    document = {
+        "schema_version": "1.0.0",
+        "software": {"name": "sc2ts", "version": core.__version__},
+        "parameters": {"command": command, **args},
+        "environment": tskit.provenance.get_environment(
+            extra_libs={"tsinfer": {"version": tsinfer.__version__}}
+        ),
+        "resources": tskit.provenance.get_resources(start_time),
+    }
+    return document
 
 
 def get_progress(iterable, title, phase, show_progress, total=None):
@@ -486,22 +504,6 @@ def check_base_ts(ts):
     return sc2ts_md["date"]
 
 
-# def preprocess_worker(strains, alignment_store_path, keep_sites):
-#     assert keep_sites is not None
-#     with alignments.AlignmentStore(alignment_store_path) as alignment_store:
-#         samples = []
-#         for strain in strains:
-#             alignment = alignment_store.get(strain, None)
-#             sample = Sample(strain)
-#             if alignment is not None:
-#                 a = alignment[keep_sites - 1]
-#                 sample.haplotype = alignments.encode_alignment(a)
-#                 # Need to do this here because encoding gets rid of
-#                 # ambiguous bases etc.
-#                 sample.alignment_composition = collections.Counter(a)
-#             samples.append(sample)
-#     return samples
-
 
 def mask_ambiguous(a):
     a = a.copy()
@@ -516,7 +518,6 @@ def preprocess(
     keep_sites,
     progress_title="",
     show_progress=False,
-    num_workers=0,
 ):
     if len(strains) == 0:
         return []
@@ -537,23 +538,6 @@ def preprocess(
         }
         samples.append(sample)
     return samples
-
-    # num_workers = max(1, num_workers)
-    # splits = min(len(strains), 2 * num_workers)
-    # work = np.array_split(strains, splits)
-    # samples = []
-    # bar = get_progress(strains, progress_title, "preprocess", show_progress)
-    # with cf.ProcessPoolExecutor(max_workers=num_workers) as executor:
-    #     futures = [
-    #         executor.submit(preprocess_worker, w, alignment_store_path, keep_sites)
-    #         for w in work
-    #     ]
-    #     for future in cf.as_completed(futures):
-    #         for s in future.result():
-    #             bar.update()
-    #             samples.append(s)
-    # bar.close()
-    # return samples
 
 
 def extend(
@@ -579,6 +563,7 @@ def extend(
     num_threads=0,
     memory_limit=0,
 ):
+
     if num_mismatches is None:
         num_mismatches = 3
     if hmm_cost_threshold is None:
@@ -601,7 +586,71 @@ def extend(
         deletions_as_missing = False
     if include_samples is None:
         include_samples = []
+    base_ts = str(base_ts)
+    dataset = str(dataset)
+    match_db = str(match_db)
 
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    params = {a: values[a] for a in args}
+    del frame
+
+    start_time = time.time()  # wall time
+    base_ts = tszip.load(base_ts)
+    ds = _dataset.Dataset(dataset)
+
+    with MatchDb(match_db) as matches:
+        tables = _extend(
+            dataset=ds,
+            base_ts=base_ts,
+            date=date,
+            match_db=matches,
+            include_samples=include_samples,
+            num_mismatches=num_mismatches,
+            hmm_cost_threshold=hmm_cost_threshold,
+            min_group_size=min_group_size,
+            min_root_mutations=min_root_mutations,
+            min_different_dates=min_different_dates,
+            max_mutations_per_sample=max_mutations_per_sample,
+            max_recurrent_mutations=max_recurrent_mutations,
+            deletions_as_missing=deletions_as_missing,
+            max_daily_samples=max_daily_samples,
+            retrospective_window=retrospective_window,
+            max_missing_sites=max_missing_sites,
+            show_progress=show_progress,
+            random_seed=random_seed,
+            num_threads=num_threads,
+            memory_limit=memory_limit * 2**30, # Convert to bytes
+        )
+
+    prov = get_provenance_dict("extend", params, start_time)
+    tables.provenances.add_row(json.dumps(prov))
+    return tables.tree_sequence()
+
+
+def _extend(
+    *,
+    dataset,
+    date,
+    base_ts,
+    match_db,
+    include_samples,
+    num_mismatches,
+    hmm_cost_threshold,
+    min_group_size,
+    min_root_mutations,
+    min_different_dates,
+    max_mutations_per_sample,
+    max_recurrent_mutations,
+    deletions_as_missing,
+    max_daily_samples,
+    show_progress,
+    retrospective_window,
+    max_missing_sites,
+    random_seed,
+    num_threads,
+    memory_limit,
+):
     previous_date = check_base_ts(base_ts)
     logger.info(
         f"Extend {date}; ts:nodes={base_ts.num_nodes};samples={base_ts.num_samples};"
@@ -621,7 +670,6 @@ def extend(
         keep_sites=base_ts.sites_position.astype(int),
         progress_title=date,
         show_progress=show_progress,
-        num_workers=num_threads,
     )
     # FIXME parametrise
     pango_lineage_key = "Viridian_pangolin"
@@ -730,6 +778,7 @@ def extend(
             f"Add retro group {group.summary()}:"
             f"{group.tree_quality_metrics.summary()}"
         )
+
     return update_top_level_metadata(ts, date, groups, samples)
 
 
@@ -788,7 +837,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
         existing_retro_groups.append(d)
     md["sc2ts"]["retro_groups"] = existing_retro_groups
     tables.metadata = md
-    return tables.tree_sequence()
+    return tables
 
 
 def add_sample_to_tables(sample, tables, group_id=None):
@@ -1272,7 +1321,10 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
 class MatchingManager:
     def __init__(self, tsb, work, num_threads, progress_bar, memory_limit):
         self.tsb = tsb
-        self.num_threads = max(num_threads, 0)
+        if num_threads < 0:
+            num_threads = os.cpu_count()
+        logger.debug(f"Matching with {num_threads} threads")
+        self.num_threads = num_threads
         self.matchers = [None for _ in range(max(num_threads, 1))]
         self.matchers_lock = threading.Lock()
         # This is a thread-safe operation, so we don't need locks on the
@@ -1281,7 +1333,7 @@ class MatchingManager:
         self.results = collections.deque()
         self.progress_bar = progress_bar
         self.memory_limit = 2**64 if memory_limit <= 0 else memory_limit
-        if num_threads > 0:
+        if self.num_threads > 0:
             self.threads = [
                 threading.Thread(target=self.match_worker, args=(j,))
                 for j in range(num_threads)

@@ -6,6 +6,7 @@ import numpy as np
 import click.testing as ct
 import pytest
 import tskit
+import tomli_w
 
 import sc2ts
 from sc2ts import __main__ as main
@@ -75,100 +76,6 @@ class TestImportMetadata:
             f"import-metadata {ds_path} {fx_raw_viridian_metadata_tsv} --viridian",
             catch_exceptions=False,
         )
-
-
-class TestInitialise:
-    def test_defaults(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts()
-        other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
-        match_db = sc2ts.MatchDb(match_db_path)
-        assert len(match_db) == 0
-
-    @pytest.mark.parametrize("problematic", [[100], [100, 200]])
-    def test_problematic_sites(self, tmp_path, problematic):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        problematic_path = tmp_path / "problematic.txt"
-        np.savetxt(problematic_path, problematic)
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path} "
-            f"--problematic-sites {problematic_path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        other_ts = sc2ts.initial_ts(problematic_sites=problematic)
-        other_ts.tables.assert_equals(ts.tables, ignore_provenance=True)
-        match_db = sc2ts.MatchDb(match_db_path)
-        assert len(match_db) == 0
-
-    def test_mask_flanks(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path} --mask-flanks",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        sites = sc2ts.get_masked_sites(ts)
-        # < 266 (leftmost coordinate of ORF1a)
-        # > 29674 (rightmost coordinate of ORF10)
-        assert list(sites) == list(range(1, 266)) + list(range(29675, 29904))
-
-    def test_mask_problematic_regions(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path} --mask-problematic-regions",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        sites = sc2ts.get_masked_sites(ts)
-        # NTD: [21602-22472)
-        # ORF8: [27894, 28260)
-        assert list(sites) == list(range(21602, 22472)) + list(range(27894, 28260))
-
-    def test_provenance(self, tmp_path):
-        ts_path = tmp_path / "trees.ts"
-        match_db_path = tmp_path / "match.db"
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"initialise {ts_path} {match_db_path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        ts = tskit.load(ts_path)
-        assert ts.num_provenances == 1
-        prov = ts.provenance(0)
-        record = json.loads(prov.record)
-        assert "software" in record
-        assert "parameters" in record
-        assert "environment" in record
-        assert "resources" in record
-        resources = record["resources"]
-        assert "elapsed_time" in resources
-        assert "user_time" in resources
-        assert "sys_time" in resources
-        assert "max_memory" in resources
 
 
 class TestMatch:
@@ -243,50 +150,199 @@ class TestMatch:
         assert len(d["match"]["mutations"]) == 5
 
 
-class TestExtend:
+class TestInfer:
+
+    def make_config(
+        self,
+        tmp_path,
+        dataset,
+        run_id="test",
+        results_dir="results",
+        log_dir="logs",
+        matches_dir="matches",
+        exclude_sites=list(),
+        override=list(),
+        **kwargs,
+    ):
+        config = {
+            "dataset": str(dataset.path),
+            "run_id": run_id,
+            "results_dir": str(tmp_path / results_dir),
+            "log_dir": str(tmp_path / log_dir),
+            "matches_dir": str(tmp_path / matches_dir),
+            "exclude_sites": exclude_sites,
+            "extend_parameters": {**kwargs},
+            "override": override,
+        }
+        filename = tmp_path / "config.toml"
+        with open(filename, "w") as f:
+            toml = tomli_w.dumps(config)
+            # print("Generated", toml)
+            f.write(toml)
+        return filename
+
+    def test_initialise_defaults(self, tmp_path, fx_dataset):
+        config_file = self.make_config(tmp_path, fx_dataset)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-01",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        init_ts_path = tmp_path / "results" / "test" / "test_init.ts"
+        init_ts = tskit.load(init_ts_path)
+        other_ts = sc2ts.initial_ts()
+        other_ts.tables.assert_equals(init_ts.tables)
+        match_db_path = tmp_path / "matches" / "test.matches.db"
+        match_db = sc2ts.MatchDb(match_db_path)
+        assert len(match_db) == 0
+
+    @pytest.mark.parametrize("problematic", [[100], [100, 200]])
+    def test_problematic_sites(self, tmp_path, fx_dataset, problematic):
+        config_file = self.make_config(tmp_path, fx_dataset, exclude_sites=problematic)
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-01",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        init_ts_path = tmp_path / "results" / "test" / "test_init.ts"
+        init_ts = tskit.load(init_ts_path)
+        other_ts = sc2ts.initial_ts(problematic_sites=problematic)
+        other_ts.tables.assert_equals(init_ts.tables)
+        match_db_path = tmp_path / "matches" / "test.matches.db"
+        match_db = sc2ts.MatchDb(match_db_path)
+        assert len(match_db) == 0
 
     def test_first_day(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = fx_ts_map["2020-01-01"]
-        ts_path = tmp_path / "ts.ts"
-        output_ts_path = tmp_path / "out.ts"
-        ts.dump(ts_path)
-        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        config_file = self.make_config(
+            tmp_path, fx_dataset, exclude_sites=[56, 57, 58, 59, 60]
+        )
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"extend {ts_path} 2020-01-19 {fx_dataset.path} "
-            f"{match_db.path} {output_ts_path}",
+            f"infer {config_file} --stop 2020-01-20",
+            catch_exceptions=False,
+        )
+        date = "2020-01-19"
+        assert result.exit_code == 0
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        out_ts = tskit.load(ts_path)
+        out_ts.tables.assert_equals(fx_ts_map[date].tables, ignore_provenance=True)
+
+    def test_start(self, tmp_path, fx_ts_map, fx_dataset):
+        config_file = self.make_config(
+            tmp_path, fx_dataset, exclude_sites=[56, 57, 58, 59, 60]
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-20",
+            catch_exceptions=False,
+        )
+        date = "2020-01-19"
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --start={date} --stop 2020-01-20 -f",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        out_ts = tskit.load(output_ts_path)
-        out_ts.tables.assert_equals(
-            fx_ts_map["2020-01-19"].tables, ignore_provenance=True
-        )
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        out_ts = tskit.load(ts_path)
+        out_ts.tables.assert_equals(fx_ts_map[date].tables, ignore_provenance=True)
 
     def test_include_samples(self, tmp_path, fx_ts_map, fx_dataset):
-        ts = fx_ts_map["2020-02-01"]
-        ts_path = tmp_path / "ts.ts"
-        output_ts_path = tmp_path / "out.ts"
-        ts.dump(ts_path)
-        include_samples_path = tmp_path / "include_samples.txt"
-        with open(include_samples_path, "w") as f:
-            print("SRR11597115 This is a test strain", file=f)
-            print("ABCD this is a strain that doesn't exist", file=f)
-        match_db = sc2ts.MatchDb.initialise(tmp_path / "match.db")
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            exclude_sites=[56, 57, 58, 59, 60],
+            include_samples=["SRR14631544", "NO_SUCH_STRAIN"],
+        )
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"extend {ts_path} 2020-02-02 {fx_dataset.path} "
-            f"{match_db.path} {output_ts_path} "
-            f"--include-samples={include_samples_path}",
+            f"infer {config_file} --stop 2020-01-02",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        ts = tskit.load(output_ts_path)
-        assert "SRR11597115" in ts.metadata["sc2ts"]["samples_strain"]
-        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 5
-        assert ts.num_samples == 22
+        date = "2020-01-01"
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+
+        assert result.exit_code == 0
+        ts = tskit.load(ts_path)
+        assert "SRR14631544" in ts.metadata["sc2ts"]["samples_strain"]
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 1
+        assert ts.num_samples == 1
+
+    def test_override(self, tmp_path, fx_ts_map, fx_dataset):
+        hmm_cost_threshold = 47
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            exclude_sites=[56, 57, 58, 59, 60],
+            override=[
+                {
+                    "start": "2020-01-01",
+                    "stop": "2020-01-02",
+                    "parameters": {"hmm_cost_threshold": hmm_cost_threshold},
+                }
+            ],
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-02",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        date = "2020-01-01"
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        ts = tskit.load(ts_path)
+        params = json.loads(ts.provenance(-1).record)["parameters"]
+        assert params["hmm_cost_threshold"] == hmm_cost_threshold
+
+        assert "SRR14631544" in ts.metadata["sc2ts"]["samples_strain"]
+        assert np.sum(ts.nodes_time[ts.samples()] == 0) == 1
+        assert ts.num_samples == 1
+
+    def test_multiple_override(self, tmp_path, fx_ts_map, fx_dataset):
+        hmm_cost_threshold = 3
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            exclude_sites=[56, 57, 58, 59, 60],
+            # Overrides get applied sequentially, and last overlapping value wins.
+            override=[
+                {
+                    "start": "2020-01-01",
+                    "stop": "2020-01-02",
+                    "parameters": {"hmm_cost_threshold": 123},
+                },
+                {
+                    "start": "2020",
+                    "stop": "2020-07-01",
+                    "parameters": {"hmm_cost_threshold": hmm_cost_threshold},
+                },
+            ],
+            hmm_cost_threshold=4000,
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"infer {config_file} --stop 2020-01-02",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        date = "2020-01-01"
+        ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
+        ts = tskit.load(ts_path)
+        params = json.loads(ts.provenance(-1).record)["parameters"]
+        assert params["hmm_cost_threshold"] == hmm_cost_threshold
+
+        assert "SRR14631544" not in ts.metadata["sc2ts"]["samples_strain"]
+        assert ts.num_samples == 0
 
 
 @pytest.mark.skip("Broken by dataset")
@@ -375,83 +431,3 @@ class TestInfoDataset:
         assert result.exit_code == 0
         # Pick arbitrary field as a basic check
         assert "/sample_Genbank_N" in result.stdout
-
-
-class TestListDates:
-    def test_defaults(self, fx_dataset):
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"list-dates {fx_dataset.path}",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        assert result.stdout.splitlines() == [
-            "2020-01-01",
-            "2020-01-19",
-            "2020-01-24",
-            "2020-01-25",
-            "2020-01-28",
-            "2020-01-29",
-            "2020-01-30",
-            "2020-01-31",
-            "2020-02-01",
-            "2020-02-02",
-            "2020-02-03",
-            "2020-02-04",
-            "2020-02-05",
-            "2020-02-06",
-            "2020-02-07",
-            "2020-02-08",
-            "2020-02-09",
-            "2020-02-10",
-            "2020-02-11",
-            "2020-02-13",
-        ]
-
-    @pytest.mark.skip("Final date off by one after dataset")
-    def test_counts(self, fx_dataset):
-        runner = ct.CliRunner(mix_stderr=False)
-        result = runner.invoke(
-            cli.cli,
-            f"list-dates {fx_dataset.path} --counts",
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        assert result.stdout.splitlines() == [
-            "2020-01-01\t1",
-            "2020-01-19\t1",
-            "2020-01-24\t2",
-            "2020-01-25\t3",
-            "2020-01-28\t2",
-            "2020-01-29\t4",
-            "2020-01-30\t5",
-            "2020-01-31\t1",
-            "2020-02-01\t5",
-            "2020-02-02\t5",
-            "2020-02-03\t2",
-            "2020-02-04\t5",
-            "2020-02-05\t1",
-            "2020-02-06\t3",
-            "2020-02-07\t2",
-            "2020-02-08\t4",
-            "2020-02-09\t2",
-            "2020-02-10\t2",
-            "2020-02-11\t2",
-            "2020-02-13\t4",
-        ]
-
-
-class TestParseIncludeSamples:
-    @pytest.mark.parametrize(
-        ["text", "parsed"],
-        [
-            ("ABCD\n1234\n56", ["ABCD", "1234", "56"]),
-            ("   ABCD\n\t1234\n 56", ["ABCD", "1234", "56"]),
-            ("ABCD the rest is a comment", ["ABCD"]),
-            ("", []),
-        ],
-    )
-    def test_examples(self, text, parsed):
-        result = cli.parse_include_samples(io.StringIO(text))
-        assert result == parsed
