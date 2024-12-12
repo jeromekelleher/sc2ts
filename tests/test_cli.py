@@ -162,6 +162,7 @@ class TestInfer:
         matches_dir="matches",
         exclude_sites=list(),
         override=list(),
+        extra_top_level=dict(),
         **kwargs,
     ):
         config = {
@@ -173,6 +174,7 @@ class TestInfer:
             "exclude_sites": exclude_sites,
             "extend_parameters": {**kwargs},
             "override": override,
+            **extra_top_level,
         }
         filename = tmp_path / "config.toml"
         with open(filename, "w") as f:
@@ -231,6 +233,28 @@ class TestInfer:
         ts_path = tmp_path / "results" / "test" / f"test_{date}.ts"
         out_ts = tskit.load(ts_path)
         out_ts.tables.assert_equals(fx_ts_map[date].tables, ignore_provenance=True)
+
+    def test_unknown_keys(self, tmp_path, fx_ts_map, fx_dataset):
+        config_file = self.make_config(
+            tmp_path, fx_dataset, extra_top_level={"Akey": 1, "B": 2}
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        with pytest.raises(ValueError, match="Akey"):
+            result = runner.invoke(
+                cli.cli, f"infer {config_file} ", catch_exceptions=False
+            )
+
+    def test_unknown_params(self, tmp_path, fx_ts_map, fx_dataset):
+        config_file = self.make_config(
+            tmp_path,
+            fx_dataset,
+            no_such_param=1,
+        )
+        runner = ct.CliRunner(mix_stderr=False)
+        with pytest.raises(TypeError, match="no_such_param"):
+            result = runner.invoke(
+                cli.cli, f"infer {config_file} ", catch_exceptions=False
+            )
 
     def test_start(self, tmp_path, fx_ts_map, fx_dataset):
         config_file = self.make_config(
