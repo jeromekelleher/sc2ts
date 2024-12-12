@@ -455,8 +455,9 @@ class TreeInfo:
         self.sample_group_nodes = collections.defaultdict(list)
         self.sample_group_mutations = collections.defaultdict(list)
         self.retro_sample_groups = {}
-        # print(top_level_md)
-        # # for retro_group in ope
+        for retro_group in top_level_md["retro_groups"]:
+            gid = retro_group["group_id"][: self.sample_group_id_prefix_len]
+            self.retro_sample_groups[gid] = retro_group
 
         if not quick:
             self._preprocess_nodes(show_progress)
@@ -925,11 +926,23 @@ class TreeInfo:
             )
         return pd.DataFrame(data).set_index("group_id")
 
+    def retro_sample_groups_summary(self):
+        data = []
+        for group_id, retro_group in self.retro_sample_groups.items():
+            d = dict(retro_group)
+            d["group_id"] = group_id
+            d["dates"] = len(set(d["dates"]))
+            d["samples"] = len(d.pop("strains"))
+            d["pango_lineages"] = len(set(d["pango_lineages"]))
+            data.append(d)
+        return pd.DataFrame(data).set_index("group_id")
+
+
     def recombinants_summary(self):
         data = []
         for u in self.recombinants:
             md = self.nodes_metadata[u]["sc2ts"]
-            group_id = md["group_id"][:self.sample_group_id_prefix_len]
+            group_id = md["group_id"][: self.sample_group_id_prefix_len]
             # NOTE this is overlapping quite a bit with the SampleGroupInfo
             # class functionality here, but we just want something quick for
             # now here.
@@ -2016,12 +2029,13 @@ class TreeInfo:
     def get_sample_group_info(self, group_id):
         samples = []
 
-        for u in self.nodes_sample_group[group_id]:
+        group_nodes = self.sample_group_nodes[group_id]
+        for u in group_nodes:
             if self.ts.nodes_flags[u] & tskit.NODE_IS_SAMPLE > 0:
                 samples.append(u)
 
         tree = self.ts.first()
-        while self.nodes_metadata[u]["sc2ts"].get("group_id", None) == group_id:
+        while u in group_nodes:
             u = tree.parent(u)
         attach_date = self.nodes_date[u]
         ts = self.ts.simplify(samples + [u])
@@ -2048,7 +2062,7 @@ class TreeInfo:
 
         return SampleGroupInfo(
             group_id,
-            self.nodes_sample_group[group_id],
+            group_nodes,
             ts=tables.tree_sequence(),
             attach_date=attach_date,
         )
