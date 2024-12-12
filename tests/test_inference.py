@@ -295,6 +295,7 @@ class TestRealData:
         "2020-02-10",
         "2020-02-11",
         "2020-02-13",
+        "2020-02-15",
     ]
 
     def test_first_day(self, tmp_path, fx_ts_map, fx_dataset):
@@ -859,7 +860,6 @@ class TestRealData:
         node = ts.node(u)
         sample_hash = hashlib.md5(strain.encode()).hexdigest()
         assert node.metadata["sc2ts"]["group_id"] == sample_hash
-        assert node.flags & sc2ts.NODE_IN_SAMPLE_GROUP == 0
 
     @pytest.mark.parametrize("date", dates[1:])
     def test_node_mutation_counts(self, fx_ts_map, date):
@@ -889,6 +889,7 @@ class TestRealData:
             "2020-02-10": {"nodes": 49, "mutations": 69},
             "2020-02-11": {"nodes": 50, "mutations": 73},
             "2020-02-13": {"nodes": 53, "mutations": 76},
+            "2020-02-15": {"nodes": 60, "mutations": 101},
         }
         assert ts.num_nodes == expected[date]["nodes"]
         assert ts.num_mutations == expected[date]["mutations"]

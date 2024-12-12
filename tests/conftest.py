@@ -125,6 +125,7 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
         "2020-02-10",
         "2020-02-11",
         "2020-02-13",
+        "2020-02-15",
     ]
     cache_path = fx_data_cache / f"{dates[-1]}.ts"
     if not cache_path.exists():
@@ -135,12 +136,21 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
         last_ts.dump(cache_path)
         for date in dates:
             # Load the ts from file to get the provenance data
+            extra_kwargs = {}
+            if date == dates[-1]:
+                # Force a bunch of retro groups in on the last day 
+                extra_kwargs = {
+                    "min_group_size": 1,
+                    "min_root_mutations": 0,
+                }
+
             last_ts = tskit.load(cache_path)
             last_ts = sc2ts.extend(
                 dataset=fx_dataset.path,
                 base_ts=cache_path,
                 date=date,
                 match_db=fx_match_db.path,
+                **extra_kwargs
             )
             print(
                 f"INFERRED {date} nodes={last_ts.num_nodes} mutations={last_ts.num_mutations}"
