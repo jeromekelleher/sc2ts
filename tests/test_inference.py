@@ -764,9 +764,7 @@ class TestRealData:
         for node in list(ts.nodes())[2:]:
             md = node.metadata["sc2ts"]
             if node.is_sample():
-                # All samples are added as part of a group
                 assert "hmm_match" in md
-                assert "group_id" in md
 
     @pytest.mark.parametrize("date", dates)
     def test_exact_match_count(self, fx_ts_map, date):
@@ -859,7 +857,8 @@ class TestRealData:
         ts = fx_ts_map[date]
         u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
         node = ts.node(u)
-        assert "group_id" not in node.metadata["sc2ts"]
+        sample_hash = hashlib.md5(strain.encode()).hexdigest()
+        assert node.metadata["sc2ts"]["group_id"] == sample_hash
         assert node.flags & sc2ts.NODE_IN_SAMPLE_GROUP == 0
 
     @pytest.mark.parametrize("date", dates[1:])
