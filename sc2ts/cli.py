@@ -331,13 +331,10 @@ def infer(config_file, start, stop, force):
     Run the full inference pipeline based on values in the config file.
     """
     config = tomli.load(config_file)
-    import pprint
-
-    pprint.pprint(config)
-    run_id = config["run_id"]
-    results_dir = pathlib.Path(config["results_dir"]) / run_id
-    log_dir = pathlib.Path(config["log_dir"])
-    matches_dir = pathlib.Path(config["matches_dir"])
+    run_id = config.pop("run_id")
+    results_dir = pathlib.Path(config.pop("results_dir")) / run_id
+    log_dir = pathlib.Path(config.pop("log_dir"))
+    matches_dir = pathlib.Path(config.pop("matches_dir"))
     for path in [matches_dir, results_dir, log_dir]:
         path.mkdir(exist_ok=True, parents=True)
 
@@ -345,6 +342,7 @@ def infer(config_file, start, stop, force):
     match_db = matches_dir / f"{run_id}.matches.db"
 
     ts_file_pattern = str(results_dir / f"{run_id}_{{date}}.ts")
+    exclude_sites = config.pop("exclude_sites", [])
 
     if start is None:
         if match_db.exists() and not force:
@@ -352,7 +350,7 @@ def infer(config_file, start, stop, force):
                 f"Do you want to overwrite MatchDB at {match_db}",
                 abort=True,
             )
-        init_ts = sc2ts.initial_ts(config.get("exclude_sites", []))
+        init_ts = sc2ts.initial_ts(exclude_sites)
         sc2ts.MatchDb.initialise(match_db)
         base_ts = results_dir / f"{run_id}_init.ts"
         init_ts.dump(base_ts)
@@ -371,10 +369,16 @@ def infer(config_file, start, stop, force):
                     )
                 mdb.delete_newer(start)
 
-    exclude_dates = set(config.get("exclude_dates", []))
-    param_overrides = config.get("override", [])
+    log_level = config.pop("log_level", 2)
+    exclude_dates = set(config.pop("exclude_dates", []))
+    param_overrides = config.pop("override", [])
+    dataset = config.pop("dataset")
+    extend_parameters = config.pop("extend_parameters")
 
-    ds = sc2ts.Dataset(config["dataset"])
+    if len(config) > 0:
+        raise ValueError(f"Unknown keys in config: {list(config.keys())}")
+
+    ds = sc2ts.Dataset(dataset)
     for date in np.unique(ds["sample_date"][:]):
         if date >= stop:
             break
@@ -385,11 +389,11 @@ def infer(config_file, start, stop, force):
             continue
 
         params = {
-            "dataset": config["dataset"],
+            "dataset": dataset,
             "base_ts": str(base_ts),
             "date": date,
             "match_db": str(match_db),
-            **config["extend_parameters"],
+            **extend_parameters,
         }
         for override_set in param_overrides:
             if override_set["start"] <= date < override_set["stop"]:
@@ -399,7 +403,7 @@ def infer(config_file, start, stop, force):
         base_ts = ts_file_pattern.format(date=date)
         with cf.ProcessPoolExecutor(1) as executor:
             future = executor.submit(
-                _run_extend, base_ts, params.get("log_level", 2), log_file, **params
+                _run_extend, base_ts, log_level, log_file, **params
             )
             # Block and wait, raising exception if it occured
             future.result()
