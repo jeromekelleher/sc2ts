@@ -966,7 +966,6 @@ class SampleGroup:
     samples: List = None
     path: List = None
     immediate_reversions: List = None
-    additional_keys: Dict = None
     sample_hash: str = None
     tree_quality_metrics: GroupTreeQualityMetrics = None
 
@@ -1000,7 +999,6 @@ class SampleGroup:
             f"{dict(self.date_count)} "
             f"{dict(self.pango_count)} "
             f"immediate_reversions={self.immediate_reversions} "
-            f"additional_keys={self.additional_keys} "
             f"path={path_summary(self.path)} "
             f"strains={self.strains}"
         )
@@ -1033,7 +1031,6 @@ def add_matching_results(
     max_mutations_per_sample=np.inf,
     max_recurrent_mutations=np.inf,
     show_progress=False,
-    additional_group_metadata_keys=list(),
     phase=None,
 ):
     logger.info(f"Querying match DB WHERE: {where_clause}")
@@ -1054,10 +1051,7 @@ def add_matching_results(
             for mut in sample.hmm_match.mutations
             if mut.is_immediate_reversion
         )
-        additional_metadata = [
-            sample.metadata.get(k, None) for k in additional_group_metadata_keys
-        ]
-        key = (path, immediate_reversions, *additional_metadata)
+        key = (path, immediate_reversions)
         grouped_matches[key].append(sample)
         num_samples += 1
 
@@ -1070,7 +1064,6 @@ def add_matching_results(
             samples,
             key[0],
             key[1],
-            {k: v for k, v in zip(additional_group_metadata_keys, key[2:])},
         )
         for key, samples in grouped_matches.items()
     ]
