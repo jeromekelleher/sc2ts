@@ -1029,7 +1029,7 @@ class TestSyntheticAlignments:
         assert df.shape[0] == 1
         row = df.iloc[0]
         assert row.recombinant == recomb_node.id
-        assert row.group_id == group_id
+        assert row.group_id == group_id[:10]
         assert row.date_added == date
         assert row.descendants == 2
         assert row.parents == 2
