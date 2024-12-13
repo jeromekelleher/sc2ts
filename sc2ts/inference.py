@@ -689,7 +689,7 @@ def _extend(
         num_missing_sites = s.num_missing_sites
         num_deletion_sites = s.num_deletion_sites
         logger.debug(
-            f"Encoded {s.strain} {s.pango} missing={num_missing_sites} "
+            f"Encoded {s.strain} {s.scorpio} {s.pango} missing={num_missing_sites} "
             f"deletions={num_deletion_sites}"
         )
         if s.strain in include_strains:
@@ -715,10 +715,6 @@ def _extend(
 
     ts = increment_time(date, base_ts)
     if len(samples) > 0:
-        logger.info(
-            f"Got alignments for {len(samples)} of {len(metadata_matches)} in metadata"
-        )
-
         match_samples(
             date,
             samples,
@@ -743,7 +739,7 @@ def _extend(
 
         ts = add_exact_matches(ts=ts, match_db=match_db, date=date)
 
-        logger.info(f"Update ARG with low-cost samples for {date}")
+        logger.info(f"Update ARG with low-cost samples")
         ts, _ = add_matching_results(
             f"match_date=='{date}' and hmm_cost>0 and hmm_cost<={hmm_cost_threshold}",
             ts=ts,
@@ -1503,7 +1499,7 @@ def match_tsinfer(
             coord_map, mirror_coordinates, ts.sites_position
         )
         logger.debug(
-            f"HMM@T={mismatch_threshold}: {sample.strain} "
+            f"HMM@T={mismatch_threshold}: {sample.strain} {sample.pango}"
             f"hmm_cost={sample.hmm_match.cost} match={sample.hmm_match.summary()}"
         )
 
