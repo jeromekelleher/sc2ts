@@ -366,7 +366,6 @@ class Sample:
     hmm_match: HmmMatch = None
     breakpoint_intervals: List = dataclasses.field(default_factory=list)
     flags: int = tskit.NODE_IS_SAMPLE
-    hmm_reruns: Dict = dataclasses.field(default_factory=dict)
 
     @property
     def is_recombinant(self):
@@ -382,46 +381,7 @@ class Sample:
 
     def summary(self):
         hmm_match = "No match" if self.hmm_match is None else self.hmm_match.summary()
-        s = f"{self.strain} {self.date} {self.pango} {hmm_match}"
-        for name, hmm_match in self.hmm_reruns.items():
-            s += f"; {name}: {hmm_match.summary()}"
-        return s
-
-
-# TODO not clear if we still need this as mirroring is done differently now.
-# Remove if we don't have any issues with running the HMM in reverse
-def pad_sites(ts):
-    """
-    Fill in missing sites with the reference state.
-    """
-    ref = core.get_reference_sequence()
-    missing_sites = set(np.arange(1, len(ref)))
-    missing_sites -= set(ts.sites_position.astype(int))
-    tables = ts.dump_tables()
-    for pos in missing_sites:
-        tables.sites.add_row(pos, ref[pos])
-    tables.sort()
-    return tables.tree_sequence()
-
-
-# TODO remove this
-def match_recombinants(
-    samples, base_ts, num_mismatches, show_progress=False, num_threads=None
-):
-    for hmm_pass in ["forward", "reverse", "no_recombination"]:
-        logger.info(f"Running {hmm_pass} pass for {len(samples)} recombinants")
-        match_tsinfer(
-            samples=samples,
-            ts=base_ts,
-            num_mismatches=1000 if hmm_pass == "no_recombination" else num_mismatches,
-            mismatch_threshold=100,
-            num_threads=num_threads,
-            show_progress=show_progress,
-            mirror_coordinates=hmm_pass == "reverse",
-        )
-
-        for sample in samples:
-            sample.hmm_reruns[hmm_pass] = sample.hmm_match
+        return f"{self.strain} {self.date} {self.pango} {hmm_match}"
 
 
 def match_samples(
@@ -838,7 +798,6 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
 def add_sample_to_tables(sample, tables, group_id=None):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
-        "hmm_reruns": {k: m.asdict() for k, m in sample.hmm_reruns.items()},
         "alignment_composition": dict(sample.alignment_composition),
         "num_missing_sites": sample.num_missing_sites,
     }

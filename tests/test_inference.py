@@ -1022,7 +1022,6 @@ class TestSyntheticAlignments:
                 {"left": bp, "parent": right_parent, "right": 29904},
             ],
         }
-        assert smd["hmm_reruns"] == {}
 
         sample = ts.node(ts.samples()[-1])
         smd = sample.metadata["sc2ts"]
@@ -1036,7 +1035,6 @@ class TestSyntheticAlignments:
                 {"left": bp, "parent": right_parent, "right": 29904},
             ],
         }
-        assert smd["hmm_reruns"] == {}
 
         recomb_node = ts.node(ts.num_nodes - 1)
         assert recomb_node.flags == sc2ts.NODE_IS_RECOMBINANT
@@ -1078,7 +1076,7 @@ class TestSyntheticAlignments:
         date = "2020-03-01"
         rts = fx_recombinant_example_2
         samples_strain = rts.metadata["sc2ts"]["samples_strain"]
-        assert samples_strain[-3:] == ["left", "right", "recombinant"]
+        assert samples_strain[-3:] == ["left", "right", "recombinant_114:29825"]
 
         sample = rts.node(rts.samples()[-1])
         smd = sample.metadata["sc2ts"]
@@ -1089,8 +1087,6 @@ class TestSyntheticAlignments:
                 {"left": 29825, "parent": 54, "right": 29904},
             ],
         }
-
-        assert smd["hmm_reruns"] == {}
 
     def test_all_As(self, tmp_path, fx_ts_map, fx_dataset):
         # Same as the recombinant_example_1() function above
@@ -1310,71 +1306,3 @@ class TestCharacteriseRecombinants:
         m = s.hmm_match
         assert m.parents == [53, 54, 55]
         assert m.breakpoints == [0, 114, 15010, 29904]
-
-
-class TestMatchRecombinants:
-    def test_example_1(self, fx_ts_map):
-        ts, s = recombinant_example_1(fx_ts_map)
-
-        sc2ts.match_recombinants(
-            samples=[s],
-            base_ts=ts,
-            num_mismatches=2,
-            num_threads=0,
-        )
-        left_parent = 31
-        right_parent = 46
-        interval_right = 11083
-
-        m = s.hmm_reruns["forward"]
-        assert len(m.mutations) == 0
-        assert len(m.path) == 2
-        assert m.path[0].parent == left_parent
-        assert m.path[0].left == 0
-        assert m.path[0].right == interval_right
-        assert m.path[1].parent == right_parent
-        assert m.path[1].left == interval_right
-        assert m.path[1].right == ts.sequence_length
-
-        interval_left = 3788
-        m = s.hmm_reruns["reverse"]
-        assert len(m.mutations) == 0
-        assert len(m.path) == 2
-        assert m.path[0].left == 0
-        assert m.path[0].right == interval_left
-        assert m.path[0].parent == left_parent
-        assert m.path[1].parent == right_parent
-        assert m.path[1].left == interval_left
-        assert m.path[1].right == ts.sequence_length
-
-        m = s.hmm_reruns["no_recombination"]
-        # It seems that we can choose either the left or right parent
-        # arbitrarily :shrug:
-        assert len(m.mutations) == 3
-        assert m.mutation_summary() in [
-            "[A871G, A3027G, C3787T]",
-            "[T11083G, C15324T, C29303T]",
-        ]
-        assert len(m.path) == 1
-        assert m.path[0].parent in [left_parent, right_parent]
-        assert m.path[0].left == 0
-        assert m.path[0].right == ts.sequence_length
-
-        assert "no_recombination" in s.summary()
-
-    def test_all_As(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        h = np.zeros(ts.num_sites, dtype=np.int8)
-        s = sc2ts.Sample("zerotype", "2020-02-14", haplotype=h)
-
-        sc2ts.match_recombinants(
-            samples=[s],
-            base_ts=ts,
-            num_mismatches=3,
-            num_threads=0,
-        )
-        assert len(s.hmm_reruns) == 3
-        num_mutations = []
-        for hmm_match in s.hmm_reruns.values():
-            assert len(hmm_match.path) == 1
-            assert len(hmm_match.mutations) == 20943
