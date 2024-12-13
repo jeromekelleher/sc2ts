@@ -58,3 +58,7 @@ packages = ["sc2ts"]
 
 [tool.setuptools_scm]
 write_to = "sc2ts/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+addopts = "--cov=sc2ts --cov-report term-missing"
