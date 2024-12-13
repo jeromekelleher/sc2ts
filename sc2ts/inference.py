@@ -364,8 +364,9 @@ class Sample:
     alignment_composition: Dict = None
     haplotype: List = None
     hmm_match: HmmMatch = None
-    hmm_reruns: Dict = dataclasses.field(default_factory=dict)
+    breakpoint_intervals: List = dataclasses.field(default_factory=list)
     flags: int = tskit.NODE_IS_SAMPLE
+    hmm_reruns: Dict = dataclasses.field(default_factory=dict)
 
     @property
     def is_recombinant(self):
@@ -725,8 +726,9 @@ def _extend(
             num_threads=num_threads,
             memory_limit=memory_limit,
         )
-
         characterise_match_mutations(base_ts, samples)
+        characterise_recombinants(base_ts, samples)
+
         for sample in unconditional_include_samples:
             # We want this sample to included unconditionally, so we set the
             # hmm cost to 0 < hmm_cost < hmm_cost_threshold. We use 0.5
@@ -840,6 +842,8 @@ def add_sample_to_tables(sample, tables, group_id=None):
         "alignment_composition": dict(sample.alignment_composition),
         "num_missing_sites": sample.num_missing_sites,
     }
+    if sample.is_recombinant:
+        sc2ts_md["breakpoint_intervals"] = sample.breakpoint_intervals
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
@@ -1679,6 +1683,33 @@ def characterise_match_mutations(ts, samples):
                         closest_mutation.node == seg.parent
                     )
     logger.debug(f"Characterised {num_mutations} mutations")
+
+
+def characterise_recombinants(ts, samples):
+    """
+    Update the metadata for any recombinants to add interval information to the metadata.
+    """
+    recombinants = [s for s in samples if s.is_recombinant]
+    if len(recombinants) == 0:
+        return
+    logger.info(f"Characterising {len(recombinants)} recombinants")
+
+    # NOTE: could make this more efficient by doing one call to genotype_matrix,
+    # but recombinants are rare so let's keep this simple
+    for s in recombinants:
+        parents = [seg.parent for seg in s.hmm_match.path]
+        # Can't have missing data here, so we're OK.
+        H = ts.genotype_matrix(samples=parents, isolated_as_missing=False).T
+        breakpoint_intervals = []
+        for j in range(len(parents) - 1):
+            parents_differ = np.where(H[j] != H[j + 1])[0]
+            pos = ts.sites_position[parents_differ].astype(int)
+            right = s.hmm_match.path[j].right
+            right_index = np.searchsorted(pos, right)
+            assert pos[right_index] == right
+            left = pos[right_index - 1] + 1
+            breakpoint_intervals.append((int(left), int(right)))
+        s.breakpoint_intervals = breakpoint_intervals
 
 
 def attach_tree(

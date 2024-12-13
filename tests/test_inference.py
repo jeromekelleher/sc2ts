@@ -80,7 +80,33 @@ class TestRecombinantHandling:
 
     def test_get_recombinant_strains_ex2(self, fx_recombinant_example_2):
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_2)
-        assert d == {56: ["recombinant"]}
+        assert d == {56: ["recombinant_114:29825"]}
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1):
+        ts = fx_recombinant_example_1
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        samples = ts.samples()
+        for s in ["recombinant_example_1_0", "recombinant_example_1_1"]:
+            u = samples[samples_strain.index(s)]
+            node = ts.node(u)
+            md = node.metadata["sc2ts"]
+            assert md["breakpoint_intervals"] == [[3788, 11083]]
+            assert md["hmm_match"]["path"] == [
+                {"left": 0, "parent": 31, "right": 11083},
+                {"left": 11083, "parent": 46, "right": 29904},
+            ]
+
+    def test_recombinant_example_2(self, fx_recombinant_example_2):
+        ts = fx_recombinant_example_2
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        u = ts.samples()[samples_strain.index("recombinant_114:29825")]
+        node = ts.node(u)
+        md = node.metadata["sc2ts"]
+        assert md["breakpoint_intervals"] == [[114, 29825]]
+        assert md["hmm_match"]["path"] == [
+            {"left": 0, "parent": 53, "right": 29825},
+            {"left": 29825, "parent": 54, "right": 29904},
+        ]
 
 
 class TestSolveNumMismatches:
@@ -1184,6 +1210,53 @@ class TestMatchingDetails:
         assert m.path[0].right == interval_right
         assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_right
+        assert m.path[1].right == ts.sequence_length
+
+
+class TestCharacteriseRecombinants:
+
+    def test_example_1(self, fx_ts_map):
+        ts, s = recombinant_example_1(fx_ts_map)
+
+        interval_left = 3788
+        interval_right = 11083
+        left_parent = 31
+        right_parent = 46
+
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+        )
+        m = s.hmm_match
+        assert len(m.mutations) == 0
+        assert len(m.path) == 2
+        assert m.path[0].parent == left_parent
+        assert m.path[0].left == 0
+        assert m.path[0].right == interval_right
+        assert m.path[1].parent == right_parent
+        assert m.path[1].left == interval_right
+        assert m.path[1].right == ts.sequence_length
+
+        sc2ts.characterise_recombinants(ts, [s])
+        assert s.breakpoint_intervals == [(interval_left, interval_right)]
+
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=True,
+        )
+        m = s.hmm_match
+        assert len(m.mutations) == 0
+        assert len(m.path) == 2
+        assert m.path[0].parent == left_parent
+        assert m.path[0].left == 0
+        assert m.path[0].right == interval_left
+        assert m.path[1].parent == right_parent
+        assert m.path[1].left == interval_left
         assert m.path[1].right == ts.sequence_length
 
 

@@ -254,9 +254,11 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
     ts_path = tmp_path / "intermediate.ts"
     ts.dump(ts_path)
 
-    # Now run again with the recombinant of these two
+    # Now run again with the recombinant of these two, encoding the interval in the # name
     date = "2020-03-02"
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", {"recombinant": a}, date=date)
+    left = start + 3 + 1
+    right = end - 3 + 1
+    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", {f"recombinant_{left}:{right}": a}, date=date)
     rts = sc2ts.extend(
         dataset=ds.path,
         base_ts=ts_path,
