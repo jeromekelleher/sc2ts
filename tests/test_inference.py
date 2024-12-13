@@ -49,6 +49,7 @@ def recombinant_example_1(ts_map):
     return ts, s
 
 
+
 def tmp_metadata_db(tmp_path, strains, date):
     data = []
     for strain in strains:
@@ -106,6 +107,19 @@ class TestRecombinantHandling:
         assert md["hmm_match"]["path"] == [
             {"left": 0, "parent": 53, "right": 29825},
             {"left": 29825, "parent": 54, "right": 29904},
+        ]
+
+    def test_recombinant_example_3(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        u = ts.samples()[samples_strain.index("recombinant_114:15001:15010:29825")]
+        node = ts.node(u)
+        md = node.metadata["sc2ts"]
+        assert md["breakpoint_intervals"] == [[114, 15001], [15010, 29825]]
+        assert md["hmm_match"]["path"] == [
+            {"left": 0, "parent": 53, "right": 15001},
+            {"left": 15001, "parent": 54, "right": 29825},
+            {"left": 29825, "parent": 55, "right": 29904},
         ]
 
 
@@ -1258,6 +1272,43 @@ class TestCharacteriseRecombinants:
         assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_left
         assert m.path[1].right == ts.sequence_length
+
+    def test_example_3(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        strains = ts.metadata["sc2ts"]["samples_strain"]
+        assert strains[-1].startswith("recomb")
+        u = ts.samples()[-1]
+        h = ts.genotype_matrix(samples=[u]).T[0]
+        tables = ts.dump_tables()
+        keep_edges = ts.edges_child != u
+        tables.edges.keep_rows(keep_edges)
+        keep_nodes = np.ones(ts.num_nodes, dtype=bool)
+        tables.nodes[u] = tables.nodes[u].replace(flags=0)
+        tables.sort()
+        base_ts = tables.tree_sequence()
+
+        alignment = np.full(int(ts.sequence_length), -1, dtype=np.int8)
+        alignment[ts.sites_position.astype(int)] = h
+        s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
+
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=base_ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=False,
+        )
+        m = s.hmm_match
+        print(m)
+        assert len(m.mutations) == 0
+        assert len(m.path) == 2
+        assert m.path[0].parent == left_parent
+        assert m.path[0].left == 0
+        assert m.path[0].right == interval_left
+        assert m.path[1].parent == right_parent
+        assert m.path[1].left == interval_left
+        assert m.path[1].right == ts.sequence_length
+
 
 
 class TestMatchRecombinants:

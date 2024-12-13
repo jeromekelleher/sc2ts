@@ -267,6 +267,83 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
     )
     return rts
 
+def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
+    # Pick a distinct strain to be the root of our three new haplotypes added
+    # on the first day.
+    root_strain = "SRR11597116"
+    a = fx_dataset.haplotypes[root_strain]
+    base_ts = fx_ts_map["2020-02-13"]
+    # This sequence has a bunch of Ns at the start, so we have to go inwards
+    # from them to make sure we're not masking them out.
+    start = np.where(a != -1)[0][1] + 7
+    left_a = a.copy()
+    left_a[start : start + 3] = 2  # "G"
+
+    end = np.where(a != -1)[0][-1] - 8
+    right_a = a.copy()
+    right_a[end - 3 : end] = 1  # "C"
+
+    mid_a = a.copy()
+    mid_start = 15_000
+    mid_end = 15_009
+    mid_a[mid_start: mid_end] = 1 # "C"
+
+    a = mid_a.copy()
+    a[start : start + 3] = left_a[start : start + 3]
+    a[end - 3 : end] = right_a[end - 3 : end]
+
+    date = "2020-03-01"
+    alignments = {"left": left_a, "mid": mid_a, "right": right_a}
+    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+
+    ts = sc2ts.extend(
+        dataset=ds.path,
+        base_ts=base_ts.path,
+        date=date,
+        hmm_cost_threshold=15,
+        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+    )
+    samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+    assert samples_strain[-3:] == ["left", "mid", "right"]
+    assert ts.num_nodes == base_ts.num_nodes + 3
+    assert ts.num_edges == base_ts.num_edges + 3
+    assert ts.num_mutations == base_ts.num_mutations + 15
+
+    left_node, mid_node, right_node = ts.samples()[-3:]
+
+    for j, mut_id in enumerate(np.where(ts.mutations_node == left_node)[0]):
+        mut = ts.mutation(mut_id)
+        assert mut.derived_state == "G"
+        assert ts.sites_position[mut.site] == start + j + 1
+    
+    for j, mut_id in enumerate(np.where(ts.mutations_node == mid_node)[0]):
+        mut = ts.mutation(mut_id)
+        assert mut.derived_state == "C"
+        assert ts.sites_position[mut.site] == mid_start + j + 1
+
+    for j, mut_id in enumerate(np.where(ts.mutations_node == right_node)[0]):
+        mut = ts.mutation(mut_id)
+        assert mut.derived_state == "C"
+        assert ts.sites_position[mut.site] == end - 3 + j + 1
+
+    ts_path = tmp_path / "intermediate.ts"
+    ts.dump(ts_path)
+
+    # Now run again with the recombinant of these three, encoding the intervals in the name
+    date = "2020-03-02"
+    left = start + 3 + 1
+    right = end - 3 + 1
+    name = f"recombinant_{left}:{mid_start + 1}:{mid_end + 1}:{right}"
+    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", {name: a}, date=date)
+    rts = sc2ts.extend(
+        dataset=ds.path,
+        base_ts=ts_path,
+        date=date,
+        hmm_cost_threshold=15,
+        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+    )
+    assert rts.num_samples == ts.num_samples + 1
+    return rts
 
 @pytest.fixture
 def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
@@ -286,5 +363,15 @@ def fx_recombinant_example_2(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
         print(f"Generating {cache_path}")
         ds_cache_path = fx_data_cache / "recombinant_ex2_dataset.zarr"
         ts = recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
+        ts.dump(cache_path)
+    return tskit.load(cache_path)
+
+@pytest.fixture
+def fx_recombinant_example_3(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
+    cache_path = fx_data_cache / "recombinant_ex3.ts"
+    if not cache_path.exists():
+        print(f"Generating {cache_path}")
+        ds_cache_path = fx_data_cache / "recombinant_ex3_dataset.zarr"
+        ts = recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
         ts.dump(cache_path)
     return tskit.load(cache_path)

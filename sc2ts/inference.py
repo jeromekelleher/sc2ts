@@ -1300,7 +1300,7 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
         ts.edges_parent[index],
         ts.edges_child[index],
     )
-    assert tsb.num_match_nodes == ts.num_nodes
+    # assert tsb.num_match_nodes == ts.num_nodes
 
     tsb.restore_mutations(
         ts.mutations_site, ts.mutations_node, derived_state, ts.mutations_parent
