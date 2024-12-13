@@ -78,7 +78,6 @@ class TestRecombinantHandling:
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_1)
         assert d == {55: ["recombinant_example_1_0", "recombinant_example_1_1"]}
 
-    @pytest.mark.skip("Example broken by dataset")
     def test_get_recombinant_strains_ex2(self, fx_recombinant_example_2):
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_2)
         assert d == {56: ["recombinant"]}
@@ -1035,7 +1034,6 @@ class TestSyntheticAlignments:
         assert row.parents == 2
         assert row.causal_pango == {"Unknown": 2}
 
-    @pytest.mark.skip("Example broken by dataset")
     def test_recombinant_example_2(self, fx_ts_map, fx_recombinant_example_2):
         base_ts = fx_ts_map["2020-02-13"]
         date = "2020-03-01"
