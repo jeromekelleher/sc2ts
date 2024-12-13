@@ -1739,6 +1739,25 @@ class TreeInfo:
             data.append({"date": dates[j], **resources})
         return pd.DataFrame(data)
 
+    def node_type_summary(self):
+        ts = self.ts
+        nodes_num_children = np.bincount(ts.edges_parent, minlength=ts.num_nodes)
+        data = []
+        for fv in core.flag_values:
+            select = (ts.nodes_flags & fv.value) > 0
+            count = np.sum(nodes_num_children[select] > 0)
+            total = max(1, np.sum(select))
+            datum = {
+                "flag_short": fv.short,
+                "flag_long": fv.long,
+                "total": total,
+                "with_children": np.sum(nodes_num_children[select] > 0) / total,
+                "with_exact_matches": np.sum(self.nodes_num_exact_matches[select] > 0)
+                / total,
+            }
+            data.append(datum)
+        return pd.DataFrame(data).set_index("flag_short")
+
     def draw_pango_lineage_subtree(
         self,
         pango_lineage,
