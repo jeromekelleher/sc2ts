@@ -49,7 +49,6 @@ def recombinant_example_1(ts_map):
     return ts, s
 
 
-
 def tmp_metadata_db(tmp_path, strains, date):
     data = []
     for strain in strains:
@@ -1278,19 +1277,16 @@ class TestCharacteriseRecombinants:
         strains = ts.metadata["sc2ts"]["samples_strain"]
         assert strains[-1].startswith("recomb")
         u = ts.samples()[-1]
-        h = ts.genotype_matrix(samples=[u]).T[0]
+        h = ts.genotype_matrix(samples=[u], alleles=tuple(sc2ts.IUPAC_ALLELES)).T[0]
         tables = ts.dump_tables()
-        keep_edges = ts.edges_child != u
+        keep_edges = ts.edges_child < u
         tables.edges.keep_rows(keep_edges)
         keep_nodes = np.ones(ts.num_nodes, dtype=bool)
         tables.nodes[u] = tables.nodes[u].replace(flags=0)
         tables.sort()
         base_ts = tables.tree_sequence()
 
-        alignment = np.full(int(ts.sequence_length), -1, dtype=np.int8)
-        alignment[ts.sites_position.astype(int)] = h
         s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
-
         sc2ts.match_tsinfer(
             samples=[s],
             ts=base_ts,
@@ -1298,17 +1294,22 @@ class TestCharacteriseRecombinants:
             mismatch_threshold=10,
             mirror_coordinates=False,
         )
+        sc2ts.characterise_recombinants(ts, [s])
         m = s.hmm_match
-        print(m)
-        assert len(m.mutations) == 0
-        assert len(m.path) == 2
-        assert m.path[0].parent == left_parent
-        assert m.path[0].left == 0
-        assert m.path[0].right == interval_left
-        assert m.path[1].parent == right_parent
-        assert m.path[1].left == interval_left
-        assert m.path[1].right == ts.sequence_length
-
+        assert m.parents == [53, 54, 55]
+        assert m.breakpoints == [0, 15001, 29825, 29904]
+        assert s.breakpoint_intervals == [(114, 15001), (15010, 29825)]
+        # Verify that these breakpoints correspond to the reverse-direction HMM
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=base_ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=True,
+        )
+        m = s.hmm_match
+        assert m.parents == [53, 54, 55]
+        assert m.breakpoints == [0, 114, 15010, 29904]
 
 
 class TestMatchRecombinants:
