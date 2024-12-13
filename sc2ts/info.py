@@ -422,7 +422,13 @@ def max_descendant_samples(ts, show_progress=True):
 
 class TreeInfo:
     def __init__(
-        self, ts, *, quick=False, show_progress=True, pango_source="Viridian_pangolin"
+        self,
+        ts,
+        *,
+        quick=False,
+        show_progress=True,
+        pango_source="Viridian_pangolin",
+        sample_group_id_prefix_len=10,
     ):
         self.ts = ts
         self.pango_source = pango_source
@@ -451,7 +457,7 @@ class TreeInfo:
         # The number of samples per day in time-ago (i.e., the nodes_time units).
         self.num_samples_per_day = np.bincount(ts.nodes_time[samples].astype(int))
 
-        self.sample_group_id_prefix_len = 8
+        self.sample_group_id_prefix_len = sample_group_id_prefix_len
         self.sample_group_nodes = collections.defaultdict(list)
         self.sample_group_mutations = collections.defaultdict(list)
         self.retro_sample_groups = {}
@@ -469,7 +475,9 @@ class TreeInfo:
         pr_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_REVERSION_PUSH)
         re_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_RECOMBINANT)
         exact_matches = np.sum((self.ts.nodes_flags & core.NODE_IS_EXACT_MATCH) > 0)
-        u_nodes = np.sum((self.ts.nodes_flags & core.NODE_IS_UNCONDITIONALLY_INCLUDED) > 0)
+        u_nodes = np.sum(
+            (self.ts.nodes_flags & core.NODE_IS_UNCONDITIONALLY_INCLUDED) > 0
+        )
         immediate_reversion_marker = np.sum(
             (self.ts.nodes_flags & core.NODE_IS_IMMEDIATE_REVERSION_MARKER) > 0
         )
@@ -938,8 +946,9 @@ class TreeInfo:
     def recombinants_summary(self):
         data = []
         for u in self.recombinants:
-            md = self.nodes_metadata[u]["sc2ts"]
+            md = dict(self.nodes_metadata[u]["sc2ts"])
             group_id = md["group_id"][: self.sample_group_id_prefix_len]
+            md["group_id"] = group_id
             # NOTE this is overlapping quite a bit with the SampleGroupInfo
             # class functionality here, but we just want something quick for
             # now here.
