@@ -1645,6 +1645,8 @@ def characterise_match_mutations(ts, samples):
 
 
 def extract_haplotypes(ts, samples):
+    # Annoyingly tskit doesn't allow us to specify duplicate samples, which can
+    # happen perfectly well here, so we must work around.
     unique_samples = list(set(samples))
     H = ts.genotype_matrix(samples=unique_samples, isolated_as_missing=False).T
     ret = []
