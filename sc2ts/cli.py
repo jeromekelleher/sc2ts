@@ -633,103 +633,6 @@ def find_previous_date_path(date, path_pattern):
     return path
 
 
-@click.command()
-@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
-@click.argument("ts", type=click.Path(exists=True, dir_okay=False))
-@click.argument("path_pattern")
-@num_mismatches
-@click.option(
-    "--num-threads",
-    default=0,
-    type=int,
-    help="Number of match threads (default to one)",
-)
-@click.option("--progress/--no-progress", default=True)
-@click.option("-v", "--verbose", count=True)
-@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def rematch_recombinants(
-    dataset,
-    ts,
-    path_pattern,
-    num_mismatches,
-    num_threads,
-    progress,
-    verbose,
-    log_file,
-):
-    setup_logging(verbose, log_file)
-    ts = tszip.load(ts)
-    # This is a map of recombinant node to the samples involved in
-    # the original causal sample group.
-    recombinant_strains = sc2ts.get_recombinant_strains(ts)
-    logger.info(
-        f"Got {len(recombinant_strains)} recombinants and "
-        f"{sum(len(v) for v in recombinant_strains.values())} strains"
-    )
-
-    # Map recombinants to originating date
-    recombinant_to_path = {}
-    strain_to_recombinant = {}
-    all_strains = []
-    for u, strains in recombinant_strains.items():
-        date_added = ts.node(u).metadata["sc2ts"]["date_added"]
-        base_ts_path = find_previous_date_path(date_added, path_pattern)
-        recombinant_to_path[u] = base_ts_path
-        for strain in strains:
-            strain_to_recombinant[strain] = u
-            all_strains.append(strain)
-
-    ds = sc2ts.Dataset(dataset)
-    progress_title = "Recomb"
-    samples = sc2ts.preprocess(
-        all_strains,
-        datset=ds,
-        show_progress=progress,
-        progress_title=progress_title,
-        keep_sites=ts.sites_position.astype(int),
-        num_workers=num_threads,
-    )
-
-    recombinant_to_samples = collections.defaultdict(list)
-    for sample in samples:
-        if sample.haplotype is None:
-            raise ValueError(f"No alignment stored for {sample.strain}")
-        recombinant = strain_to_recombinant[sample.strain]
-        recombinant_to_samples[recombinant].append(sample)
-
-    work = []
-    for recombinant, samples in recombinant_to_samples.items():
-        for direction in ["forward", "reverse"]:
-            work.append(
-                MatchWork(
-                    recombinant_to_path[recombinant],
-                    samples,
-                    num_mismatches=num_mismatches,
-                    direction=direction,
-                )
-            )
-
-    bar = sc2ts.get_progress(None, progress_title, "HMM", progress, total=len(work))
-
-    def output(hmm_runs):
-        bar.update()
-        for run in hmm_runs:
-            print(run.asjson())
-
-    results = []
-    if num_threads == 0:
-        for w in work:
-            hmm_runs = _match_worker(w)
-            output(hmm_runs)
-    else:
-        with cf.ProcessPoolExecutor(num_threads) as executor:
-            futures = [executor.submit(_match_worker, w) for w in work]
-            for future in cf.as_completed(futures):
-                hmm_runs = future.result()
-                output(hmm_runs)
-    bar.close()
-
-
 @click.version_option(core.__version__)
 @click.group()
 def cli():
@@ -747,5 +650,4 @@ cli.add_command(info_ts)
 cli.add_command(infer)
 cli.add_command(validate)
 cli.add_command(_match)
-cli.add_command(rematch_recombinants)
 cli.add_command(tally_lineages)

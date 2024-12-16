@@ -78,10 +78,48 @@ class TestRecombinantHandling:
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_1)
         assert d == {55: ["recombinant_example_1_0", "recombinant_example_1_1"]}
 
-    @pytest.mark.skip("Example broken by dataset")
     def test_get_recombinant_strains_ex2(self, fx_recombinant_example_2):
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_2)
-        assert d == {56: ["recombinant"]}
+        assert d == {56: ["recombinant_114:29825"]}
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1):
+        ts = fx_recombinant_example_1
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        samples = ts.samples()
+        for s in ["recombinant_example_1_0", "recombinant_example_1_1"]:
+            u = samples[samples_strain.index(s)]
+            node = ts.node(u)
+            md = node.metadata["sc2ts"]
+            assert md["breakpoint_intervals"] == [[3788, 11083]]
+            assert md["hmm_match"]["path"] == [
+                {"left": 0, "parent": 31, "right": 11083},
+                {"left": 11083, "parent": 46, "right": 29904},
+            ]
+
+    def test_recombinant_example_2(self, fx_recombinant_example_2):
+        ts = fx_recombinant_example_2
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        u = ts.samples()[samples_strain.index("recombinant_114:29825")]
+        node = ts.node(u)
+        md = node.metadata["sc2ts"]
+        assert md["breakpoint_intervals"] == [[114, 29825]]
+        assert md["hmm_match"]["path"] == [
+            {"left": 0, "parent": 53, "right": 29825},
+            {"left": 29825, "parent": 54, "right": 29904},
+        ]
+
+    def test_recombinant_example_3(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        u = ts.samples()[samples_strain.index("recombinant_114:15001:15010:29825")]
+        node = ts.node(u)
+        md = node.metadata["sc2ts"]
+        assert md["breakpoint_intervals"] == [[114, 15001], [15010, 29825]]
+        assert md["hmm_match"]["path"] == [
+            {"left": 0, "parent": 53, "right": 15001},
+            {"left": 15001, "parent": 54, "right": 29825},
+            {"left": 29825, "parent": 55, "right": 29904},
+        ]
 
 
 class TestSolveNumMismatches:
@@ -984,7 +1022,6 @@ class TestSyntheticAlignments:
                 {"left": bp, "parent": right_parent, "right": 29904},
             ],
         }
-        assert smd["hmm_reruns"] == {}
 
         sample = ts.node(ts.samples()[-1])
         smd = sample.metadata["sc2ts"]
@@ -998,7 +1035,6 @@ class TestSyntheticAlignments:
                 {"left": bp, "parent": right_parent, "right": 29904},
             ],
         }
-        assert smd["hmm_reruns"] == {}
 
         recomb_node = ts.node(ts.num_nodes - 1)
         assert recomb_node.flags == sc2ts.NODE_IS_RECOMBINANT
@@ -1035,13 +1071,12 @@ class TestSyntheticAlignments:
         assert row.parents == 2
         assert row.causal_pango == {"Unknown": 2}
 
-    @pytest.mark.skip("Example broken by dataset")
     def test_recombinant_example_2(self, fx_ts_map, fx_recombinant_example_2):
         base_ts = fx_ts_map["2020-02-13"]
         date = "2020-03-01"
         rts = fx_recombinant_example_2
         samples_strain = rts.metadata["sc2ts"]["samples_strain"]
-        assert samples_strain[-3:] == ["left", "right", "recombinant"]
+        assert samples_strain[-3:] == ["left", "right", "recombinant_114:29825"]
 
         sample = rts.node(rts.samples()[-1])
         smd = sample.metadata["sc2ts"]
@@ -1052,8 +1087,6 @@ class TestSyntheticAlignments:
                 {"left": 29825, "parent": 54, "right": 29904},
             ],
         }
-
-        assert smd["hmm_reruns"] == {}
 
     def test_all_As(self, tmp_path, fx_ts_map, fx_dataset):
         # Same as the recombinant_example_1() function above
@@ -1189,21 +1222,23 @@ class TestMatchingDetails:
         assert m.path[1].right == ts.sequence_length
 
 
-class TestMatchRecombinants:
+class TestCharacteriseRecombinants:
+
     def test_example_1(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
 
-        sc2ts.match_recombinants(
-            samples=[s],
-            base_ts=ts,
-            num_mismatches=2,
-            num_threads=0,
-        )
+        interval_left = 3788
+        interval_right = 11083
         left_parent = 31
         right_parent = 46
-        interval_right = 11083
 
-        m = s.hmm_reruns["forward"]
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+        )
+        m = s.hmm_match
         assert len(m.mutations) == 0
         assert len(m.path) == 2
         assert m.path[0].parent == left_parent
@@ -1213,45 +1248,61 @@ class TestMatchRecombinants:
         assert m.path[1].left == interval_right
         assert m.path[1].right == ts.sequence_length
 
-        interval_left = 3788
-        m = s.hmm_reruns["reverse"]
+        sc2ts.characterise_recombinants(ts, [s])
+        assert s.breakpoint_intervals == [(interval_left, interval_right)]
+
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=True,
+        )
+        m = s.hmm_match
         assert len(m.mutations) == 0
         assert len(m.path) == 2
+        assert m.path[0].parent == left_parent
         assert m.path[0].left == 0
         assert m.path[0].right == interval_left
-        assert m.path[0].parent == left_parent
         assert m.path[1].parent == right_parent
         assert m.path[1].left == interval_left
         assert m.path[1].right == ts.sequence_length
 
-        m = s.hmm_reruns["no_recombination"]
-        # It seems that we can choose either the left or right parent
-        # arbitrarily :shrug:
-        assert len(m.mutations) == 3
-        assert m.mutation_summary() in [
-            "[A871G, A3027G, C3787T]",
-            "[T11083G, C15324T, C29303T]",
-        ]
-        assert len(m.path) == 1
-        assert m.path[0].parent in [left_parent, right_parent]
-        assert m.path[0].left == 0
-        assert m.path[0].right == ts.sequence_length
+    def test_example_3(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        strains = ts.metadata["sc2ts"]["samples_strain"]
+        assert strains[-1].startswith("recomb")
+        u = ts.samples()[-1]
+        h = ts.genotype_matrix(samples=[u], alleles=tuple(sc2ts.IUPAC_ALLELES)).T[0]
+        tables = ts.dump_tables()
+        keep_edges = ts.edges_child < u
+        tables.edges.keep_rows(keep_edges)
+        keep_nodes = np.ones(ts.num_nodes, dtype=bool)
+        tables.nodes[u] = tables.nodes[u].replace(flags=0)
+        tables.sort()
+        base_ts = tables.tree_sequence()
 
-        assert "no_recombination" in s.summary()
-
-    def test_all_As(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        h = np.zeros(ts.num_sites, dtype=np.int8)
-        s = sc2ts.Sample("zerotype", "2020-02-14", haplotype=h)
-
-        sc2ts.match_recombinants(
+        s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
+        sc2ts.match_tsinfer(
             samples=[s],
-            base_ts=ts,
-            num_mismatches=3,
-            num_threads=0,
+            ts=base_ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=False,
         )
-        assert len(s.hmm_reruns) == 3
-        num_mutations = []
-        for hmm_match in s.hmm_reruns.values():
-            assert len(hmm_match.path) == 1
-            assert len(hmm_match.mutations) == 20943
+        sc2ts.characterise_recombinants(ts, [s])
+        m = s.hmm_match
+        assert m.parents == [53, 54, 55]
+        assert m.breakpoints == [0, 15001, 29825, 29904]
+        assert s.breakpoint_intervals == [(114, 15001), (15010, 29825)]
+        # Verify that these breakpoints correspond to the reverse-direction HMM
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=base_ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=True,
+        )
+        m = s.hmm_match
+        assert m.parents == [53, 54, 55]
+        assert m.breakpoints == [0, 114, 15010, 29904]

@@ -369,44 +369,6 @@ class TestInfer:
         assert ts.num_samples == 0
 
 
-@pytest.mark.skip("Broken by dataset")
-class TestRunRematchRecombinants:
-
-    @pytest.mark.parametrize("num_threads", [0, 1, 2])
-    def test_defaults(
-        self, tmp_path, fx_recombinant_example_1, fx_data_cache, num_threads
-    ):
-        ts_path = fx_data_cache / "recombinant_ex1.ts"
-        as_path = fx_data_cache / "recombinant_ex1_alignments.db"
-        pattern = str(fx_data_cache) + "/{}.ts"
-        runner = ct.CliRunner(mix_stderr=False)
-        cmd = (
-            f"rematch-recombinants {as_path} {ts_path} {pattern} "
-            f"--num-threads={num_threads}"
-        )
-        result = runner.invoke(
-            cli.cli,
-            cmd,
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-        lines = result.stdout.splitlines()
-        assert len(lines) == 4
-        results = collections.defaultdict(list)
-        for line in lines:
-            d = json.loads(line)
-            results[d["strain"]].append(result)
-
-        assert len(results) == 2
-        assert set(results.keys()) == {
-            "recombinant_example_1_0",
-            "recombinant_example_1_1",
-        }
-
-        assert len(results["recombinant_example_1_0"]) == 2
-        assert len(results["recombinant_example_1_1"]) == 2
-
-
 class TestValidate:
 
     @pytest.mark.parametrize("date", ["2020-01-01", "2020-02-11"])
