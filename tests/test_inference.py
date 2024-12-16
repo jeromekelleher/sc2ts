@@ -1,3 +1,4 @@
+import dataclasses
 import collections
 import hashlib
 import logging
@@ -47,6 +48,47 @@ def recombinant_example_1(ts_map):
 
     s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
     return ts, s
+
+
+def recombinant_example_3_way_same_parent(recombinant_example_1):
+    """
+    Example recombinant created by cherry picking two samples that differ
+    by mutations on either end of the genome, and smushing them together.
+    Note there's only two mutations needed, so we need to set num_mismatches=2
+    """
+    ts = recombinant_example_1
+    s = "recombinant_example_1_0"
+    parent = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(s)]
+    # ts = ts_map["2020-02-13"]
+    # parent = ts.samples()[ts.
+    # parent = 45
+    # assert ts.node(parent).metadata["strain"] == "SRR11597163"
+    # add a child that has a bunch of mutations at the start and end
+    h = ts.genotype_matrix(samples=[parent], alleles=tuple("ACGT-")).T[0]
+
+    tables = ts.dump_tables()
+    node_time = -1
+    child = tables.nodes.add_row(time=node_time)
+    tables.edges.add_row(0, ts.sequence_length, parent=parent, child=child)
+
+    start = 11_000
+    stop = 11_050
+    for k in range(start, stop):
+        tables.mutations.add_row(site=k, derived_state="A", node=child, time=node_time)
+        h[k] = 0
+
+    # Stick on a bunch of mutations either side to force switching back to same haplotype
+    for k in range(1, 5):
+        tables.mutations.add_row(
+            site=start - k, derived_state="A", node=child, time=node_time
+        )
+        tables.mutations.add_row(
+            site=stop + k, derived_state="A", node=child, time=node_time
+        )
+
+    tables.sort()
+    s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h.astype(np.int8))
+    return tables.tree_sequence(), s
 
 
 def tmp_metadata_db(tmp_path, strains, date):
@@ -1306,3 +1348,34 @@ class TestCharacteriseRecombinants:
         m = s.hmm_match
         assert m.parents == [53, 54, 55]
         assert m.breakpoints == [0, 114, 15010, 29904]
+
+    def test_example_3_way_same_parent(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        strains = ts.metadata["sc2ts"]["samples_strain"]
+        assert strains[-1].startswith("recomb")
+        u = ts.samples()[-1]
+        h = ts.genotype_matrix(samples=[u], alleles=tuple(sc2ts.IUPAC_ALLELES)).T[0]
+        tables = ts.dump_tables()
+        keep_edges = ts.edges_child < u
+        tables.edges.keep_rows(keep_edges)
+        keep_nodes = np.ones(ts.num_nodes, dtype=bool)
+        tables.nodes[u] = tables.nodes[u].replace(flags=0)
+        tables.sort()
+        base_ts = tables.tree_sequence()
+
+        s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=base_ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=False,
+        )
+        # Force back to the same parent so we can check that we're robust to
+        # same parent
+        s.hmm_match.path[0] = dataclasses.replace(s.hmm_match.path[0], parent=55)
+        sc2ts.characterise_recombinants(ts, [s])
+
+        m = s.hmm_match
+        assert m.parents == [55, 54, 55]
+        assert m.breakpoints == [0, 15001, 29825, 29904]
