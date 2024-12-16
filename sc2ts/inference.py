@@ -1644,6 +1644,17 @@ def characterise_match_mutations(ts, samples):
     logger.debug(f"Characterised {num_mutations} mutations")
 
 
+def extract_haplotypes(ts, samples):
+    # Annoyingly tskit doesn't allow us to specify duplicate samples, which can
+    # happen perfectly well here, so we must work around.
+    unique_samples = list(set(samples))
+    H = ts.genotype_matrix(samples=unique_samples, isolated_as_missing=False).T
+    ret = []
+    for node_id in samples:
+        ret.append(H[unique_samples.index(node_id)])
+    return ret
+
+
 def characterise_recombinants(ts, samples):
     """
     Update the metadata for any recombinants to add interval information to the metadata.
@@ -1657,8 +1668,7 @@ def characterise_recombinants(ts, samples):
     # but recombinants are rare so let's keep this simple
     for s in recombinants:
         parents = [seg.parent for seg in s.hmm_match.path]
-        # Can't have missing data here, so we're OK.
-        H = ts.genotype_matrix(samples=parents, isolated_as_missing=False).T
+        H = extract_haplotypes(ts, parents)
         breakpoint_intervals = []
         for j in range(len(parents) - 1):
             parents_differ = np.where(H[j] != H[j + 1])[0]

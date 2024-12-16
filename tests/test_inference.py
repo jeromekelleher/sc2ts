@@ -1,3 +1,4 @@
+import dataclasses
 import collections
 import hashlib
 import logging
@@ -47,18 +48,6 @@ def recombinant_example_1(ts_map):
 
     s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
     return ts, s
-
-
-def tmp_metadata_db(tmp_path, strains, date):
-    data = []
-    for strain in strains:
-        data.append({"strain": strain, "date": date})
-    df = pd.DataFrame(data)
-    csv_path = tmp_path / "metadata.csv"
-    df.to_csv(csv_path)
-    db_path = tmp_path / "metadata.db"
-    sc2ts.MetadataDb.import_csv(csv_path, db_path, sep=",")
-    return sc2ts.MetadataDb(db_path)
 
 
 def test_get_group_strains(fx_ts_map):
@@ -1306,3 +1295,65 @@ class TestCharacteriseRecombinants:
         m = s.hmm_match
         assert m.parents == [53, 54, 55]
         assert m.breakpoints == [0, 114, 15010, 29904]
+
+    def test_example_3_way_same_parent(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        strains = ts.metadata["sc2ts"]["samples_strain"]
+        assert strains[-1].startswith("recomb")
+        u = ts.samples()[-1]
+        h = ts.genotype_matrix(samples=[u], alleles=tuple(sc2ts.IUPAC_ALLELES)).T[0]
+        tables = ts.dump_tables()
+        keep_edges = ts.edges_child < u
+        tables.edges.keep_rows(keep_edges)
+        keep_nodes = np.ones(ts.num_nodes, dtype=bool)
+        tables.nodes[u] = tables.nodes[u].replace(flags=0)
+        tables.sort()
+        base_ts = tables.tree_sequence()
+
+        s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
+        sc2ts.match_tsinfer(
+            samples=[s],
+            ts=base_ts,
+            num_mismatches=2,
+            mismatch_threshold=10,
+            mirror_coordinates=False,
+        )
+        # Force back to the same parent so we can check that we're robust to
+        # same parent
+        s.hmm_match.path[0] = dataclasses.replace(s.hmm_match.path[0], parent=55)
+        sc2ts.characterise_recombinants(ts, [s])
+
+        m = s.hmm_match
+        assert m.parents == [55, 54, 55]
+        assert m.breakpoints == [0, 15001, 29825, 29904]
+
+
+class TestExtractHaplotypes:
+
+    @pytest.mark.parametrize(
+        ["samples", "result"],
+        [
+            ([0], [[0]]),
+            ([0, 1], [[0], [0]]),
+            ([0, 3], [[0], [1]]),
+            ([3, 0], [[1], [0]]),
+            ([0, 1, 2, 3], [[0], [0], [0], [1]]),
+            ([3, 1, 2, 3], [[1], [0], [0], [1]]),
+            ([3, 3, 3, 3], [[1], [1], [1], [1]]),
+        ],
+    )
+    def test_one_leaf_mutation(self, samples, result):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5   ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3x┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=3, derived_state="T")
+        ts = tables.tree_sequence()
+        nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
