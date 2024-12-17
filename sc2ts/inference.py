@@ -1867,10 +1867,12 @@ def run_hmm(
     if mismatch_threshold is None:
         mismatch_threshold = 100
 
+    directions = ["forward", "reverse"]
+    if direction not in directions:
+        raise ValueError(f"Direction must be one of {directions}")
+
     ds = _dataset.Dataset(dataset_path)
     ts = tszip.load(ts_path)
-    if len(strains) == 0:
-        return
     progress_title = "Match"
     samples = preprocess(
         list(strains),

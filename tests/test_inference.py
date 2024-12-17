@@ -1207,6 +1207,26 @@ class TestMatchingDetails:
         assert m.path[1].right == ts.sequence_length
 
 
+class TestRunHmm:
+
+    @pytest.mark.parametrize("direction", ["F", "R", "forwards", "backwards", "", None])
+    def test_bad_direction(self, fx_dataset, fx_ts_map, direction):
+        strain = "SRR11597164"
+        ts = fx_ts_map["2020-02-01"]
+        with pytest.raises(ValueError, match="Direction must be one of"):
+            sc2ts.run_hmm(
+                fx_dataset.path,
+                ts.path,
+                [strain],
+                direction=direction,
+                num_mismatches=3,
+            )
+
+    def test_no_strains(self, fx_dataset, fx_ts_map):
+        ts = fx_ts_map["2020-02-01"]
+        assert len(sc2ts.run_hmm(fx_dataset.path, ts.path, [], num_mismatches=3)) == 0
+
+
 class TestCharacteriseRecombinants:
 
     def test_example_1(self, fx_ts_map):
