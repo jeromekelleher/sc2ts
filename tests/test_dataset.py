@@ -269,6 +269,13 @@ class TestDatasetMethods:
             ],
         )
 
+    def test_date_field(self, fx_dataset):
+        ds1 = sc2ts.Dataset(fx_dataset.path, date_field="date")
+        ds2 = sc2ts.Dataset(fx_dataset.path, date_field="Collection_date")
+        diffs = np.where(ds1.metadata.sample_date != ds2.metadata.sample_date)[0]
+        # The point is just to see if they are different here
+        assert len(diffs) == 6
+
 
 class TestDatasetAlignments:
 

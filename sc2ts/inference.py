@@ -506,6 +506,7 @@ def extend(
     date,
     base_ts,
     match_db,
+    date_field="date",
     include_samples=None,
     num_mismatches=None,
     hmm_cost_threshold=None,
@@ -557,7 +558,7 @@ def extend(
 
     start_time = time.time()  # wall time
     base_ts = tszip.load(base_ts)
-    ds = _dataset.Dataset(dataset)
+    ds = _dataset.Dataset(dataset, date_field=date_field)
 
     with MatchDb(match_db) as matches:
         tables = _extend(
@@ -1462,7 +1463,7 @@ def match_tsinfer(
             coord_map, mirror_coordinates, ts.sites_position
         )
         logger.debug(
-            f"HMM@T={mismatch_threshold}: {sample.strain} {sample.pango}"
+            f"HMM@T={mismatch_threshold}: {sample.strain} {sample.pango} "
             f"hmm_cost={sample.hmm_match.cost} match={sample.hmm_match.summary()}"
         )
 

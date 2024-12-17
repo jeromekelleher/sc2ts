@@ -386,6 +386,20 @@ class TestRealData:
         }
         ts.tables.assert_equals(fx_ts_map["2020-01-25"].tables, ignore_provenance=True)
 
+    def test_using_collection_date(self, tmp_path, fx_ts_map, fx_dataset):
+
+        ts = run_extend(
+            dataset=fx_dataset,
+            base_ts=fx_ts_map[self.dates[0]],
+            date="2020-06-16",
+            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            date_field="Collection_date",
+            hmm_cost_threshold=25,
+        )
+        assert ts.num_samples == 1
+        # This has a hmm cost of 21
+        assert ts.metadata["sc2ts"]["samples_strain"] == ["SRR15736313"]
+
     @pytest.mark.parametrize("num_threads", [0, 1, 3, 10])
     def test_2020_02_02(self, tmp_path, fx_ts_map, fx_dataset, num_threads):
         ts = run_extend(
