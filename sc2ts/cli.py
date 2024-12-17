@@ -301,12 +301,14 @@ def _run_extend(out_path, verbose, log_file, **params):
     resource_usage = summarise_usage(ts)
     logger.info(resource_usage)
     print("resources:", resource_usage, file=sys.stderr)
-    df = pd.DataFrame(
-        ts.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
-    ).set_index("scorpio")
-    del df["total_hmm_cost"]
-    df = df[list(df.columns)[::-1]].sort_values("total")
-    print(df, file=sys.stderr)
+    data = ts.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
+    if len(data) > 0:
+        df = pd.DataFrame(
+            ts.metadata["sc2ts"]["daily_stats"][date]["samples_processed"]
+        ).set_index("scorpio")
+        del df["total_hmm_cost"]
+        df = df[list(df.columns)[::-1]].sort_values("total")
+        print(df, file=sys.stderr)
 
 
 @click.command()
