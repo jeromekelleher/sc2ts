@@ -179,6 +179,7 @@ class Variant:
 class Dataset(collections.abc.Mapping):
 
     def __init__(self, path, chunk_cache_size=1, date_field="date"):
+        logger.info(f"Loading dateset @{path} using {date_field} as date field")
         self.date_field = date_field
         self.path = pathlib.Path(path)
         if self.path.suffix == ".zip":
