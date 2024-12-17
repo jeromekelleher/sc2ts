@@ -1100,6 +1100,7 @@ class TestMatchingDetails:
         ("strain", "parent"), [("SRR11597207", 34), ("ERR4205570", 47)]
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
+    @pytest.mark.parametrize("direction", ["forward", "reverse"])
     def test_exact_matches(
         self,
         fx_ts_map,
@@ -1107,21 +1108,21 @@ class TestMatchingDetails:
         strain,
         parent,
         num_mismatches,
+        direction,
     ):
         ts = fx_ts_map["2020-02-10"]
-        samples = sc2ts.preprocess(
+
+        runs = sc2ts.run_hmm(
+            fx_dataset.path,
+            ts.path,
             [strain],
-            fx_dataset,
-            keep_sites=ts.sites_position.astype(int),
-        )
-        sc2ts.match_tsinfer(
-            samples=samples,
-            ts=ts,
             num_mismatches=num_mismatches,
-            mismatch_threshold=num_mismatches,
-            num_threads=0,
+            direction=direction,
         )
-        s = samples[0].hmm_match
+        assert len(runs) == 1
+        assert runs[0].num_mismatches == num_mismatches
+        assert runs[0].direction == direction
+        s = runs[0].match
         assert len(s.mutations) == 0
         assert len(s.path) == 1
         assert s.path[0].parent == parent
@@ -1144,18 +1145,16 @@ class TestMatchingDetails:
         num_mismatches,
     ):
         ts = fx_ts_map["2020-02-10"]
-        samples = sc2ts.preprocess(
+        runs = sc2ts.run_hmm(
+            fx_dataset.path,
+            ts.path,
             [strain],
-            fx_dataset,
-            keep_sites=ts.sites_position.astype(int),
-        )
-        sc2ts.match_tsinfer(
-            samples=samples,
-            ts=ts,
             num_mismatches=num_mismatches,
-            mismatch_threshold=1,
         )
-        s = samples[0].hmm_match
+        assert len(runs) == 1
+        assert runs[0].num_mismatches == num_mismatches
+        assert runs[0].direction == "forward"
+        s = runs[0].match
         assert len(s.mutations) == 1
         assert s.mutations[0].site_position == position
         assert s.mutations[0].derived_state == derived_state
@@ -1171,25 +1170,22 @@ class TestMatchingDetails:
     ):
         strain = "SRR11597164"
         ts = fx_ts_map["2020-02-01"]
-        samples = sc2ts.preprocess(
+        runs = sc2ts.run_hmm(
+            fx_dataset.path,
+            ts.path,
             [strain],
-            fx_dataset,
-            keep_sites=ts.sites_position.astype(int),
-        )
-        sc2ts.match_tsinfer(
-            samples=samples,
-            ts=ts,
             num_mismatches=num_mismatches,
-            mismatch_threshold=2,
         )
-        s = samples[0].hmm_match
+        assert len(runs) == 1
+        assert runs[0].num_mismatches == num_mismatches
+        assert runs[0].direction == "forward"
+        s = runs[0].match
         assert len(s.path) == 1
         assert s.path[0].parent == 1
         assert len(s.mutations) == 2
 
     def test_match_recombinant(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
-
         sc2ts.match_tsinfer(
             samples=[s],
             ts=ts,

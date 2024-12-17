@@ -78,7 +78,7 @@ class TestImportMetadata:
         )
 
 
-class TestMatch:
+class TestRunHmm:
 
     def test_single_defaults(self, tmp_path, fx_ts_map, fx_dataset):
         strain = "ERR4206593"
@@ -88,7 +88,7 @@ class TestMatch:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"match {fx_dataset.path} {ts_path} {strain}",
+            f"run-hmm {fx_dataset.path} {ts_path} {strain}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -110,7 +110,7 @@ class TestMatch:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"match {fx_dataset.path} {ts_path} " + " ".join(strains),
+            f"run-hmm {fx_dataset.path} {ts_path} " + " ".join(strains),
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -134,7 +134,7 @@ class TestMatch:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"match {fx_dataset.path} {ts_path} {strain}"
+            f"run-hmm {fx_dataset.path} {ts_path} {strain}"
             " --direction=reverse --num-mismatches=5 --num-threads=4",
             " --no-deletions-as-missing",
             catch_exceptions=False,

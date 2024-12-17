@@ -1834,6 +1834,76 @@ def add_root_edge(ts, flags=0):
     return tables.tree_sequence()
 
 
+@dataclasses.dataclass(frozen=True)
+class HmmRun:
+    strain: str
+    num_mismatches: int
+    direction: str
+    match: HmmMatch
+
+    def asdict(self):
+        d = dataclasses.asdict(self)
+        d["match"] = dataclasses.asdict(self.match)
+        return d
+
+    def asjson(self):
+        return json.dumps(self.asdict())
+
+
+def run_hmm(
+    dataset_path,
+    ts_path,
+    strains,
+    *,
+    num_mismatches,
+    direction="forward",
+    mismatch_threshold=None,
+    deletions_as_missing=None,
+    num_threads=0,
+    show_progress=False,
+):
+    if deletions_as_missing is None:
+        deletions_as_missing = False
+    if mismatch_threshold is None:
+        mismatch_threshold = 100
+
+    ds = _dataset.Dataset(dataset_path)
+    ts = tszip.load(ts_path)
+    if len(strains) == 0:
+        return
+    progress_title = "Match"
+    samples = preprocess(
+        list(strains),
+        dataset=ds,
+        show_progress=show_progress,
+        progress_title=progress_title,
+        keep_sites=ts.sites_position.astype(int),
+    )
+    match_tsinfer(
+        samples=samples,
+        ts=ts,
+        num_mismatches=num_mismatches,
+        deletions_as_missing=deletions_as_missing,
+        mismatch_threshold=mismatch_threshold,
+        num_threads=num_threads,
+        show_progress=show_progress,
+        progress_title=progress_title,
+        progress_phase="HMM",
+        mirror_coordinates=direction == "reverse",
+    )
+    ret = []
+    for sample in samples:
+        ret.append(
+            HmmRun(
+                strain=sample.strain,
+                num_mismatches=num_mismatches,
+                direction=direction,
+                match=sample.hmm_match,
+            )
+        )
+    return ret
+
+
 def get_group_strains(ts):
     """
     Returns the strain IDs for samples gathered by sample group ID.
