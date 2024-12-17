@@ -475,63 +475,7 @@ def tally_lineages(ts, metadata, verbose):
     df.to_csv(sys.stdout, sep="\t", index=False)
 
 
-@dataclasses.dataclass(frozen=True)
-class HmmRun:
-    strain: str
-    num_mismatches: int
-    direction: str
-    match: sc2ts.HmmMatch
-
-    def asdict(self):
-        d = dataclasses.asdict(self)
-        d["match"] = dataclasses.asdict(self.match)
-        return d
-
-    def asjson(self):
-        return json.dumps(self.asdict())
-
-
-@dataclasses.dataclass(frozen=True)
-class MatchWork:
-    ts_path: str
-    samples: List
-    num_mismatches: int
-    direction: str
-
-
-def _match_worker(work):
-    msg = (
-        f"k={work.num_mismatches} n={len(work.samples)} "
-        f"{work.direction} {work.ts_path}"
-    )
-    logger.info(f"Start: {msg}")
-    ts = tszip.load(work.ts_path)
-    sc2ts.match_tsinfer(
-        samples=work.samples,
-        ts=ts,
-        num_mismatches=work.num_mismatches,
-        mismatch_threshold=100,
-        # FIXME!
-        deletions_as_missing=False,
-        num_threads=0,
-        show_progress=False,
-        mirror_coordinates=work.direction == "reverse",
-    )
-    runs = []
-    for sample in work.samples:
-        runs.append(
-            HmmRun(
-                strain=sample.strain,
-                num_mismatches=work.num_mismatches,
-                direction=work.direction,
-                match=sample.hmm_match,
-            )
-        )
-    logger.info(f"Finish: {msg}")
-    return runs
-
-
-@click.command(name="match")
+@click.command()
 @click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("strains", nargs=-1)
@@ -559,7 +503,7 @@ def _match_worker(work):
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def _match(
+def run_hmm(
     dataset,
     ts_path,
     strains,
@@ -573,44 +517,21 @@ def _match(
     log_file,
 ):
     """
-    Run matches for a specified set of strains, outputting details to stdout as JSON.
+    Run matches for a specified set of strains, outputing details to stdout as JSON.
     """
     setup_logging(verbose, log_file)
-    ts = tszip.load(ts_path)
-    ds = sc2ts.Dataset(dataset)
-    if len(strains) == 0:
-        return
-    progress_title = "Match"
-    samples = sc2ts.preprocess(
-        list(strains),
-        dataset=ds,
-        show_progress=progress,
-        progress_title=progress_title,
-        keep_sites=ts.sites_position.astype(int),
-    )
-    for sample in samples:
-        if sample.haplotype is None:
-            raise ValueError(f"No alignment stored for {sample.strain}")
 
-    sc2ts.match_tsinfer(
-        samples=samples,
-        ts=ts,
+    runs = sc2ts.run_hmm(
+        dataset,
+        ts_path,
+        strains=strains,
         num_mismatches=num_mismatches,
-        deletions_as_missing=deletions_as_missing,
         mismatch_threshold=mismatch_threshold,
+        direction=direction,
         num_threads=num_threads,
         show_progress=progress,
-        progress_title=progress_title,
-        progress_phase="HMM",
-        mirror_coordinates=direction == "reverse",
     )
-    for sample in samples:
-        run = HmmRun(
-            strain=sample.strain,
-            num_mismatches=num_mismatches,
-            direction=direction,
-            match=sample.hmm_match,
-        )
+    for run in runs:
         print(run.asjson())
 
 
@@ -649,5 +570,6 @@ cli.add_command(info_ts)
 
 cli.add_command(infer)
 cli.add_command(validate)
-cli.add_command(_match)
+cli.add_command(run_hmm)
+
 cli.add_command(tally_lineages)
