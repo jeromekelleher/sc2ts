@@ -904,10 +904,7 @@ class TreeInfo:
                 data.append({"date": date, **row})
         df = pd.DataFrame(data)
         df["inserted"] = df["total"] - df["rejected"] - df["exact_matches"]
-        if "total_hmm_cost" not in df:
-            # TMP! Remove this once we've got total_hmm_cost in the actual m
-            df["total_hmm_cost"] = df["mean_hmm_cost"] * df["total"]
-        return df.astype({"date": "datetime64[s]"})
+        return df
 
     def sample_groups_summary(self):
         data = []
@@ -1583,13 +1580,12 @@ class TreeInfo:
     def plot_samples_per_day(
         self, start_date="2020-01-01", end_date="3000-01-01", scorpio_fraction=0.05
     ):
-        start_date = np.datetime64(start_date)
-        end_date = np.datetime64(end_date)
         df = self.samples_summary()
         df = df[(df.date >= start_date) & (df.date < end_date)]
 
-        dfa = df.groupby("date").sum().reset_index()
+        dfa = df.groupby("date").sum().reset_index().astype({"date": "datetime64[s]"})
         dfa["mean_hmm_cost"] = dfa["total_hmm_cost"] / dfa["total"]
+
         fig, (ax1, ax2, ax3, ax4) = self._wide_plot(4, height=12, sharex=True)
         exact_col = "tab:red"
         in_col = "tab:purple"
@@ -1630,7 +1626,9 @@ class TreeInfo:
 
         df_scorpio = df.pivot_table(
             columns="scorpio", index="date", values="total", aggfunc="sum", fill_value=0
-        )
+        ).reset_index()
+        # Need force conversion back to datetime here for some reason
+        df_scorpio = df_scorpio.astype({"date": "datetime64[s]"}).set_index("date")
         # convert to fractions
         df_scorpio = df_scorpio.divide(df_scorpio.sum(axis="columns"), axis="index")
         # Remove columns that don't have more than the threshold
@@ -1668,18 +1666,13 @@ class TreeInfo:
         ts = self.ts
         fig, ax = self._wide_plot(3, height=8, sharex=True)
 
-        start_date = np.datetime64(start_date)
-        end_date = np.datetime64(end_date)
-        df = self.samples_summary()
-
-        dfs = self.samples_summary().set_index("date")
+        dfs = self.samples_summary()
         dfa = dfs.groupby("date").sum()
         dfa["mean_hmm_cost"] = dfa["total_hmm_cost"] / dfa["total"]
-        df = self.resources_summary().set_index("date")
-        # Should be able to do this with join, but I failed
-        df["samples_in_arg"] = dfa.loc[df.index]["inserted"]
-        df["samples_processed"] = dfa.loc[df.index]["total"]
-        df["mean_hmm_cost"] = dfa.loc[df.index]["mean_hmm_cost"]
+        df = dfa.join(self.resources_summary(), how="inner")
+        df = df.rename(
+            columns={"inserted": "smaples_in_arg", "total": "samples_processed"}
+        )
         df = df[(df.index >= start_date) & (df.index < end_date)]
 
         df["cpu_time"] = df.user_time + df.sys_time
@@ -1727,17 +1720,12 @@ class TreeInfo:
     def resources_summary(self):
         ts = self.ts
         data = []
-        df_samples = self.samples_summary()
-        dates = df_samples["date"].unique()
-        assert len(dates) == ts.num_provenances
-        for j in range(ts.num_provenances):
-            p = ts.provenance(j)
+        for p in ts.provenances():
             record = json.loads(p.record)
             text_date = record["parameters"]["date"]
-            assert text_date == str(dates[j]).split(" ")[0]
             resources = record["resources"]
-            data.append({"date": dates[j], **resources})
-        return pd.DataFrame(data)
+            data.append({"date": text_date, **resources})
+        return pd.DataFrame(data).set_index("date")
 
     def node_type_summary(self):
         ts = self.ts
