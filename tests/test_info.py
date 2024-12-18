@@ -230,7 +230,7 @@ class TestTreeInfo:
     def test_resources_summary(self, fx_ti_2020_02_13):
         df = fx_ti_2020_02_13.resources_summary()
         assert df.shape[0] == 20
-        assert np.all(df.date.astype(str).str.startswith("2020"))
+        assert np.all(df.index.astype(str).str.startswith("2020"))
 
     def test_samples_summary(self, fx_ti_2020_02_13):
         df = fx_ti_2020_02_13.samples_summary()
