@@ -1668,10 +1668,11 @@ class TreeInfo:
         j = 0
         n = 5
         for date, scorpio in sorted(first_scorpio_date):
-            y = (j + 1) / n
-            ax4.annotate(f"{scorpio}", xy=(date, y), xycoords="data")
-            ax4.axvline(date, color="grey", alpha=0.5)
-            j = (j + 1) % (n - 1)
+            if start_date <= str(date) < end_date:
+                y = (j + 1) / n
+                ax4.annotate(f"{scorpio}", xy=(date, y), xycoords="data")
+                ax4.axvline(date, color="grey", alpha=0.5)
+                j = (j + 1) % (n - 1)
 
         return fig, [ax1, ax2, ax3, ax4]
 
@@ -2093,6 +2094,66 @@ class TreeInfo:
             ts=tables.tree_sequence(),
             attach_date=attach_date,
         )
+
+    def panel(self):
+
+        import panel as pn
+
+        pn.extension("ipywidgets")
+
+        along_genome_figs = {
+            "Missing": self.plot_missing_samples_per_site,
+            "Deletions": self.plot_deletion_samples_per_site,
+            "Mutations": self.plot_mutations_per_site,
+            "Ts/Tv": self.plot_ts_tv_per_site,
+        }
+        by_day_figs = {
+            "Resources": self.plot_resources,
+            "Samples": self.plot_samples_per_day,
+        }
+
+        def plot_func(fig):
+            pane = pn.pane.Matplotlib(
+                fig, tight=True, format="svg", sizing_mode="stretch_width"
+            )
+            plt.close(fig)
+            return pane
+
+        def along_genome_plot_func():
+            key = along_genome_tabs[along_genome_tabs.active].name
+            fig = along_genome_figs[key]()[0]
+            return plot_func(fig)
+
+        along_genome_tabs = []
+        for title in along_genome_figs.keys():
+            p = pn.param.ParamFunction(along_genome_plot_func, lazy=True, name=title)
+            along_genome_tabs.append((title, p))
+        along_genome_tabs = pn.Tabs(*along_genome_tabs, dynamic=True)
+
+        wdg_start_date = pn.widgets.TextInput(name="Start date", value="2020-04-01")
+        wdg_end_date = pn.widgets.TextInput(name="End date", value="2030")
+
+        def by_day_plot_func(start_date, end_date):
+            key = by_day_tabs[by_day_tabs.active][0].name
+            fig = by_day_figs[key](start_date=start_date, end_date=end_date)[0]
+            return plot_func(fig)
+
+        by_day_tabs = []
+        for title in by_day_figs.keys():
+            p = pn.param.ParamFunction(
+                pn.bind(by_day_plot_func, wdg_start_date, wdg_end_date),
+                lazy=True,
+                name=title,
+            )
+            widgets = pn.Row(wdg_start_date, wdg_end_date)
+            by_day_tabs.append((title, pn.Column(p, widgets)))
+        by_day_tabs = pn.Tabs(*by_day_tabs, dynamic=True)
+
+        tabs = pn.Tabs(
+            ("Along genome", along_genome_tabs),
+            ("By day", by_day_tabs),
+        )
+        return tabs
 
 
 @dataclasses.dataclass
