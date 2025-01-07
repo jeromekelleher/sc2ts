@@ -2096,20 +2096,27 @@ class TreeInfo:
         )
 
     def panel(self):
-
         import panel as pn
 
         pn.extension("ipywidgets")
 
         along_genome_figs = {
             "Missing": self.plot_missing_samples_per_site,
-            "Deletions": self.plot_deletion_samples_per_site,
+            "Deletions (data)": self.plot_deletion_samples_per_site,
+            "Deletions (ARG)": self.plot_deletion_overlaps,
             "Mutations": self.plot_mutations_per_site,
             "Ts/Tv": self.plot_ts_tv_per_site,
         }
         by_day_figs = {
             "Resources": self.plot_resources,
             "Samples": self.plot_samples_per_day,
+        }
+        distribution_figs = {
+            "Mutations/node": self.plot_mutations_per_node_distribution,
+            "Mutations/site": self.plot_mutations_per_site_distribution,
+            "Missing sites/sample": self.plot_missing_sites_per_sample,
+            "Deletion sites/sample": self.plot_deletion_sites_per_sample,
+            "Branch lengths": self.plot_branch_length_distributions,
         }
 
         def plot_func(fig):
@@ -2119,15 +2126,24 @@ class TreeInfo:
             plt.close(fig)
             return pane
 
-        def along_genome_plot_func():
-            key = along_genome_tabs[along_genome_tabs.active].name
-            fig = along_genome_figs[key]()[0]
+        wdg_annotate_threshold = pn.widgets.FloatSlider(
+            name="Annotate threshold", start=0.1, end=1, step=0.01, value=0.9
+        )
+
+        def along_genome_plot_func(annotate_threshold):
+            key = along_genome_tabs[along_genome_tabs.active][0].name
+            fig = along_genome_figs[key](annotate_threshold=annotate_threshold)[0]
             return plot_func(fig)
 
         along_genome_tabs = []
         for title in along_genome_figs.keys():
-            p = pn.param.ParamFunction(along_genome_plot_func, lazy=True, name=title)
-            along_genome_tabs.append((title, p))
+            p = pn.param.ParamFunction(
+                pn.bind(along_genome_plot_func, wdg_annotate_threshold),
+                lazy=True,
+                name=title,
+            )
+            widgets = wdg_annotate_threshold
+            along_genome_tabs.append(((title, pn.Column(p, widgets))))
         along_genome_tabs = pn.Tabs(*along_genome_tabs, dynamic=True)
 
         wdg_start_date = pn.widgets.TextInput(name="Start date", value="2020-04-01")
@@ -2149,9 +2165,32 @@ class TreeInfo:
             by_day_tabs.append((title, pn.Column(p, widgets)))
         by_day_tabs = pn.Tabs(*by_day_tabs, dynamic=True)
 
+        # Placeholders for distribution bin widgets
+        wdg_bin_start = pn.widgets.TextInput(name="NON functional", value="2020-04-01")
+        wdg_bin_stop = pn.widgets.TextInput(name="NON functional", value="2030")
+
+        def distribution_plot_func(bin_start, bin_stop):
+            key = distribution_tabs[distribution_tabs.active][0].name
+            fig = distribution_figs[key]()[
+                0
+            ]  # bin_start=bin_start, bin_stop=bin_stop)[0]
+            return plot_func(fig)
+
+        distribution_tabs = []
+        for title in distribution_figs.keys():
+            p = pn.param.ParamFunction(
+                pn.bind(distribution_plot_func, wdg_bin_start, wdg_bin_stop),
+                lazy=True,
+                name=title,
+            )
+            widgets = pn.Row(wdg_bin_start, wdg_bin_stop)
+            distribution_tabs.append((title, pn.Column(p, widgets)))
+        distribution_tabs = pn.Tabs(*distribution_tabs, dynamic=True)
+
         tabs = pn.Tabs(
             ("Along genome", along_genome_tabs),
             ("By day", by_day_tabs),
+            ("Distributions", distribution_tabs),
         )
         return tabs
 
