@@ -959,7 +959,7 @@ class TreeInfo:
         runs = []
         # Extract the haplotypes for each recombinant to catch runs of
         # adjacent differences
-        for _, row in df.iterrows():
+        for _, row in tqdm(df.iterrows()):
             H = np.array(inference.extract_haplotypes(
                 self.ts, [row.recombinant, row.parent_left, row.parent_right]
             ))
