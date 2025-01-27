@@ -19,6 +19,7 @@ from IPython.display import Markdown, HTML
 
 from . import core
 from . import utils
+from . import inference
 
 
 logger = logging.getLogger(__name__)
@@ -912,7 +913,6 @@ class TreeInfo:
                     pango = self.nodes_metadata[v].get(self.pango_source, "Unknown")
                     causal_lineages[pango] += 1
                     node_md = self.nodes_metadata[v]["sc2ts"]
-                    # print(node_md)
                     hmm_matches.append(node_md["hmm_match"])
                     breakpoint_intervals.append(node_md["breakpoint_intervals"])
             # Only deal with 2 parents recombs for now.
@@ -935,6 +935,8 @@ class TreeInfo:
                     **md,
                 }
             )
+        # Compute the MRCAs by iterating along trees in order of
+        # breakpoint. We use the right interval
         df = pd.DataFrame(data).sort_values("interval_right")
         tree = self.ts.first()
         mrca_data = []
@@ -943,14 +945,35 @@ class TreeInfo:
             tree.seek(bp)
             assert tree.interval.left == bp
             right_path = get_root_path(tree, row.parent_right)
+            assert tree.parent(row.recombinant) == row.parent_right
             tree.prev()
             assert tree.interval.right == bp
             left_path = get_root_path(tree, row.parent_left)
+            assert tree.parent(row.recombinant) == row.parent_left
             mrca = get_path_mrca(left_path, right_path, self.ts.nodes_time)
             mrca_data.append(mrca)
         mrca_data = np.array(mrca_data)
         df["mrca"] = mrca_data
         df["t_mrca"] = self.ts.nodes_time[mrca_data]
+
+        runs = []
+        # Extract the haplotypes for each recombinant to catch runs of
+        # adjacent differences
+        for _, row in df.iterrows():
+            H = np.array(inference.extract_haplotypes(
+                self.ts, [row.recombinant, row.parent_left, row.parent_right]
+            ))
+            # This is ugly but effective
+            diffs = []
+            for j in np.where(np.sum(H, axis=0) != 0)[0]:
+                if len(np.unique(H[:, j])) != 1:
+                    diffs.append(j)
+            x = self.ts.sites_position[diffs]
+            run = np.sum(x[1:] + 1 == x[:-1])
+            runs.append(run)
+
+        df["runs"] = runs
+
         return df
 
     def deletions_summary(self):
