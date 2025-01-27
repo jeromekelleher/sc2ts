@@ -978,7 +978,23 @@ class TreeInfo:
                     **md,
                 }
             )
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data).sort_values("interval_right")
+        tree = self.ts.first()
+        mrca_data = []
+        for _, row in df.iterrows():
+            bp = row.interval_right
+            tree.seek(bp)
+            assert tree.interval.left == bp
+            right_path = get_root_path(tree, row.parent_right)
+            tree.prev()
+            assert tree.interval.right == bp
+            left_path = get_root_path(tree, row.parent_left)
+            mrca = get_path_mrca(left_path, right_path, self.ts.nodes_time)
+            mrca_data.append(mrca)
+        mrca_data = np.array(mrca_data)
+        df["mrca"] = mrca_data
+        df["t_mrca"] = self.ts.nodes_time[mrca_data]
+        return df
 
     def deletions_summary(self):
         deletion_ids = np.where(self.mutations_derived_state == "-")[0]

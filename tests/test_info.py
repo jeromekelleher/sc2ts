@@ -307,6 +307,8 @@ class TestTreeInfo:
         assert row.parent_left == 31
         assert row.parent_right == 46
         assert row.num_mutations == 0
+        assert row.mrca == 1
+        assert row.t_mrca == 51
 
 
 class TestSampleGroupInfo:
