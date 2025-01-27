@@ -24,6 +24,10 @@ def fx_ti_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
     return info.TreeInfo(ts, show_progress=False)
 
+@pytest.fixture
+def fx_ti_recombinant_example_1(fx_recombinant_example_1):
+    return info.TreeInfo(fx_recombinant_example_1, show_progress=False)
+
 
 def test_get_gene_coordinates():
     d = sc2ts.get_gene_coordinates()
@@ -286,6 +290,23 @@ class TestTreeInfo:
         assert df.loc["samples"].value == 43
         assert df.loc["sample_groups"].value == 27
         assert df.loc["retro_sample_groups"].value == 1
+
+    def test_summary(self, fx_ti_2020_02_15):
+        df = fx_ti_2020_02_15.summary()
+        assert df.loc["samples"].value == 43
+        assert df.loc["sample_groups"].value == 27
+        assert df.loc["retro_sample_groups"].value == 1
+
+    def test_recombinants_summary(self, fx_ti_recombinant_example_1):
+        df = fx_ti_recombinant_example_1.recombinants_summary()
+        assert df.shape[0] == 1
+        row = df.iloc[0]
+        assert row.descendants == 2
+        assert row.interval_left == 3788
+        assert row.interval_right == 11083
+        assert row.parent_left == 31
+        assert row.parent_right == 46
+        assert row.num_mutations == 0
 
 
 class TestSampleGroupInfo:

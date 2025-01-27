@@ -946,20 +946,35 @@ class TreeInfo:
             md = dict(self.nodes_metadata[u]["sc2ts"])
             group_id = md["group_id"][: self.sample_group_id_prefix_len]
             md["group_id"] = group_id
-            # NOTE this is overlapping quite a bit with the SampleGroupInfo
-            # class functionality here, but we just want something quick for
-            # now here.
+
             causal_lineages = collections.Counter()
+            hmm_matches = []
+            breakpoint_intervals = []
             for v in self.sample_group_nodes[group_id]:
                 if self.ts.nodes_flags[v] & tskit.NODE_IS_SAMPLE > 0:
                     pango = self.nodes_metadata[v].get(self.pango_source, "Unknown")
                     causal_lineages[pango] += 1
+                    node_md = self.nodes_metadata[v]["sc2ts"]
+                    # print(node_md)
+                    hmm_matches.append(node_md["hmm_match"])
+                    breakpoint_intervals.append(node_md["breakpoint_intervals"])
+            # Only deal with 2 parents recombs for now.
+            assert self.nodes_num_parents[u] == 2
+            # assert len(set(hmm_matches)) == 1
+            # assert len(set(breakpoint_intervals)) == 1
+            hmm_match = hmm_matches[0]
+            assert len(hmm_match["path"]) == 2
+            interval = breakpoint_intervals[0]
             data.append(
                 {
                     "recombinant": u,
-                    "parents": self.nodes_num_parents[u],
                     "descendants": self.nodes_max_descendant_samples[u],
                     "causal_pango": dict(causal_lineages),
+                    "interval_left": interval[0][0],
+                    "interval_right": interval[0][1],
+                    "parent_left": hmm_match["path"][0]["parent"],
+                    "parent_right": hmm_match["path"][1]["parent"],
+                    "num_mutations": len(hmm_match["mutations"]),
                     **md,
                 }
             )
