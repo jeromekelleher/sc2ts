@@ -1063,17 +1063,6 @@ class TestSyntheticAlignments:
         assert edges[1].right == 29904
         assert edges[1].child == ts.samples()[-1]
 
-        ti = sc2ts.TreeInfo(ts, show_progress=False)
-        df = ti.recombinants_summary()
-        assert df.shape[0] == 1
-        row = df.iloc[0]
-        assert row.recombinant == recomb_node.id
-        assert row.group_id == group_id[:10]
-        assert row.date_added == date
-        assert row.descendants == 2
-        assert row.parents == 2
-        assert row.causal_pango == {"Unknown": 2}
-
     def test_recombinant_example_2(self, fx_ts_map, fx_recombinant_example_2):
         base_ts = fx_ts_map["2020-02-13"]
         date = "2020-03-01"

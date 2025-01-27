@@ -1,6 +1,7 @@
 """
 Utilities for examining sc2ts output.
 """
+
 import collections
 import dataclasses
 import itertools
@@ -15,122 +16,6 @@ from IPython.display import Markdown, HTML
 import networkx as nx
 
 import sc2ts
-
-
-@dataclasses.dataclass
-class HmmRun:
-    breakpoints: list
-    parents: list
-    parent_imputed_lineages: list
-    mutations: list
-
-
-@dataclasses.dataclass
-class ArgRecombinant:
-    breakpoints: list
-    breakpoint_intervals: list
-    parents: list
-    parent_imputed_lineages: list
-    mrcas: list
-
-
-@dataclasses.dataclass
-class Recombinant:
-    causal_strain: str
-    causal_date: str
-    causal_lineage: str
-    hmm_runs: dict
-    arg_info: ArgRecombinant
-    node: int
-    max_descendant_samples: int
-
-    def data_summary(self):
-        d = self.asdict()
-        del d["hmm_runs"]
-        del d["arg_info"]
-        d["num_parents"] = self.num_parents
-        d["total_cost"] = self.total_cost
-        d["is_hmm_mutation_consistent"] = self.is_hmm_mutation_consistent()
-        d["is_arg_hmm_path_identical"] = self.is_arg_hmm_path_identical()
-        d[
-            "is_arg_hmm_path_length_consistent"
-        ] = self.is_arg_hmm_path_length_consistent()
-        d["is_path_length_consistent"] = self.is_path_length_consistent()
-        d["is_parent_lineage_consistent"] = self.is_parent_lineage_consistent()
-        return d
-
-    @property
-    def total_cost(self, num_mismatches):
-        """
-        How different is the causal sequence from the rest, roughly?
-        """
-        fwd = self.hmm_runs["forward"]
-        bck = self.hmm_runs["backward"]
-        cost_fwd = num_mismatches * (len(fwd.parents) - 1) + len(fwd.mutations)
-        cost_bck = num_mismatches * (len(bck.parents) - 1) + len(bck.mutations)
-        assert cost_fwd == cost_bck
-        return cost_fwd
-
-    @property
-    def num_parents(self):
-        """
-        The ARG version is definitive.
-        """
-        return len(self.arg_info.parents)
-
-    def is_hmm_mutation_consistent(self):
-        """
-        Do we get the same set of mutations in the HMM in the back and
-        forward runs?
-        """
-        fwd = self.hmm_runs["forward"]
-        bck = self.hmm_runs["backward"]
-        return fwd.mutations == bck.mutations
-
-    def is_arg_hmm_path_identical(self):
-        """
-        Does this recombinant have the same path in the forwards HMM run, and in the ARG?
-        """
-        fwd = self.hmm_runs["forward"]
-        arg = self.arg_info
-        return fwd.parents == arg.parents and fwd.breakpoints == arg.breakpoints
-
-    def is_arg_hmm_path_length_consistent(self):
-        """
-        Does this recombinant have the same path length in the forwards HMM run,
-        and in the ARG?
-        """
-        fwd = self.hmm_runs["forward"]
-        arg = self.arg_info
-        return len(fwd.parents) == len(arg.parents)
-
-    def is_path_length_consistent(self):
-        """
-        Returns True if all the HMM runs agree on the number of parents.
-        """
-        fwd = self.hmm_runs["forward"]
-        bck = self.hmm_runs["backward"]
-        return (
-            len(fwd.parents) == len(bck.parents)
-            and self.is_arg_hmm_path_length_consistent()
-        )
-
-    def is_parent_lineage_consistent(self):
-        """
-        Returns True if all the HMM runs agree on the imputed pango lineage status of
-        parents. Implies is_path_length_consistent.
-        """
-        fwd = self.hmm_runs["forward"]
-        bck = self.hmm_runs["backward"]
-        arg = self.arg_info
-        return (
-            fwd.parent_imputed_lineages
-            == bck.parent_imputed_lineages
-            == arg.parent_imputed_lineages
-        )
-
-    def asdict(self):
-        return dataclasses.asdict(self)
 
 
 def detach_singleton_recombinants(ts, filter_nodes=False):
@@ -599,9 +484,11 @@ def plot_subgraph(
 
     # Put a line around the point if white or transparent
     stroke_cols = [
-        "black"
-        if col == "None" or np.mean(colors.ColorConverter.to_rgb(col)) > 0.99
-        else col
+        (
+            "black"
+            if col == "None" or np.mean(colors.ColorConverter.to_rgb(col)) > 0.99
+            else col
+        )
         for col in fill_cols
     ]
     fill_cols = np.array(fill_cols)
