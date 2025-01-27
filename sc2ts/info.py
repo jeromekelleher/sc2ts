@@ -189,33 +189,6 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     return pd.DataFrame(data).sort_values("arg_count", ascending=False)
 
 
-def get_recombinant_samples(ts):
-    """
-    Returns a map of recombinant nodes and their causal samples IDs.
-    Only one causal strain per recombinant node is returned, chosen arbitrarily.
-    """
-    recomb_nodes = np.where((ts.nodes_flags & core.NODE_IS_RECOMBINANT) > 0)[0]
-    tree = ts.first()
-    out = {}
-    for u in recomb_nodes:
-        node = ts.node(u)
-        recomb_date = node.metadata["sc2ts"]["date_added"]
-        causal_sample = -1
-        # Search the subtree for a causal sample.
-        for v in tree.nodes(u, order="levelorder"):
-            child = ts.node(v)
-            if child.is_sample() and child.metadata["date"] <= recomb_date:
-                edge = ts.edge(tree.edge(v))
-                assert edge.left == 0 and edge.right == ts.sequence_length
-                causal_sample = child
-                break
-        assert causal_sample != -1
-        out[u] = causal_sample.id
-    assert len(set(out.values())) == len(recomb_nodes)
-    assert len(out) == len(recomb_nodes)
-    return out
-
-
 @numba.njit
 def _get_root_path(parent, node):
     u = node
@@ -898,23 +871,38 @@ class TreeInfo:
             data.append(d)
         return pd.DataFrame(data).set_index("group_id")
 
-    def recombinants_summary(self):
+    def recombinants_summary(
+        self, parent_pango_source=None, characterise_copying=False, show_progress=True
+    ):
+        if parent_pango_source is None:
+            parent_pango_source = self.pango_source
         data = []
         for u in self.recombinants:
             md = dict(self.nodes_metadata[u]["sc2ts"])
             group_id = md["group_id"][: self.sample_group_id_prefix_len]
             md["group_id"] = group_id
+            group_nodes = self.sample_group_nodes[group_id]
+            md["group_size"] = len(group_nodes)
 
-            causal_lineages = collections.Counter()
-            hmm_matches = []
-            breakpoint_intervals = []
+            samples = []
             for v in self.sample_group_nodes[group_id]:
                 if self.ts.nodes_flags[v] & tskit.NODE_IS_SAMPLE > 0:
-                    pango = self.nodes_metadata[v].get(self.pango_source, "Unknown")
-                    causal_lineages[pango] += 1
-                    node_md = self.nodes_metadata[v]["sc2ts"]
-                    hmm_matches.append(node_md["hmm_match"])
-                    breakpoint_intervals.append(node_md["breakpoint_intervals"])
+                    samples.append(v)
+
+            causal_lineages = {}
+            hmm_matches = []
+            breakpoint_intervals = []
+            for v in samples:
+                causal_lineages[v] = self.nodes_metadata[v].get(
+                    self.pango_source, "Unknown"
+                )
+
+            # Arbitrarily pick the first sample node as the representative
+            v = samples[0]
+            node_md = self.nodes_metadata[v]["sc2ts"]
+            hmm_matches.append(node_md["hmm_match"])
+            breakpoint_intervals.append(node_md["breakpoint_intervals"])
+
             # Only deal with 2 parents recombs for now.
             assert self.nodes_num_parents[u] == 2
             # assert len(set(hmm_matches)) == 1
@@ -922,15 +910,28 @@ class TreeInfo:
             hmm_match = hmm_matches[0]
             assert len(hmm_match["path"]) == 2
             interval = breakpoint_intervals[0]
+            parent_left = hmm_match["path"][0]["parent"]
+            parent_right = hmm_match["path"][1]["parent"]
             data.append(
                 {
                     "recombinant": u,
                     "descendants": self.nodes_max_descendant_samples[u],
-                    "causal_pango": dict(causal_lineages),
+                    "sample": v,
+                    "sample_pango": causal_lineages[v],
+                    "num_samples": len(samples),
+                    "distinct_sample_pango": len(set(causal_lineages.values())),
                     "interval_left": interval[0][0],
                     "interval_right": interval[0][1],
-                    "parent_left": hmm_match["path"][0]["parent"],
-                    "parent_right": hmm_match["path"][1]["parent"],
+                    "parent_left": parent_left,
+                    "parent_right": parent_right,
+                    "parent_left_pango": self.nodes_metadata[parent_left].get(
+                        parent_pango_source,
+                        "Unknown",
+                    ),
+                    "parent_right_pango": self.nodes_metadata[parent_right].get(
+                        parent_pango_source,
+                        "Unknown",
+                    ),
                     "num_mutations": len(hmm_match["mutations"]),
                     **md,
                 }
@@ -956,28 +957,42 @@ class TreeInfo:
         df["mrca"] = mrca_data
         df["t_mrca"] = self.ts.nodes_time[mrca_data]
 
-        runs = []
+        if characterise_copying:
+            # Slow - don't do this unless we really want to.
+            df = self._characterise_recombinant_copying(df, show_progress)
+
+        return df
+
+    def _characterise_recombinant_copying(self, df, show_progress):
+        """
+        Return a copy of the specified recombinants_summary data frame
+        in which we add fields to summarise the variant sites among
+        the parents and sample.
+        """
+        max_run_length_data = []
         diff_data = []
         # Extract the haplotypes for each recombinant to catch runs of
         # adjacent differences
-        for _, row in tqdm(df.iterrows()):
-            H = np.array(inference.extract_haplotypes(
-                self.ts, [row.recombinant, row.parent_left, row.parent_right]
-            ))
+        for _, row in tqdm(df.iterrows(), total=df.shape[0], disable=not show_progress):
+            H = np.array(
+                inference.extract_haplotypes(
+                    self.ts, [row.recombinant, row.parent_left, row.parent_right]
+                )
+            )
             # This is ugly but effective
             diffs = []
             for j in np.where(np.sum(H, axis=0) != 0)[0]:
                 if len(np.unique(H[:, j])) != 1:
                     diffs.append(j)
             diff_data.append(len(diffs))
-            x = self.ts.sites_position[diffs]
-            run = np.sum(x[1:] + 1 == x[:-1])
-            runs.append(run)
+            x = self.ts.sites_position[diffs].astype(int)
+            values, _, lengths = find_runs(np.diff(x))
+            max_run_length = 0
+            if np.sum(values == 1) > 0:
+                max_run_length = np.max(lengths[values == 1])
+            max_run_length_data.append(max_run_length)
 
-        df["runs"] = runs
-        df["diffs"] = diff_data
-
-        return df
+        return df.assign(diffs=diff_data, max_run_length=max_run_length_data)
 
     def deletions_summary(self):
         deletion_ids = np.where(self.mutations_derived_state == "-")[0]

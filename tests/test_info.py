@@ -24,6 +24,7 @@ def fx_ti_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
     return info.TreeInfo(ts, show_progress=False)
 
+
 @pytest.fixture
 def fx_ti_recombinant_example_1(fx_recombinant_example_1):
     return info.TreeInfo(fx_recombinant_example_1, show_progress=False)
@@ -297,20 +298,54 @@ class TestTreeInfo:
         assert df.loc["sample_groups"].value == 27
         assert df.loc["retro_sample_groups"].value == 1
 
-    def test_recombinants_summary(self, fx_ti_recombinant_example_1):
+    def test_recombinants_summary_example_1(self, fx_ti_recombinant_example_1):
         df = fx_ti_recombinant_example_1.recombinants_summary()
         assert df.shape[0] == 1
         row = df.iloc[0]
         assert row.descendants == 2
+        assert row["sample"] == 53
+        assert row.num_samples == 2
+        assert row.group_size == 3
+        assert row.distinct_sample_pango == 1
+        assert row.sample_pango == "Unknown"
         assert row.interval_left == 3788
         assert row.interval_right == 11083
         assert row.parent_left == 31
+        assert row.parent_left_pango == "B"
         assert row.parent_right == 46
+        assert row.parent_right_pango == "Unknown"
         assert row.num_mutations == 0
         assert row.mrca == 1
         assert row.t_mrca == 51
-        assert row.runs == 0
-        assert row.diffs == 6
+        assert "diffs" not in df
+
+        df2 = fx_ti_recombinant_example_1.recombinants_summary(
+            characterise_copying=True, show_progress=False
+        )
+        assert set(df) < set(df2)
+        row2 = df2.iloc[0]
+        assert row2.diffs == 6
+        assert row2.max_run_length == 0
+
+    def test_recombinants_summary_example_2(self, fx_recombinant_example_2):
+        ti = info.TreeInfo(fx_recombinant_example_2, show_progress=False)
+        df = ti.recombinants_summary(characterise_copying=True, show_progress=False)
+        assert df.shape[0] == 1
+        row = df.iloc[0]
+        assert row.descendants == 1
+        assert row["sample"] == 55
+        assert row["distinct_sample_pango"] == 1
+        assert row["recombinant"] == 56
+        assert row["sample_pango"] == "Unknown"
+        assert row["num_mutations"] == 0
+        assert row["parent_left"] == 53
+        assert row["parent_left_pango"] == "Unknown"
+        assert row["parent_right"] == 54
+        assert row["parent_right_pango"] == "Unknown"
+        assert row["mrca"] == 48
+        assert row["group_size"] == 2
+        assert row["diffs"] == 6
+        assert row["max_run_length"] == 2
 
 
 class TestSampleGroupInfo:
