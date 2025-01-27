@@ -957,6 +957,7 @@ class TreeInfo:
         df["t_mrca"] = self.ts.nodes_time[mrca_data]
 
         runs = []
+        diff_data = []
         # Extract the haplotypes for each recombinant to catch runs of
         # adjacent differences
         for _, row in tqdm(df.iterrows()):
@@ -968,11 +969,13 @@ class TreeInfo:
             for j in np.where(np.sum(H, axis=0) != 0)[0]:
                 if len(np.unique(H[:, j])) != 1:
                     diffs.append(j)
+            diff_data.append(len(diffs))
             x = self.ts.sites_position[diffs]
             run = np.sum(x[1:] + 1 == x[:-1])
             runs.append(run)
 
         df["runs"] = runs
+        df["diffs"] = diff_data
 
         return df
 

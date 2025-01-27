@@ -310,6 +310,7 @@ class TestTreeInfo:
         assert row.mrca == 1
         assert row.t_mrca == 51
         assert row.runs == 0
+        assert row.diffs == 6
 
 
 class TestSampleGroupInfo:
