@@ -178,7 +178,7 @@ class Variant:
 
 class Dataset(collections.abc.Mapping):
 
-    def __init__(self, path, chunk_cache_size=1, date_field="date"):
+    def __init__(self, path, chunk_cache_size=1, date_field="date", skip_metadata=False):
         logger.info(f"Loading dateset @{path} using {date_field} as date field")
         self.date_field = date_field
         self.path = pathlib.Path(path)
@@ -196,9 +196,13 @@ class Dataset(collections.abc.Mapping):
         self.haplotypes = CachedHaplotypeMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
-        self.metadata = CachedMetadataMapping(
-            self.root, self.sample_id_map, date_field, chunk_cache_size=chunk_cache_size
-        )
+        if not skip_metadata:
+            self.metadata = CachedMetadataMapping(
+                self.root,
+                self.sample_id_map,
+                date_field,
+                chunk_cache_size=chunk_cache_size,
+            )
 
     def __getitem__(self, key):
         return self.root[key]

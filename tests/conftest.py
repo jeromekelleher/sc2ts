@@ -29,12 +29,23 @@ def fx_alignments_fasta(fx_data_cache):
     return cache_path
 
 
+@pytest.fixture
+def fx_alignments_mafft_fasta():
+    # This is bgzipped so we can access directly
+    return pathlib.Path("tests/data/alignments-mafft.fasta.gz")
+
+
 def encoded_alignments(path):
     fr = sc2ts.FastaReader(path)
     alignments = {}
     for k, v in fr.items():
         alignments[k] = sc2ts.encode_alignment(v[1:])
     return alignments
+
+
+@pytest.fixture
+def fx_encoded_alignments_mafft(fx_alignments_mafft_fasta):
+    return encoded_alignments(fx_alignments_mafft_fasta)
 
 
 @pytest.fixture
@@ -258,7 +269,9 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
     date = "2020-03-02"
     left = start + 3 + 1
     right = end - 3 + 1
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", {f"recombinant_{left}:{right}": a}, date=date)
+    ds = sc2ts.tmp_dataset(
+        tmp_path / "tmp.zarr", {f"recombinant_{left}:{right}": a}, date=date
+    )
     rts = sc2ts.extend(
         dataset=ds.path,
         base_ts=ts_path,
@@ -266,6 +279,7 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
         match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
     )
     return rts
+
 
 def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     # Pick a distinct strain to be the root of our three new haplotypes added
@@ -286,7 +300,7 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     mid_a = a.copy()
     mid_start = 15_000
     mid_end = 15_009
-    mid_a[mid_start: mid_end] = 1 # "C"
+    mid_a[mid_start:mid_end] = 1  # "C"
 
     a = mid_a.copy()
     a[start : start + 3] = left_a[start : start + 3]
@@ -315,7 +329,7 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
         mut = ts.mutation(mut_id)
         assert mut.derived_state == "G"
         assert ts.sites_position[mut.site] == start + j + 1
-    
+
     for j, mut_id in enumerate(np.where(ts.mutations_node == mid_node)[0]):
         mut = ts.mutation(mut_id)
         assert mut.derived_state == "C"
@@ -345,6 +359,7 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     assert rts.num_samples == ts.num_samples + 1
     return rts
 
+
 @pytest.fixture
 def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
     cache_path = fx_data_cache / "recombinant_ex1.ts"
@@ -365,6 +380,7 @@ def fx_recombinant_example_2(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
         ts = recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
         ts.dump(cache_path)
     return tskit.load(cache_path)
+
 
 @pytest.fixture
 def fx_recombinant_example_3(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):

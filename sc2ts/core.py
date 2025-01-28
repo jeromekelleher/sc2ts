@@ -107,6 +107,7 @@ class FastaReader(collections.abc.Mapping):
     def __getitem__(self, key):
         x = self.reader[key]
         h = np.array(x).astype(str)
+        h = np.char.upper(h)
         if self.add_zero_base:
             return np.append(["X"], h)
         return h
