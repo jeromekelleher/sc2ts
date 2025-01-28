@@ -277,6 +277,22 @@ class TestDatasetMethods:
         assert len(diffs) == 6
 
 
+class TestMafftAlignments:
+
+    def test_import(self, tmp_path, fx_encoded_alignments_mafft):
+        path = tmp_path / "dataset.vcz"
+        sc2ts.Dataset.new(path)
+        sc2ts.Dataset.append_alignments(path, fx_encoded_alignments_mafft)
+        ds = sc2ts.Dataset(path, skip_metadata=True)
+        assert len(ds.haplotypes) == 19
+        for k, v in fx_encoded_alignments_mafft.items():
+            h = ds.haplotypes[k]
+            nt.assert_array_equal(v, h)
+            # The flanks are marked as deletions
+            assert h[0] == 4
+            assert h[-1] == 4
+
+
 class TestDatasetAlignments:
 
     def test_fetch_known(self, fx_dataset):
