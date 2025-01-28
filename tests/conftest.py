@@ -30,9 +30,14 @@ def fx_alignments_fasta(fx_data_cache):
 
 
 @pytest.fixture
-def fx_alignments_mafft_fasta():
+def fx_alignments_mafft_fasta(fx_data_cache):
     # This is bgzipped so we can access directly
-    return pathlib.Path("tests/data/alignments-mafft.fasta.gz")
+    cache_path = fx_data_cache / "alignments-mafft.fasta"
+    if not cache_path.exists():
+        with gzip.open("tests/data/alignments-mafft.fasta.gz") as src:
+            with open(cache_path, "wb") as dest:
+                shutil.copyfileobj(src, dest)
+    return cache_path
 
 
 def encoded_alignments(path):
