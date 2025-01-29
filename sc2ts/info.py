@@ -266,33 +266,6 @@ def get_num_muts(ts):
     return num_muts_all_trees
 
 
-def get_recombinant_edges(ts):
-    """
-    Return the partial edges from the tree sequence grouped by child (which must
-    be flagged as a recombinant node).
-    """
-    partial_edges = np.where(
-        np.logical_or(ts.edges_left != 0, ts.edges_right != ts.sequence_length)
-    )[0]
-    edges = collections.defaultdict(list)
-    for edge_id in partial_edges:
-        edge = ts.edge(edge_id)
-        assert ts.nodes_flags[edge.child] == core.NODE_IS_RECOMBINANT
-        edges[edge.child].append(edge)
-
-    # Check that they are in order and completely cover the region
-    for child_edges in edges.values():
-        child_edges.sort(key=lambda e: e.left)
-        assert len(child_edges) >= 2
-        assert child_edges[0].left == 0
-        assert child_edges[-1].right == ts.sequence_length
-        last_edge = child_edges[0]
-        for edge in child_edges[1:]:
-            assert edge.left == last_edge.right
-            last_edge = edge
-    return edges
-
-
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
 def find_runs(x):
     """Find runs of consecutive items in an array."""
@@ -1263,46 +1236,6 @@ class TreeInfo:
         items += self._children_summary(node_id)
         items += self._show_mutation_path(node_id)
         return items
-
-    def pango_lineages_report(self):
-        data = []
-        for lineage in self.pango_lineage_samples.keys():
-            node = self.pango_lineage_samples[lineage][0]
-            row = {
-                "total_samples": len(self.pango_lineage_samples[lineage]),
-                **self._node_summary(node),
-            }
-            data.append(row)
-        return pd.DataFrame(data)
-
-    def pango_recombinant_lineages_report(self):
-        nodes = []
-        for lineage in self.pango_lineage_samples.keys():
-            if lineage.startswith("X"):
-                node = self.pango_lineage_samples[lineage][0]
-                nodes.append(node)
-        return self.recombinant_samples_report(nodes)
-
-    def recombinant_samples_report(self, nodes):
-        tree = self.ts.first()
-        data = []
-        for node in nodes:
-            node_summary = self._node_summary(node)
-            closest_recombinant, path_length = self._get_closest_recombinant(tree, node)
-            sample_is_recombinant = False
-            if closest_recombinant != -1:
-                recomb_date = self.ts.node(closest_recombinant).metadata["sc2ts"][
-                    "date_added"
-                ]
-                sample_is_recombinant = recomb_date == str(node_summary["date"])
-            summary = {
-                "recombinant": closest_recombinant,
-                "direct": sample_is_recombinant,
-                "path_length": path_length,
-                **node_summary,
-            }
-            data.append(summary)
-        return pd.DataFrame(data)
 
     def _repr_html_(self):
         return self.summary()._repr_html_()
