@@ -435,7 +435,7 @@ class Dataset(collections.abc.Mapping):
         zarr.consolidate_metadata(store)
 
     @staticmethod
-    def add_metadata(path, df):
+    def add_metadata(path, df, field_descriptions=dict()):
         """
         Add metadata from the specified dataframe, indexed by sample ID.
         Each column will be added as a new array with prefix "sample_"
@@ -470,6 +470,8 @@ class Dataset(collections.abc.Mapping):
                 overwrite=True,
             )
             z.attrs["_ARRAY_DIMENSIONS"] = ["samples"]
+            z.attrs["description"] = field_descriptions.get(colname, "")
+
             z[:] = data
             logger.info(f"Wrote metadata array {z.name}")
 

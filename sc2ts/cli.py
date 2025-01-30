@@ -374,11 +374,13 @@ def infer(config_file, start, stop, force):
             # Block and wait, raising exception if it occured
             future.result()
 
-
 @click.command()
 @dataset
 @click.argument("ts_file")
 @deletions_as_missing
+@click.option(
+    "--date-field", default=None, help="Specify date field to use. Required for metadata."
+)
 @click.option(
     "--genotypes/--no-genotypes",
     default=True,
@@ -404,6 +406,7 @@ def infer(config_file, start, stop, force):
 def validate(
     dataset,
     ts_file,
+    date_field,
     deletions_as_missing,
     genotypes,
     metadata,
@@ -417,7 +420,7 @@ def validate(
     setup_logging(verbose)
 
     ts = tszip.load(ts_file)
-    ds = sc2ts.Dataset(dataset, chunk_cache_size=chunk_cache_size)
+    ds = sc2ts.Dataset(dataset, date_field=date_field, chunk_cache_size=chunk_cache_size)
     if genotypes:
         sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:

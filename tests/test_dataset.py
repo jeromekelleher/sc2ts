@@ -283,7 +283,7 @@ class TestMafftAlignments:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments_mafft)
-        ds = sc2ts.Dataset(path, skip_metadata=True)
+        ds = sc2ts.Dataset(path)
         assert len(ds.haplotypes) == 19
         for k, v in fx_encoded_alignments_mafft.items():
             h = ds.haplotypes[k]

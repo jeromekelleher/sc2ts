@@ -379,7 +379,7 @@ class TestValidate:
         runner = ct.CliRunner(mix_stderr=False)
         result = runner.invoke(
             cli.cli,
-            f"validate {fx_dataset.path} {ts_path} ",
+            f"validate {fx_dataset.path} {ts_path} --date-field=date",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
