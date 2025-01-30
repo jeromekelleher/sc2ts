@@ -363,6 +363,12 @@ class TestDatasetMetadata:
         assert d["Genbank_N"] == -1
         assert d["Viridian_pangolin"] == "A"
 
+    def test_known_no_date_field(self, fx_dataset):
+        ds = sc2ts.Dataset(fx_dataset.path)
+
+        with pytest.raises(ValueError, match="No date field set"):
+            ds.metadata["SRR11772659"]
+
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
         [
@@ -382,7 +388,7 @@ class TestDatasetMetadata:
         sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
         sc2ts.Dataset.add_metadata(path, fx_metadata_df)
-        ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
+        ds = sc2ts.Dataset(path, chunk_cache_size=cache_size, date_field="date")
         for strain in fx_encoded_alignments.keys():
             row = fx_metadata_df.loc[strain]
             d1 = ds.metadata[strain]

@@ -31,7 +31,6 @@ def fx_alignments_fasta(fx_data_cache):
 
 @pytest.fixture
 def fx_alignments_mafft_fasta(fx_data_cache):
-    # This is bgzipped so we can access directly
     cache_path = fx_data_cache / "alignments-mafft.fasta"
     if not cache_path.exists():
         with gzip.open("tests/data/alignments-mafft.fasta.gz") as src:
@@ -105,7 +104,7 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
         )
         sc2ts.Dataset.add_metadata(fs_path, fx_metadata_df)
         sc2ts.Dataset.create_zip(fs_path, cache_path)
-    return sc2ts.Dataset(cache_path)
+    return sc2ts.Dataset(cache_path, date_field="date")
 
 
 @pytest.fixture

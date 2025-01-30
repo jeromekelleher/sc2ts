@@ -99,8 +99,6 @@ class CachedHaplotypeMapping(collections.abc.Mapping):
 class CachedMetadataMapping(collections.abc.Mapping):
     def __init__(self, root, sample_id_map, date_field, chunk_cache_size):
         self.sample_id_map = sample_id_map
-        self.sample_date = root[f"sample_{date_field}"][:].astype(str)
-        self.sample_date_array = root[f"sample_{date_field}"]
         self.sample_id = root["sample_id"][:].astype(str)
         self.sample_id_array = root["sample_id"]
         # Mapping of field name to Zarr array
@@ -114,6 +112,10 @@ class CachedMetadataMapping(collections.abc.Mapping):
         self.chunk_cache = {}
 
         logger.debug(f"Got {self.num_fields} metadata fields")
+        self.date_field = date_field
+        if date_field is not None:
+            self.sample_date = root[f"sample_{date_field}"][:].astype(str)
+            self.sample_date_array = root[f"sample_{date_field}"]
 
     @property
     def num_fields(self):
@@ -145,6 +147,8 @@ class CachedMetadataMapping(collections.abc.Mapping):
                 d[key] = bool(d[key])
             else:
                 d[key] = str(d[key])
+        if self.date_field is None:
+            raise ValueError("No date field set, cannot get metadata items")
         # For compatibility in the short term:
         d["date"] = self.sample_date[j]
         d["strain"] = self.sample_id[j]
@@ -178,7 +182,7 @@ class Variant:
 
 class Dataset(collections.abc.Mapping):
 
-    def __init__(self, path, chunk_cache_size=1, date_field="date", skip_metadata=False):
+    def __init__(self, path, chunk_cache_size=1, date_field=None):
         logger.info(f"Loading dateset @{path} using {date_field} as date field")
         self.date_field = date_field
         self.path = pathlib.Path(path)
@@ -196,13 +200,12 @@ class Dataset(collections.abc.Mapping):
         self.haplotypes = CachedHaplotypeMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
-        if not skip_metadata:
-            self.metadata = CachedMetadataMapping(
-                self.root,
-                self.sample_id_map,
-                date_field,
-                chunk_cache_size=chunk_cache_size,
-            )
+        self.metadata = CachedMetadataMapping(
+            self.root,
+            self.sample_id_map,
+            date_field,
+            chunk_cache_size=chunk_cache_size,
+        )
 
     def __getitem__(self, key):
         return self.root[key]
