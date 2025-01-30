@@ -52,12 +52,17 @@ class TestImportMetadata:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+        fields_path = tmp_path / "fields.json"
+        with open(fields_path, "w") as f:
+            f.write(json.dumps({"NO SUCH": "A", "Viridian_pangolin": "PANGO"}))
 
         result = runner.invoke(
             cli.cli,
-            f"import-metadata {ds_path} {fx_metadata_tsv} ",
+            f"import-metadata {ds_path} {fx_metadata_tsv} --field-descriptions={fields_path}",
             catch_exceptions=False,
         )
+        ds = sc2ts.Dataset(ds_path)
+        assert ds.metadata.fields["Viridian_pangolin"].attrs["description"] == "PANGO"
 
     def test_viridian_metadata(
         self, tmp_path, fx_raw_viridian_metadata_tsv, fx_alignments_fasta

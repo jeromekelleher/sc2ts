@@ -162,13 +162,19 @@ def import_alignments(dataset, fastas, initialise, progress, verbose):
 @click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
 @click.argument("metadata", type=click.Path(dir_okay=False, file_okay=True))
 @click.option(
+    "--field-descriptions",
+    type=click.File(mode="r"),
+    default=None,
+    help="JSON formatted file of field descriptions",
+)
+@click.option(
     "--viridian",
     is_flag=True,
     help="Do some preprocessing appropriate for the Viridian metadata "
     "(Available at https://figshare.com/ndownloader/files/49694808)",
 )
 @verbose
-def import_metadata(dataset, metadata, viridian, verbose):
+def import_metadata(dataset, metadata, field_descriptions, viridian, verbose):
     """
     Import a CSV/TSV metadata file into the dataset.
     """
@@ -178,12 +184,14 @@ def import_metadata(dataset, metadata, viridian, verbose):
     if viridian:
         dtype = {"Artic_primer_version": str}
     df_in = pd.read_csv(metadata, sep="\t", dtype=dtype)
-    date_field = "date"
     index_field = "Run"
     if viridian:
         df_in = sc2ts.massage_viridian_metadata(df_in)
     df = df_in.set_index(index_field)
-    sc2ts.Dataset.add_metadata(dataset, df)
+    d = {}
+    if field_descriptions is not None:
+        d = json.load(field_descriptions)
+    sc2ts.Dataset.add_metadata(dataset, df, field_descriptions=d)
 
 
 @click.command()
@@ -374,12 +382,15 @@ def infer(config_file, start, stop, force):
             # Block and wait, raising exception if it occured
             future.result()
 
+
 @click.command()
 @dataset
 @click.argument("ts_file")
 @deletions_as_missing
 @click.option(
-    "--date-field", default=None, help="Specify date field to use. Required for metadata."
+    "--date-field",
+    default=None,
+    help="Specify date field to use. Required for metadata.",
 )
 @click.option(
     "--genotypes/--no-genotypes",
@@ -420,7 +431,9 @@ def validate(
     setup_logging(verbose)
 
     ts = tszip.load(ts_file)
-    ds = sc2ts.Dataset(dataset, date_field=date_field, chunk_cache_size=chunk_cache_size)
+    ds = sc2ts.Dataset(
+        dataset, date_field=date_field, chunk_cache_size=chunk_cache_size
+    )
     if genotypes:
         sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:
