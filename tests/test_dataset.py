@@ -135,7 +135,10 @@ class TestCreateDataset:
         path = tmp_path / "dataset.vcz"
         ds = sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
-        sc2ts.Dataset.add_metadata(path, fx_metadata_df)
+        field_descriptions = {col: col.upper() for col in fx_metadata_df}
+        sc2ts.Dataset.add_metadata(
+            path, fx_metadata_df, field_descriptions=field_descriptions
+        )
 
         sg_ds = sgkit.load_dataset(path)
         assert dict(sg_ds.sizes) == {
@@ -147,7 +150,9 @@ class TestCreateDataset:
         }
         df = fx_metadata_df.loc[sg_ds["sample_id"].values]
         for col in fx_metadata_df:
-            nt.assert_array_equal(df[col], sg_ds[f"sample_{col}"])
+            x = sg_ds[f"sample_{col}"]
+            nt.assert_array_equal(df[col], x)
+            assert x.attrs["description"] == field_descriptions[col]
 
     def test_create_zip(self, tmp_path, fx_encoded_alignments, fx_metadata_df):
 
@@ -283,7 +288,7 @@ class TestMafftAlignments:
         path = tmp_path / "dataset.vcz"
         sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments_mafft)
-        ds = sc2ts.Dataset(path, skip_metadata=True)
+        ds = sc2ts.Dataset(path)
         assert len(ds.haplotypes) == 19
         for k, v in fx_encoded_alignments_mafft.items():
             h = ds.haplotypes[k]
@@ -363,6 +368,12 @@ class TestDatasetMetadata:
         assert d["Genbank_N"] == -1
         assert d["Viridian_pangolin"] == "A"
 
+    def test_known_no_date_field(self, fx_dataset):
+        ds = sc2ts.Dataset(fx_dataset.path)
+
+        with pytest.raises(ValueError, match="No date field set"):
+            ds.metadata["SRR11772659"]
+
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
         [
@@ -382,7 +393,7 @@ class TestDatasetMetadata:
         sc2ts.Dataset.new(path, samples_chunk_size=chunk_size)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments)
         sc2ts.Dataset.add_metadata(path, fx_metadata_df)
-        ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
+        ds = sc2ts.Dataset(path, chunk_cache_size=cache_size, date_field="date")
         for strain in fx_encoded_alignments.keys():
             row = fx_metadata_df.loc[strain]
             d1 = ds.metadata[strain]
@@ -405,6 +416,10 @@ class TestDatasetMetadata:
         for col, data1 in df2.items():
             data2 = df2[col]
             nt.assert_array_equal(data1.to_numpy(), data2.to_numpy())
+
+    def test_metadata_field_descriptions(self, fx_dataset):
+        for array in fx_dataset.metadata.fields.values():
+            assert array.attrs["description"] == ""
 
 
 class TestEncodeAlignment:

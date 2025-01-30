@@ -80,7 +80,7 @@ jobs:
            
       - name: Validate
         run: |
-          sc2ts validate -v testrun/dataset.zarr testrun/results/test/test_2020-02-02.ts
+          sc2ts validate -v --date-field=date testrun/dataset.zarr testrun/results/test/test_2020-02-02.ts
 
       - name: Info
         run: |

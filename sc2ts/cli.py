@@ -162,13 +162,19 @@ def import_alignments(dataset, fastas, initialise, progress, verbose):
 @click.argument("dataset", type=click.Path(dir_okay=True, file_okay=False))
 @click.argument("metadata", type=click.Path(dir_okay=False, file_okay=True))
 @click.option(
+    "--field-descriptions",
+    type=click.File(mode="r"),
+    default=None,
+    help="JSON formatted file of field descriptions",
+)
+@click.option(
     "--viridian",
     is_flag=True,
     help="Do some preprocessing appropriate for the Viridian metadata "
     "(Available at https://figshare.com/ndownloader/files/49694808)",
 )
 @verbose
-def import_metadata(dataset, metadata, viridian, verbose):
+def import_metadata(dataset, metadata, field_descriptions, viridian, verbose):
     """
     Import a CSV/TSV metadata file into the dataset.
     """
@@ -178,48 +184,14 @@ def import_metadata(dataset, metadata, viridian, verbose):
     if viridian:
         dtype = {"Artic_primer_version": str}
     df_in = pd.read_csv(metadata, sep="\t", dtype=dtype)
-    date_field = "date"
     index_field = "Run"
     if viridian:
         df_in = sc2ts.massage_viridian_metadata(df_in)
     df = df_in.set_index(index_field)
-    sc2ts.Dataset.add_metadata(dataset, df)
-
-
-@click.command()
-@click.argument("in_dataset", type=click.Path(dir_okay=True, file_okay=False))
-@click.argument("out_dataset", type=click.Path(dir_okay=True, file_okay=False))
-@click.option(
-    "--date-field", default="date", help="The metadata field to use for dates"
-)
-@click.option(
-    "-a",
-    "--additional-field",
-    default=[],
-    help="Additional fields to sort by",
-    multiple=True,
-)
-@chunk_cache_size
-@progress
-@verbose
-def reorder_dataset(
-    in_dataset,
-    out_dataset,
-    chunk_cache_size,
-    date_field,
-    additional_field,
-    progress,
-    verbose,
-):
-    """
-    Create a copy of the specified dataset where the samples are reordered by
-    date (and optionally other fields).
-    """
-    setup_logging(verbose)
-    ds = sc2ts.Dataset(
-        in_dataset, chunk_cache_size=chunk_cache_size, date_field=date_field
-    )
-    ds.reorder(out_dataset, show_progress=progress, additional_fields=additional_field)
+    d = {}
+    if field_descriptions is not None:
+        d = json.load(field_descriptions)
+    sc2ts.Dataset.add_metadata(dataset, df, field_descriptions=d)
 
 
 @click.command()
@@ -416,6 +388,11 @@ def infer(config_file, start, stop, force):
 @click.argument("ts_file")
 @deletions_as_missing
 @click.option(
+    "--date-field",
+    default=None,
+    help="Specify date field to use. Required for metadata.",
+)
+@click.option(
     "--genotypes/--no-genotypes",
     default=True,
     help="Validate all genotypes",
@@ -440,6 +417,7 @@ def infer(config_file, start, stop, force):
 def validate(
     dataset,
     ts_file,
+    date_field,
     deletions_as_missing,
     genotypes,
     metadata,
@@ -453,7 +431,9 @@ def validate(
     setup_logging(verbose)
 
     ts = tszip.load(ts_file)
-    ds = sc2ts.Dataset(dataset, chunk_cache_size=chunk_cache_size)
+    ds = sc2ts.Dataset(
+        dataset, date_field=date_field, chunk_cache_size=chunk_cache_size
+    )
     if genotypes:
         sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:
@@ -564,7 +544,6 @@ def cli():
 
 cli.add_command(import_alignments)
 cli.add_command(import_metadata)
-cli.add_command(reorder_dataset)
 
 cli.add_command(info_dataset)
 cli.add_command(info_matches)
