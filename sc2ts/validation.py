@@ -33,7 +33,7 @@ def validate_genotypes(ts, dataset, deletions_as_missing=False, show_progress=Fa
 
 def validate_metadata(ts, dataset, show_progress=False, skip_fields=set()):
 
-    samples = ts.samples()[1:]
+    samples = ts.samples()
     bar = tqdm.tqdm(samples, desc="Metadata", disable=not show_progress)
     for u in bar:
         md1 = ts.node(u).metadata
@@ -41,6 +41,8 @@ def validate_metadata(ts, dataset, show_progress=False, skip_fields=set()):
         md2 = dataset.metadata[md1["strain"]]
         md1 = {k: md1[k] for k in keys}
         md2 = {k: md2[k] for k in keys}
+        if u == samples[0]:
+            logger.info(f"Comparing {len(keys)} keys, e.g.: {md1})")
         unittest.TestCase().assertDictEqual(md1, md2)
 
 
