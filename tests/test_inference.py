@@ -1376,3 +1376,39 @@ class TestExtractHaplotypes:
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         ts = tables.tree_sequence()
         nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
+
+
+class TestMapDeletions:
+    def test_example(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
+        remapped_sites = [
+            j
+            for j in range(ts.num_sites)
+            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
+        ]
+        assert remapped_sites == [1541, 3945, 3946, 3947]
+
+        for site_id in remapped_sites:
+            site = new_ts.site(site_id)
+            old_site = ts.site(site_id)
+            original_mutations = site.metadata["sc2ts"]["original_mutations"]
+            assert original_mutations == [
+                {
+                    "node": mutation.node,
+                    "derived_state": mutation.derived_state,
+                    "metadata": mutation.metadata,
+                }
+                for mutation in old_site.mutations
+            ]
+            d = site.metadata["sc2ts"]
+            del d["original_mutations"]
+            assert old_site.metadata["sc2ts"] == d
+
+            for mut in site.mutations:
+                assert mut.metadata["sc2ts"]["type"] == "post_parsimony"
+
+    def test_validate(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
+        sc2ts.validate(new_ts, fx_dataset, deletions_as_missing=False)

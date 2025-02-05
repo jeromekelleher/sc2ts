@@ -1945,3 +1945,83 @@ def get_recombinant_strains(ts):
         group_id = node.metadata["sc2ts"]["group_id"]
         ret[u] = groups[group_id]
     return ret
+
+
+def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
+    """
+    Map deletions at sites that exceed the specified frequency threshold onto the
+    ARG using parsimony (excluding flanks).
+    """
+    genes = core.get_gene_coordinates()
+    start = genes["ORF1ab"][0]
+    end = genes["ORF10"][1]
+
+    del_sites = []
+    keep_mutations = np.ones(ts.num_mutations, dtype=bool)
+    for site in ts.sites():
+        if start <= site.position < end:
+            deletion_samples = site.metadata["sc2ts"]["deletion_samples"]
+            if deletion_samples / ts.num_samples >= frequency_threshold:
+                del_sites.append(site.id)
+                site_start = np.searchsorted(ts.mutations_site, site.id, side="left")
+                site_stop = np.searchsorted(ts.mutations_site, site.id, side="right")
+                keep_mutations[site_start:site_stop] = False
+
+    sample_id = ts.metadata["sc2ts"]["samples_strain"]
+    assert not sample_id[0].startswith("Wuhan")
+
+    tables = ts.dump_tables()
+    tree = ts.first()
+
+    tables.mutations.keep_rows(keep_mutations)
+
+    variants = get_progress(
+        ds.variants(sample_id, ts.sites_position[del_sites]),
+        title="Map deletions",
+        phase="",
+        show_progress=show_progress,
+        total=len(del_sites),
+    )
+
+    mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
+    site_metadata = {}
+    for var in variants:
+        tree.seek(var.position)
+        site = ts.site(position=var.position)
+        old_mutations = []
+        for mut in site.mutations:
+            assert not keep_mutations[mut.id]
+            old_mutations.append(
+                {
+                    "node": mut.node,
+                    "derived_state": mut.derived_state,
+                    "metadata": mut.metadata,
+                }
+            )
+        md = dict(site.metadata)
+        md["sc2ts"]["original_mutations"] = old_mutations
+        site_metadata[site.id] = md
+        g = mask_ambiguous(var.genotypes)
+        deletion_samples = site.metadata["sc2ts"]["deletion_samples"]
+        assert deletion_samples == np.sum(g == DELETION)
+        _, mutations = tree.map_mutations(
+            g, list(var.alleles), ancestral_state=site.ancestral_state
+        )
+        for m in mutations:
+            tables.mutations.add_row(
+                site=site.id,
+                node=m.node,
+                derived_state=m.derived_state,
+                time=ts.nodes_time[m.node],
+                metadata=mut_metadata,
+            )
+
+    tables.sites.clear()
+    for site in ts.sites():
+        md = site_metadata.get(site.id, site.metadata)
+        tables.sites.append(site.replace(metadata=md))
+
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    return tables.tree_sequence()
