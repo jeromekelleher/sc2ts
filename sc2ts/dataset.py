@@ -115,7 +115,6 @@ class CachedMetadataMapping(collections.abc.Mapping):
         self.date_field = date_field
         if date_field is not None:
             self.sample_date = root[f"sample_{date_field}"][:].astype(str)
-            self.sample_date_array = root[f"sample_{date_field}"]
 
     @property
     def num_fields(self):
@@ -183,7 +182,7 @@ class Variant:
 class Dataset(collections.abc.Mapping):
 
     def __init__(self, path, chunk_cache_size=1, date_field=None):
-        logger.info(f"Loading dateset @{path} using {date_field} as date field")
+        logger.info(f"Loading dataset @{path} using {date_field} as date field")
         self.date_field = date_field
         self.path = pathlib.Path(path)
         if self.path.suffix == ".zip":

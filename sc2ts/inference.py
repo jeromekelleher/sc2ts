@@ -471,6 +471,17 @@ def mask_ambiguous(a):
     return a
 
 
+def mask_flanking_deletions(a):
+    a = a.copy()
+    non_dels = np.nonzero(a != DELETION)[0]
+    if len(non_dels) == 0:
+        a[:] = -1
+    else:
+        a[: non_dels[0]] = -1
+        a[non_dels[-1] + 1 :] = -1
+    return a
+
+
 def preprocess(
     strains,
     dataset,
@@ -487,6 +498,7 @@ def preprocess(
     bar = get_progress(strains, progress_title, "preprocess", show_progress)
     for strain in bar:
         alignment = dataset.haplotypes[strain]
+        alignment = mask_flanking_deletions(alignment)
         sample = Sample(strain)
         # No padding zero site in the alignment
         a = alignment[keep_sites - 1]

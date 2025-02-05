@@ -347,13 +347,14 @@ def infer(config_file, start, stop, force):
     exclude_dates = set(config.pop("exclude_dates", []))
     param_overrides = config.pop("override", [])
     dataset = config.pop("dataset")
+    date_field = config.pop("date_field")
     extend_parameters = config.pop("extend_parameters")
 
     if len(config) > 0:
         raise ValueError(f"Unknown keys in config: {list(config.keys())}")
+    ds = sc2ts.Dataset(dataset, date_field=date_field)
 
-    ds = sc2ts.Dataset(dataset)
-    for date in np.unique(ds["sample_date"][:]):
+    for date in np.unique(ds.metadata.sample_date):
         if date >= stop:
             break
         if date < start or date in exclude_dates:
@@ -364,6 +365,7 @@ def infer(config_file, start, stop, force):
 
         params = {
             "dataset": dataset,
+            "date_field": date_field,
             "base_ts": str(base_ts),
             "date": date,
             "match_db": str(match_db),
