@@ -447,3 +447,22 @@ class TestEncodeAlignment:
         h = np.array(list(hap), dtype="U1")
         with pytest.raises(ValueError, match="not recognised"):
             sc2ts.encode_alignment(h)
+
+
+class TestMaskFlankingDeletions:
+
+    @pytest.mark.parametrize(["nucs", "expected"],
+        [
+            ("---", "NNN"),
+            ("AAA", "AAA"),
+            ("-A-", "NAN"),
+            ("TA-", "TAN"),
+            ("-AG", "NAG"),
+            ("A-G", "A-G"),
+            ("--AAATTT--", "NNAAATTTNN"),
+            ("--A-AT-T--", "NNA-AT-TNN"),
+        ])
+    def test_examples(self, nucs, expected):
+        a = sc2ts.encode_alignment(np.array(list(nucs), dtype="U1"))
+        b = sc2ts.encode_alignment(np.array(list(expected), dtype="U1"))
+        nt.assert_array_equal(sc2ts.mask_flanking_deletions(a), b)

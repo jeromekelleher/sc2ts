@@ -1376,3 +1376,4 @@ class TestExtractHaplotypes:
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         ts = tables.tree_sequence()
         nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
+

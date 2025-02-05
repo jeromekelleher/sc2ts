@@ -471,6 +471,17 @@ def mask_ambiguous(a):
     return a
 
 
+def mask_flanking_deletions(a):
+    a = a.copy()
+    non_dels = np.nonzero(a != DELETION)[0]
+    if len(non_dels) == 0:
+        a[:] = -1
+    else:
+        a[: non_dels[0]] = -1
+        a[non_dels[-1] + 1 :] = -1
+    return a
+
+
 def preprocess(
     strains,
     dataset,
