@@ -172,6 +172,7 @@ class TestInfer:
     ):
         config = {
             "dataset": str(dataset.path),
+            "date_field": "date",
             "run_id": run_id,
             "results_dir": str(tmp_path / results_dir),
             "log_dir": str(tmp_path / log_dir),

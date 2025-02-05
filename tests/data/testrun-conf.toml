@@ -1,5 +1,6 @@
 
 dataset = "testrun/dataset.zarr"
+date_field = "date"
 run_id = "test"
 results_dir = "testrun/results"
 log_dir = "testrun/logs"
