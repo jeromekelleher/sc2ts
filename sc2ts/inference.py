@@ -184,6 +184,12 @@ class MatchDb:
             samples_not_in_ts = row["COUNT(*)"]
         logger.info(f"DB contains {samples_not_in_ts} samples not in ARG")
 
+    def all_samples(self):
+        with self.conn:
+            for row in self.conn.execute("SELECT * from samples"):
+                pkl = row.pop("pickle")
+                yield pickle.loads(bz2.decompress(pkl))
+
     def get(self, where_clause):
         sql = (
             "SELECT * FROM samples LEFT JOIN used_samples "

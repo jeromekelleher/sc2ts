@@ -7,6 +7,7 @@ import click.testing as ct
 import pytest
 import tskit
 import tomli_w
+import pandas as pd
 
 import sc2ts
 from sc2ts import __main__ as main
@@ -400,6 +401,26 @@ class TestInfoMatches:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+
+    def test_all_matches(self, fx_match_db):
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"info-matches -A {fx_match_db.path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        df = pd.read_csv(io.StringIO(result.stdout), sep="\t")
+        assert list(df) == [
+            "strain",
+            "n_parents",
+            "n_mutations",
+            "parents",
+            "mutations",
+        ]
+        assert df.shape[0] == 55
+        assert np.all(df["n_parents"] == 1)
+        assert df["n_mutations"].values[0] == 26
 
 
 class TestInfoDataset:
