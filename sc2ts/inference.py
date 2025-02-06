@@ -184,7 +184,7 @@ class MatchDb:
             samples_not_in_ts = row["COUNT(*)"]
         logger.info(f"DB contains {samples_not_in_ts} samples not in ARG")
 
-    def get(self, where_clause):
+    def get(self, where_clause="True"):
         sql = (
             "SELECT * FROM samples LEFT JOIN used_samples "
             "ON samples.strain = used_samples.strain "

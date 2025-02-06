@@ -194,25 +194,49 @@ def import_metadata(dataset, metadata, field_descriptions, viridian, verbose):
     sc2ts.Dataset.add_metadata(dataset, df, field_descriptions=d)
 
 
+def summarise_match_db(db):
+    print(db)
+    print("last date = ", db.last_date())
+    print("cost\tpercent\tcount")
+    df = db.as_dataframe()
+    total = len(db)
+    hmm_cost_counter = collections.Counter(df["hmm_cost"].astype(int))
+    for cost in sorted(hmm_cost_counter.keys()):
+        count = hmm_cost_counter[cost]
+        percent = count / total * 100
+        print(f"{cost}\t{percent:.1f}\t{count}")
+
+
+def list_all_matches(db):
+    print("strain", "n_parents", "n_mutations", "parents", "mutations", sep="\t")
+    for sample in tqdm.tqdm(db.get(), total=len(db)):
+        hmm_match = sample.hmm_match
+        print(
+            sample.strain,
+            len(hmm_match.path),
+            len(hmm_match.mutations),
+            hmm_match.path_summary(),
+            hmm_match.mutation_summary(),
+            sep="\t",
+        )
+
+
 @click.command()
 @click.argument("match_db", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "-A", "--all-matches", is_flag=True, help="Export information about all matches"
+)
 @verbose
-def info_matches(match_db, verbose):
+def info_matches(match_db, all_matches, verbose):
     """
-    Information about an alignment store
+    Information about matches in the MatchDB
     """
     setup_logging(verbose)
     with sc2ts.MatchDb(match_db) as db:
-        print(db)
-        print("last date = ", db.last_date())
-        print("cost\tpercent\tcount")
-        df = db.as_dataframe()
-        total = len(db)
-        hmm_cost_counter = collections.Counter(df["hmm_cost"].astype(int))
-        for cost in sorted(hmm_cost_counter.keys()):
-            count = hmm_cost_counter[cost]
-            percent = count / total * 100
-            print(f"{cost}\t{percent:.1f}\t{count}")
+        if all_matches:
+            list_all_matches(db)
+        else:
+            summarise_match_db(db)
 
 
 @click.command()
