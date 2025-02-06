@@ -547,7 +547,9 @@ class TreeInfo:
             if parent != -1:
                 mutations_num_inheritors[parent] -= descendants
                 is_reversion[mut_id] = inherited_state[parent] == derived_state[mut_id]
-                if ts.mutations_node[parent] == tree.parent(mutation_node):
+                if is_reversion[mut_id] and ts.mutations_node[parent] == tree.parent(
+                    mutation_node
+                ):
                     is_immediate_reversion[mut_id] = True
 
             num_parents = 0
