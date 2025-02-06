@@ -418,7 +418,7 @@ class TestInfoMatches:
             "parents",
             "mutations",
         ]
-        assert df.shape[0] == 18
+        assert df.shape[0] == 55
         assert np.all(df["n_parents"] == 1)
         assert df["n_mutations"].values[0] == 26
 

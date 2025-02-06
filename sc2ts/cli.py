@@ -209,7 +209,7 @@ def summarise_match_db(db):
 
 def list_all_matches(db):
     print("strain", "n_parents", "n_mutations", "parents", "mutations", sep="\t")
-    for sample in tqdm.tqdm(db.get(), total=len(db)):
+    for sample in tqdm.tqdm(db.all_samples(), total=len(db)):
         hmm_match = sample.hmm_match
         print(
             sample.strain,
