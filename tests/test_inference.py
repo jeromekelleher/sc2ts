@@ -1464,3 +1464,17 @@ class TestAppendExactMatches:
                 if (ts.nodes_flags[v] & sc2ts.NODE_IS_EXACT_MATCH) > 0:
                     num_exact_matches += 1
             assert node_count.get(str(u), 0) == num_exact_matches
+
+
+class TestTrimMetadata:
+    def test_validate(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.trim_metadata(ts)
+        sc2ts.validate(tsp, fx_dataset)
+
+    def test_fields(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.trim_metadata(ts)
+        for u in tsp.samples():
+            node = tsp.node(u)
+            assert set(node.metadata.keys()) == {"strain", "date", "Viridian_pangolin"}

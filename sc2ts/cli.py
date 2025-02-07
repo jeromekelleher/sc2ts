@@ -565,6 +565,7 @@ def postprocess(ts_in,
     if match_db is not None:
         with sc2ts.MatchDb(match_db) as db:
             ts = sc2ts.append_exact_matches(ts, db, show_progress=progress)
+    ts = sc2ts.trim_metadata(ts, show_progress=progress)
     ts.dump(ts_out)
 
 

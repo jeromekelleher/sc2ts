@@ -2052,6 +2052,7 @@ def append_exact_matches(ts, match_db, show_progress=False):
         rows = tqdm.tqdm(
             match_db.conn.execute(sql),
             total=total_exact_matches,
+            desc="Exact matches",
             disable=not show_progress,
         )
         for row in rows:
@@ -2069,4 +2070,25 @@ def append_exact_matches(ts, match_db, show_progress=False):
     md["sc2ts"]["samples_strain"] = samples_strain
     tables.metadata = md
     tables.sort()
+    return tables.tree_sequence()
+
+
+def trim_metadata(ts, show_progress=False):
+    tables = ts.dump_tables()
+
+    tables.nodes.clear()
+
+    nodes = tqdm.tqdm(
+        ts.nodes(),
+        total=ts.num_nodes,
+        desc="Trim node metadata",
+        disable=not show_progress,
+    )
+    for node in nodes:
+        md = node.metadata
+        if node.is_sample():
+            # Note it would be nice to trim down the name of the pango field here
+            # but it's too tedious to test.
+            md = {k: md[k] for k in ["strain", "date", "Viridian_pangolin"]}
+        tables.nodes.append(node.replace(metadata=md))
     return tables.tree_sequence()
