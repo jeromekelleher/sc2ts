@@ -550,7 +550,8 @@ def run_hmm(
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def postprocess(ts_in,
+def postprocess(
+    ts_in,
     ts_out,
     match_db,
     progress,
@@ -565,7 +566,15 @@ def postprocess(ts_in,
     if match_db is not None:
         with sc2ts.MatchDb(match_db) as db:
             ts = sc2ts.append_exact_matches(ts, db, show_progress=progress)
+
     ts = sc2ts.trim_metadata(ts, show_progress=progress)
+
+    # See if we can remove some of the reversions in a straightforward way.
+    mutations_is_reversion = sc2ts.find_reversions(ts)
+    mutations_before = ts.num_mutations
+    print("Attempting to remove reversions...")
+    ts = sc2ts.push_up_reversions(ts, ts.mutations_node[mutations_is_reversion])
+    print(f"Removed {mutations_before - ts.num_mutations} reversions")
     ts.dump(ts_out)
 
 

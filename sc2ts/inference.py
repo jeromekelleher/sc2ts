@@ -2092,3 +2092,32 @@ def trim_metadata(ts, show_progress=False):
             md = {k: md[k] for k in ["strain", "date", "Viridian_pangolin"]}
         tables.nodes.append(node.replace(metadata=md))
     return tables.tree_sequence()
+
+
+def find_reversions(ts):
+    """
+    Return a boolean array with True for all mutations in which the
+    inherited_state of the parent is equal to the derived_state of the
+    child.
+    """
+    tables = ts.tables
+    assert np.all(
+        tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
+    )
+    derived_state = tables.mutations.derived_state.view("S1").astype(str)
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+    del tables
+    inherited_state = ancestral_state[ts.mutations_site]
+    mutations_with_parent = ts.mutations_parent != -1
+    parent = ts.mutations_parent[mutations_with_parent]
+    assert np.all(parent >= 0)
+    inherited_state[mutations_with_parent] = derived_state[parent]
+
+    assert np.all(inherited_state != derived_state)
+
+    is_reversion = np.zeros(ts.num_mutations, dtype=bool)
+    is_reversion[mutations_with_parent] = (
+        derived_state[mutations_with_parent] == inherited_state[parent]
+    )
+    return is_reversion
