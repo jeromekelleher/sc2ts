@@ -1412,3 +1412,55 @@ class TestMapDeletions:
         ts = fx_ts_map["2020-02-13"]
         new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
         sc2ts.validate(new_ts, fx_dataset, deletions_as_missing=False)
+
+
+@pytest.fixture
+def fx_ts_exact_matches(fx_ts_map, fx_match_db):
+    ts = fx_ts_map["2020-02-13"]
+    tsp = sc2ts.append_exact_matches(ts, fx_match_db)
+    return tsp
+
+
+class TestAppendExactMatches:
+    def test_validate(self, fx_ts_exact_matches, fx_dataset):
+        sc2ts.validate(fx_ts_exact_matches, fx_dataset)
+
+    def test_example_properties(self, fx_ts_exact_matches):
+        ts = fx_ts_exact_matches
+        samples_strain = ts.metadata["sc2ts"]["samples_strain"]
+        assert [ts.node(u).metadata["strain"] for u in ts.samples()] == samples_strain
+        assert ts.num_nodes == 61
+        tree = ts.first()
+        assert tree.num_roots == 1
+
+    def test_times_agree(self, fx_ts_exact_matches):
+        ts = fx_ts_exact_matches
+        date_to_time = {}
+        time_to_date = {}
+        for u in ts.samples():
+            node = ts.node(u)
+            time = node.time
+            date = node.metadata["date"]
+            if date not in date_to_time:
+                date_to_time[date] = time
+            assert date_to_time[date] == time
+            if time not in time_to_date:
+                time_to_date[time] = date
+            assert time_to_date[time] == date
+
+    def test_flags(self, fx_ts_exact_matches):
+        ts = fx_ts_exact_matches
+        assert np.all(
+            ts.nodes_flags[-8:] == sc2ts.NODE_IS_EXACT_MATCH | tskit.NODE_IS_SAMPLE
+        )
+
+    def test_exact_match_counts(self, fx_ts_exact_matches):
+        ts = fx_ts_exact_matches
+        tree = ts.first()
+        node_count = ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["node"]
+        for u in tree.nodes():
+            num_exact_matches = 0
+            for v in tree.children(u):
+                if (ts.nodes_flags[v] & sc2ts.NODE_IS_EXACT_MATCH) > 0:
+                    num_exact_matches += 1
+            assert node_count.get(str(u), 0) == num_exact_matches

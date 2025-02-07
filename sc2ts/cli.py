@@ -543,6 +543,31 @@ def run_hmm(
         print(run.asjson())
 
 
+@click.command()
+@click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
+@click.option("--match-db", type=click.Path(exists=True, dir_okay=False))
+@click.option("--progress/--no-progress", default=True)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def postprocess(ts_in,
+    ts_out,
+    match_db,
+    progress,
+    verbose,
+    log_file,
+):
+    """
+    Perform final postprocessing steps to the specified ARG.
+    """
+    setup_logging(verbose, log_file)
+    ts = tszip.load(ts_in)
+    if match_db is not None:
+        with sc2ts.MatchDb(match_db) as db:
+            ts = sc2ts.append_exact_matches(ts, db, show_progress=progress)
+    ts.dump(ts_out)
+
+
 def find_previous_date_path(date, path_pattern):
     """
     Find the path with the most-recent date to the specified one
@@ -577,6 +602,7 @@ cli.add_command(info_ts)
 
 cli.add_command(infer)
 cli.add_command(validate)
+cli.add_command(postprocess)
 cli.add_command(run_hmm)
 
 cli.add_command(tally_lineages)

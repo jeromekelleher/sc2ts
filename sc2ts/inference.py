@@ -814,7 +814,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
     return tables
 
 
-def add_sample_to_tables(sample, tables, group_id=None):
+def add_sample_to_tables(sample, tables, group_id=None, time=0):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
         "alignment_composition": dict(sample.alignment_composition),
@@ -825,7 +825,7 @@ def add_sample_to_tables(sample, tables, group_id=None):
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
-    return tables.nodes.add_row(flags=sample.flags, metadata=metadata)
+    return tables.nodes.add_row(flags=sample.flags, metadata=metadata, time=time)
 
 
 def match_path_ts(group):
@@ -2030,4 +2030,43 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
+
+def append_exact_matches(ts, match_db, show_progress=False):
+    """
+    Update the specified tree sequence to include all exact matches
+    from the specified match DB.
+    """
+    md = ts.metadata
+    date = md["sc2ts"]["date"]
+    total_exact_matches = sum(
+        md["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"].values()
+    )
+    samples_strain = md["sc2ts"]["samples_strain"]
+    tables = ts.dump_tables()
+    L = tables.sequence_length
+    time_zero = parse_date(date)
+    with match_db.conn:
+        sql = f"SELECT * FROM samples WHERE hmm_cost == 0 AND match_date <= '{date}'"
+        rows = tqdm.tqdm(
+            match_db.conn.execute(sql),
+            total=total_exact_matches,
+            disable=not show_progress,
+        )
+        for row in rows:
+            pkl = row.pop("pickle")
+            sample = pickle.loads(bz2.decompress(pkl))
+            sample.flags |= core.NODE_IS_EXACT_MATCH
+            delta = time_zero - parse_date(sample.date)
+            assert delta.days >= 0
+            u = add_sample_to_tables(sample, tables, time=delta.days)
+            parent = sample.hmm_match.path[0].parent
+            tables.edges.add_row(0, L, parent=parent, child=u)
+            samples_strain.append(sample.strain)
+
+    assert total_exact_matches == len(tables.nodes) - ts.num_nodes
+    md["sc2ts"]["samples_strain"] = samples_strain
+    tables.metadata = md
+    tables.sort()
     return tables.tree_sequence()
