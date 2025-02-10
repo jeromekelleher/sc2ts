@@ -390,6 +390,29 @@ class TestPostprocess:
         assert result.exit_code == 0
         out = tskit.load(out_ts_path)
         assert out.num_samples == ts.num_samples + 8
+        assert out.num_provenances == ts.num_provenances + 3
+
+
+class TestMapDeletions:
+
+    def test_example(self, tmp_path, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "ts.ts"
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"map-deletions {fx_dataset.path} {ts.path} {out_ts_path} "
+            "--frequency-threshold=0.0001",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        remapped_sites = [
+            j
+            for j in range(ts.num_sites)
+            if "original_mutations" in out.site(j).metadata["sc2ts"]
+        ]
+        assert remapped_sites == [1541, 3945, 3946, 3947]
 
 
 class TestValidate:

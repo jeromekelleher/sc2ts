@@ -574,7 +574,43 @@ def postprocess(
     # See if we can remove some of the reversions in a straightforward way.
     mutations_is_reversion = sc2ts.find_reversions(ts)
     mutations_before = ts.num_mutations
-    ts = sc2ts.push_up_reversions(ts, ts.mutations_node[mutations_is_reversion])
+    ts = sc2ts.push_up_reversions(
+        ts, ts.mutations_node[mutations_is_reversion], date=None
+    )
+    ts.dump(ts_out)
+
+
+@click.command()
+@click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
+@click.option(
+    "--frequency-threshold",
+    type=float,
+    default=0.01,
+    help="Frequency threshold for deletions to get mapped back",
+)
+@click.option("--progress/--no-progress", default=True)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def map_deletions(
+    ts_in,
+    dataset,
+    ts_out,
+    frequency_threshold,
+    progress,
+    verbose,
+    log_file,
+):
+    """
+    Map deletions onto the specified ARG.
+    """
+    setup_logging(verbose, log_file)
+    ds = sc2ts.Dataset(dataset)
+    ts = tszip.load(ts_in)
+    ts = sc2ts.map_deletions(
+        ts, ds, frequency_threshold=frequency_threshold, show_progress=progress
+    )
     ts.dump(ts_out)
 
 
@@ -613,6 +649,7 @@ cli.add_command(info_ts)
 cli.add_command(infer)
 cli.add_command(validate)
 cli.add_command(postprocess)
+cli.add_command(map_deletions)
 cli.add_command(run_hmm)
 
 cli.add_command(tally_lineages)
