@@ -2121,3 +2121,43 @@ def find_reversions(ts):
         derived_state[mutations_with_parent] == inherited_state[parent]
     )
     return is_reversion
+
+
+def push_up_unary_recombinant_mutations(ts):
+    """
+    Find any mutations that occur on unary children of a recombinant node,
+    and push those mutations onto the recombinant node itself. The
+    rationale for this is that, due to technical details of tree building,
+    we sometimes get a single child of a recombinant node, which can have
+    a large number of mutations. It is more parsimonious to assume that the
+    mutations occured on the branch(es) *leading to* the recombinant than
+    to have succeeded it.
+    """
+    recomb_parent_edges = np.where(
+        ts.nodes_flags[ts.edges_parent] & core.NODE_IS_RECOMBINANT > 0
+    )[0]
+    by_parent = collections.defaultdict(list)
+    logger.info(f"Found {len(recomb_parent_edges)} edges with recombinant parent")
+    for e in recomb_parent_edges:
+        edge = ts.edge(e)
+        if edge.left == 0 and edge.right == ts.sequence_length:
+            by_parent[edge.parent].append(edge)
+
+    # We're only interested in full-span edges with a single child.
+    child_to_parent = {
+        e[0].child: e[0].parent for e in by_parent.values() if len(e) == 1
+    }
+    logger.info(f"Of which {len(child_to_parent)} are unary")
+    mutations_to_move = np.isin(
+        ts.mutations_node, np.array(list(child_to_parent.keys()), dtype=np.int32)
+    )
+    tables = ts.dump_tables()
+    for m in np.where(mutations_to_move)[0]:
+        row = tables.mutations[m]
+        node = child_to_parent[row.node]
+        # We're only changing the node and time, which are fixed size so we
+        # don't rewrite the table for each of these.
+        tables.mutations[m] = row.replace(node=node, time=ts.nodes_time[node])
+    logger.info(f"Moved up {np.sum(mutations_to_move)} mutations")
+    tables.sort()
+    return tables.tree_sequence()

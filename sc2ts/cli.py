@@ -569,12 +569,12 @@ def postprocess(
 
     ts = sc2ts.trim_metadata(ts, show_progress=progress)
 
+    ts = sc2ts.push_up_unary_recombinant_mutations(ts)
+
     # See if we can remove some of the reversions in a straightforward way.
     mutations_is_reversion = sc2ts.find_reversions(ts)
     mutations_before = ts.num_mutations
-    print("Attempting to remove reversions...")
     ts = sc2ts.push_up_reversions(ts, ts.mutations_node[mutations_is_reversion])
-    print(f"Removed {mutations_before - ts.num_mutations} reversions")
     ts.dump(ts_out)
 
 

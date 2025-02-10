@@ -71,6 +71,10 @@ class TestRecombinantHandling:
         d = sc2ts.get_recombinant_strains(fx_recombinant_example_2)
         assert d == {56: ["recombinant_114:29825"]}
 
+    def test_get_recombinant_strains_ex4(self, fx_recombinant_example_4):
+        d = sc2ts.get_recombinant_strains(fx_recombinant_example_4)
+        assert d == {56: ["recombinant_114:29825"]}
+
     def test_recombinant_example_1(self, fx_recombinant_example_1):
         ts = fx_recombinant_example_1
         samples_strain = ts.metadata["sc2ts"]["samples_strain"]
@@ -1478,3 +1482,35 @@ class TestTrimMetadata:
         for u in tsp.samples():
             node = tsp.node(u)
             assert set(node.metadata.keys()) == {"strain", "date", "Viridian_pangolin"}
+
+
+class TestPushUpRecombinantMutations:
+
+    def test_no_recombinants(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        ts.tables.assert_equals(tsp.tables)
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1):
+        ts = fx_recombinant_example_1
+        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        ts.tables.assert_equals(tsp.tables)
+
+    def test_recombinant_example_2(self, fx_recombinant_example_2):
+        ts = fx_recombinant_example_2
+        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        ts.tables.assert_equals(tsp.tables)
+
+    def test_recombinant_example_3(self, fx_recombinant_example_3):
+        ts = fx_recombinant_example_3
+        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        ts.tables.assert_equals(tsp.tables)
+
+    def test_recombinant_example_4(self, fx_recombinant_example_4):
+        ts = fx_recombinant_example_4
+        site = 2500
+        mut = ts.site(site).mutations[0]
+        assert mut.node == 55
+        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        mut = tsp.site(site).mutations[0]
+        assert mut.node == 56
