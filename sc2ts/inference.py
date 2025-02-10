@@ -1985,7 +1985,8 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
                 site_stop = np.searchsorted(ts.mutations_site, site.id, side="right")
                 keep_mutations[site_start:site_stop] = False
 
-    logger.info("Updating {len(del_sites)} and {np.sum(keep_mutations)} mutations")
+    mutations_before = ts.num_mutations - np.sum(keep_mutations)
+    logger.info(f"Updating {len(del_sites)} sites and {mutations_before} mutations")
     sample_id = md["sc2ts"]["samples_strain"]
     assert not sample_id[0].startswith("Wuhan")
 
@@ -2004,6 +2005,7 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
 
     mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
     site_metadata = {}
+    added_mutations = 0
     for var in variants:
         tree.seek(var.position)
         site = ts.site(position=var.position)
@@ -2035,7 +2037,9 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
                 time=ts.nodes_time[m.node],
                 metadata=mut_metadata,
             )
+            added_mutations += 1
 
+    logger.info(f"Added in {added_mutations} with parsimony")
     tables.sites.clear()
     for site in ts.sites():
         md = site_metadata.get(site.id, site.metadata)

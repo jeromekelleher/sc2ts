@@ -1532,22 +1532,22 @@ class TestPushUpRecombinantMutations:
     def test_no_recombinants(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1):
         ts = fx_recombinant_example_1
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_2(self, fx_recombinant_example_2):
         ts = fx_recombinant_example_2
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_3(self, fx_recombinant_example_3):
         ts = fx_recombinant_example_3
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_4(self, fx_recombinant_example_4):
         ts = fx_recombinant_example_4
