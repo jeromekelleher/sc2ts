@@ -814,7 +814,7 @@ def update_top_level_metadata(ts, date, retro_groups, samples):
     return tables
 
 
-def add_sample_to_tables(sample, tables, group_id=None):
+def add_sample_to_tables(sample, tables, group_id=None, time=0):
     sc2ts_md = {
         "hmm_match": sample.hmm_match.asdict(),
         "alignment_composition": dict(sample.alignment_composition),
@@ -825,7 +825,7 @@ def add_sample_to_tables(sample, tables, group_id=None):
     if group_id is not None:
         sc2ts_md["group_id"] = group_id
     metadata = {**sample.metadata, "sc2ts": sc2ts_md}
-    return tables.nodes.add_row(flags=sample.flags, metadata=metadata)
+    return tables.nodes.add_row(flags=sample.flags, metadata=metadata, time=time)
 
 
 def match_path_ts(group):
@@ -2030,4 +2030,134 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
+
+def append_exact_matches(ts, match_db, show_progress=False):
+    """
+    Update the specified tree sequence to include all exact matches
+    from the specified match DB.
+    """
+    md = ts.metadata
+    date = md["sc2ts"]["date"]
+    total_exact_matches = sum(
+        md["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"].values()
+    )
+    samples_strain = md["sc2ts"]["samples_strain"]
+    tables = ts.dump_tables()
+    L = tables.sequence_length
+    time_zero = parse_date(date)
+    with match_db.conn:
+        sql = f"SELECT * FROM samples WHERE hmm_cost == 0 AND match_date <= '{date}'"
+        rows = tqdm.tqdm(
+            match_db.conn.execute(sql),
+            total=total_exact_matches,
+            desc="Exact matches",
+            disable=not show_progress,
+        )
+        for row in rows:
+            pkl = row.pop("pickle")
+            sample = pickle.loads(bz2.decompress(pkl))
+            sample.flags |= core.NODE_IS_EXACT_MATCH
+            delta = time_zero - parse_date(sample.date)
+            assert delta.days >= 0
+            u = add_sample_to_tables(sample, tables, time=delta.days)
+            parent = sample.hmm_match.path[0].parent
+            tables.edges.add_row(0, L, parent=parent, child=u)
+            samples_strain.append(sample.strain)
+
+    assert total_exact_matches == len(tables.nodes) - ts.num_nodes
+    md["sc2ts"]["samples_strain"] = samples_strain
+    tables.metadata = md
+    tables.sort()
+    return tables.tree_sequence()
+
+
+def trim_metadata(ts, show_progress=False):
+    tables = ts.dump_tables()
+
+    tables.nodes.clear()
+
+    nodes = tqdm.tqdm(
+        ts.nodes(),
+        total=ts.num_nodes,
+        desc="Trim node metadata",
+        disable=not show_progress,
+    )
+    for node in nodes:
+        md = node.metadata
+        if node.is_sample():
+            # Note it would be nice to trim down the name of the pango field here
+            # but it's too tedious to test.
+            md = {k: md[k] for k in ["strain", "date", "Viridian_pangolin"]}
+        tables.nodes.append(node.replace(metadata=md))
+    return tables.tree_sequence()
+
+
+def find_reversions(ts):
+    """
+    Return a boolean array with True for all mutations in which the
+    inherited_state of the parent is equal to the derived_state of the
+    child.
+    """
+    tables = ts.tables
+    assert np.all(
+        tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
+    )
+    derived_state = tables.mutations.derived_state.view("S1").astype(str)
+    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
+    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+    del tables
+    inherited_state = ancestral_state[ts.mutations_site]
+    mutations_with_parent = ts.mutations_parent != -1
+    parent = ts.mutations_parent[mutations_with_parent]
+    assert np.all(parent >= 0)
+    inherited_state[mutations_with_parent] = derived_state[parent]
+
+    assert np.all(inherited_state != derived_state)
+
+    is_reversion = np.zeros(ts.num_mutations, dtype=bool)
+    is_reversion[mutations_with_parent] = (
+        derived_state[mutations_with_parent] == inherited_state[parent]
+    )
+    return is_reversion
+
+
+def push_up_unary_recombinant_mutations(ts):
+    """
+    Find any mutations that occur on unary children of a recombinant node,
+    and push those mutations onto the recombinant node itself. The
+    rationale for this is that, due to technical details of tree building,
+    we sometimes get a single child of a recombinant node, which can have
+    a large number of mutations. It is more parsimonious to assume that the
+    mutations occured on the branch(es) *leading to* the recombinant than
+    to have succeeded it.
+    """
+    recomb_parent_edges = np.where(
+        ts.nodes_flags[ts.edges_parent] & core.NODE_IS_RECOMBINANT > 0
+    )[0]
+    by_parent = collections.defaultdict(list)
+    logger.info(f"Found {len(recomb_parent_edges)} edges with recombinant parent")
+    for e in recomb_parent_edges:
+        edge = ts.edge(e)
+        if edge.left == 0 and edge.right == ts.sequence_length:
+            by_parent[edge.parent].append(edge)
+
+    # We're only interested in full-span edges with a single child.
+    child_to_parent = {
+        e[0].child: e[0].parent for e in by_parent.values() if len(e) == 1
+    }
+    logger.info(f"Of which {len(child_to_parent)} are unary")
+    mutations_to_move = np.isin(
+        ts.mutations_node, np.array(list(child_to_parent.keys()), dtype=np.int32)
+    )
+    tables = ts.dump_tables()
+    for m in np.where(mutations_to_move)[0]:
+        row = tables.mutations[m]
+        node = child_to_parent[row.node]
+        # We're only changing the node and time, which are fixed size so we
+        # don't rewrite the table for each of these.
+        tables.mutations[m] = row.replace(node=node, time=ts.nodes_time[node])
+    logger.info(f"Moved up {np.sum(mutations_to_move)} mutations")
+    tables.sort()
     return tables.tree_sequence()

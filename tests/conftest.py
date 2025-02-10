@@ -364,6 +364,19 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     return rts
 
 
+def recombinant_example_4(tmp_path, fx_recombinant_example_2):
+    """
+    Same as recombinant_ex2 but with two mutations below the recombinant.
+    """
+    tables = fx_recombinant_example_2.dump_tables()
+    u = 55
+    tables.mutations.add_row(
+        site=2500, derived_state="G", node=u, time=tables.nodes.time[u], metadata={}
+    )
+    tables.sort()
+    return tables.tree_sequence()
+
+
 @pytest.fixture
 def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
     cache_path = fx_data_cache / "recombinant_ex1.ts"
@@ -393,5 +406,15 @@ def fx_recombinant_example_3(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
         print(f"Generating {cache_path}")
         ds_cache_path = fx_data_cache / "recombinant_ex3_dataset.zarr"
         ts = recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
+        ts.dump(cache_path)
+    return tskit.load(cache_path)
+
+
+@pytest.fixture
+def fx_recombinant_example_4(tmp_path, fx_data_cache, fx_recombinant_example_2):
+    cache_path = fx_data_cache / "recombinant_ex4.ts"
+    if not cache_path.exists():
+        print(f"Generating {cache_path}")
+        ts = recombinant_example_4(tmp_path, fx_recombinant_example_2)
         ts.dump(cache_path)
     return tskit.load(cache_path)
