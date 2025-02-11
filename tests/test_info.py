@@ -4,6 +4,7 @@ import inspect
 import numpy as np
 import pandas as pd
 import matplotlib
+import pytest
 
 import msprime
 import tskit
