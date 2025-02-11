@@ -534,11 +534,31 @@ class TreeInfo:
         num_mutations = np.bincount(self.ts.mutations_site, minlength=self.ts.num_sites)
         return pd.DataFrame(
             {
+                "id": np.arange(self.ts.num_sites, dtype=int),
                 "position": self.ts.sites_position.astype("int"),
                 "ancestral_state": ancestral_state,
                 "num_missing_samples": num_missing_samples,
                 "num_deletion_samples": num_deletion_samples,
                 "num_mutations": num_mutations,
+            }
+        )
+
+    def mutations(self):
+        mutations_position = self.ts.sites_position[self.ts.mutations_site].astype(int)
+        return pd.DataFrame(
+            {
+                "id": np.arange(self.ts.num_mutations, dtype=int),
+                "site": self.ts.mutations_site,
+                "position": self.ts.mutations_site,
+                "inherited_state": self.mutations_inherited_state,
+                "derived_state": self.mutations_derived_state,
+                "parent": self.ts.mutations_parent,
+                "node": self.ts.mutations_node,
+                # TODO ADD EDGE
+                "num_parents": self.mutations_num_parents,
+                "num_descendants": self.mutations_num_descendants,
+                "num_inheritors": self.mutations_num_inheritors,
+                "is_reversion": self.mutations_is_reversion,
             }
         )
 
