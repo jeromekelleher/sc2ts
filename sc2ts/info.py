@@ -1,3 +1,4 @@
+import functools
 import collections
 import logging
 import json
@@ -506,6 +507,40 @@ class TreeInfo:
         self.mutations_is_transversion = mutations_is_transversion
         self.sites_num_transitions = sites_num_transitions
         self.sites_num_transversions = sites_num_transversions
+
+    @functools.cached_property
+    def sites(self):
+
+        num_missing_samples = np.full(self.ts.num_sites, -1, dtype=int)
+        num_deletion_samples = np.full(self.ts.num_sites, -1, dtype=int)
+        for site in self.ts.sites():
+            md = site.metadata
+            try:
+                num_missing_samples[site.id] = md["sc2ts"]["missing_samples"]
+                num_deletion_samples[site.id] = md["sc2ts"]["deletion_samples"]
+            except KeyError:
+                # Both of these keys were added at the same time, so no point
+                # in doing two try/catches here.
+                pass
+
+        tables = self.ts.tables
+        assert np.all(
+            tables.sites.ancestral_state_offset == np.arange(self.ts.num_sites + 1)
+        )
+        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+        del tables
+        assert np.all(self.mutations_inherited_state != self.mutations_derived_state)
+
+        num_mutations = np.bincount(self.ts.mutations_site, minlength=self.ts.num_sites)
+        return pd.DataFrame(
+            {
+                "position": self.ts.sites_position.astype("int"),
+                "ancestral_state": ancestral_state,
+                "num_missing_samples": num_missing_samples,
+                "num_deletion_samples": num_deletion_samples,
+                "num_mutations": num_mutations,
+            }
+        )
 
     def summary(self):
         # TODO use the node_counts function above
