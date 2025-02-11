@@ -1382,6 +1382,7 @@ class TestExtractHaplotypes:
         ts = tables.tree_sequence()
         nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
 
+
 @pytest.fixture
 def fx_ts_exact_matches(fx_ts_map, fx_match_db):
     ts = fx_ts_map["2020-02-13"]
@@ -1419,6 +1420,18 @@ class TestMapDeletions:
             for mut in site.mutations:
                 assert mut.metadata["sc2ts"]["type"] == "post_parsimony"
 
+    def test_filter_all(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        new_ts = sc2ts.map_deletions(
+            ts, fx_dataset, frequency_threshold=0.001, mutations_threshold=0
+        )
+        remapped_sites = [
+            j
+            for j in range(ts.num_sites)
+            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
+        ]
+        assert remapped_sites == []
+
     def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
         ts = fx_ts_exact_matches
         new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
@@ -1443,8 +1456,8 @@ class TestMapDeletions:
             "command": "map_deletions",
             "dataset": str(fx_dataset.path),
             "frequency_threshold": 0.125,
+            "mutations_threshold": 2**64,
         }
-
 
 
 class TestAppendExactMatches:

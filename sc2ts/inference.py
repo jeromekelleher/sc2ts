@@ -1953,11 +1953,15 @@ def get_recombinant_strains(ts):
     return ret
 
 
-def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
+def map_deletions(
+    ts, ds, *, frequency_threshold, mutations_threshold=None, show_progress=False
+):
     """
     Map deletions at sites that exceed the specified frequency threshold onto the
-    ARG using parsimony (excluding flanks).
+    ARG using parsimony (excluding flanks), and insert the mutations for any sites
+    that have less than the specified threshold number of mutations.
     """
+    mutations_threshold = 2**64 if mutations_threshold is None else mutations_threshold
     start_time = time.time()  # wall time
     genes = core.get_gene_coordinates()
     start = genes["ORF1ab"][0]
@@ -1974,26 +1978,19 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
             f"Exact matches included; adjusting num_samples to remove {total_exact_matches}"
         )
         num_samples -= total_exact_matches
+
     del_sites = []
-    keep_mutations = np.ones(ts.num_mutations, dtype=bool)
     for site in ts.sites():
         if start <= site.position < end:
             deletion_samples = site.metadata["sc2ts"]["deletion_samples"]
             if deletion_samples / ts.num_samples >= frequency_threshold:
                 del_sites.append(site.id)
-                site_start = np.searchsorted(ts.mutations_site, site.id, side="left")
-                site_stop = np.searchsorted(ts.mutations_site, site.id, side="right")
-                keep_mutations[site_start:site_stop] = False
 
-    mutations_before = ts.num_mutations - np.sum(keep_mutations)
-    logger.info(f"Updating {len(del_sites)} sites and {mutations_before} mutations")
     sample_id = md["sc2ts"]["samples_strain"]
     assert not sample_id[0].startswith("Wuhan")
 
     tables = ts.dump_tables()
     tree = ts.first()
-
-    tables.mutations.keep_rows(keep_mutations)
 
     variants = get_progress(
         ds.variants(sample_id, ts.sites_position[del_sites]),
@@ -2003,25 +2000,15 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
         total=len(del_sites),
     )
 
+    logger.info(f"Remapping {len(del_sites)} sites")
+
     mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
     site_metadata = {}
-    added_mutations = 0
+    keep_mutations = np.ones(ts.num_mutations, dtype=bool)
     for var in variants:
         tree.seek(var.position)
         site = ts.site(position=var.position)
-        old_mutations = []
-        for mut in site.mutations:
-            assert not keep_mutations[mut.id]
-            old_mutations.append(
-                {
-                    "node": mut.node,
-                    "derived_state": mut.derived_state,
-                    "metadata": mut.metadata,
-                }
-            )
-        md = dict(site.metadata)
-        md["sc2ts"]["original_mutations"] = old_mutations
-        site_metadata[site.id] = md
+
         g = mask_ambiguous(var.genotypes)
         deletion_samples = site.metadata["sc2ts"]["deletion_samples"]
         if not ts_contains_exact_matches:
@@ -2029,21 +2016,46 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
         _, mutations = tree.map_mutations(
             g, list(var.alleles), ancestral_state=site.ancestral_state
         )
-        for m in mutations:
-            tables.mutations.add_row(
-                site=site.id,
-                node=m.node,
-                derived_state=m.derived_state,
-                time=ts.nodes_time[m.node],
-                metadata=mut_metadata,
-            )
-            added_mutations += 1
 
-    logger.info(f"Added in {added_mutations} with parsimony")
+        logger.debug(f"Site {int(site.position)} "
+                f"mapped mutations = {len(mutations)}; current = {len(site.mutations)}"
+            )
+        if len(mutations) < mutations_threshold:
+
+            old_mutations = []
+            for mut in site.mutations:
+                keep_mutations[mut.id] = False
+                old_mutations.append(
+                    {
+                        "node": mut.node,
+                        "derived_state": mut.derived_state,
+                        "metadata": mut.metadata,
+                    }
+                )
+            md = dict(site.metadata)
+            md["sc2ts"]["original_mutations"] = old_mutations
+            site_metadata[site.id] = md
+            for m in mutations:
+                tables.mutations.add_row(
+                    site=site.id,
+                    node=m.node,
+                    derived_state=m.derived_state,
+                    time=ts.nodes_time[m.node],
+                    metadata=mut_metadata,
+                )
+        else:
+            logger.debug(f"Skipping site {int(site.position)} ")
+
+    added_mutations = len(tables.mutations) - ts.num_mutations
+    logger.info(f"Added in {added_mutations} mutations at "
+        f"{len(site_metadata)} sites with parsimony")
     tables.sites.clear()
     for site in ts.sites():
         md = site_metadata.get(site.id, site.metadata)
         tables.sites.append(site.replace(metadata=md))
+
+    keep_mutations = np.append(keep_mutations, np.ones(added_mutations, dtype=bool))
+    tables.mutations.keep_rows(keep_mutations)
 
     tables.sort()
     tables.build_index()
@@ -2051,6 +2063,7 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
     params = {
         "dataset": str(ds.path),
         "frequency_threshold": float(frequency_threshold),
+        "mutations_threshold":int(mutations_threshold),
     }
     prov = get_provenance_dict("map_deletions", params, start_time)
     tables.provenances.add_row(json.dumps(prov))
