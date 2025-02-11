@@ -62,8 +62,22 @@ class TestTreeInfo:
     def test_tree_info_values(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 121, 693, 667]
-        assert list(ti.sites_num_missing_samples[:5]) == [39] * 5
-        assert list(ti.sites_num_deletion_samples[:5]) == [0] * 5
+
+    def test_site_values(self, fx_ti_2020_02_13):
+        df = fx_ti_2020_02_13.sites
+        assert df.shape[0] == 29898
+        assert df.position.iloc[0] == 1
+        assert df.position.iloc[-1] == 29903
+        assert list(df.num_missing_samples[:5]) == [39] * 5
+        assert list(df.num_deletion_samples[:5]) == [0] * 5
+
+        row = df.iloc[197]
+        assert row.position == 203
+        assert row.ancestral_state == "C"
+        assert row.num_missing_samples == 1
+        assert row.num_deletion_samples == 0
+        assert row.num_mutations == 1
+
 
     @pytest.mark.parametrize(
         "method",
