@@ -253,13 +253,20 @@ class TreeInfo:
         self,
         ts,
         *,
-        quick=False,
-        show_progress=True,
         pango_source="Viridian_pangolin",
         sample_group_id_prefix_len=10,
+        show_progress=False,
     ):
         self.ts = ts
+        top_level_md = ts.metadata["sc2ts"]
+        self.date = top_level_md["date"]
         self.pango_source = pango_source
+        logger.info("Computing ARG counts")
+        c = jit.count(ts)
+        self.mutations = self._mutations(c)
+        self.nodes = self._nodes(c)
+
+    def old_stuff(self):
         self.scorpio_source = "Viridian_scorpio"
         self.strain_map = {}
         self.recombinants = np.where(ts.nodes_flags == core.NODE_IS_RECOMBINANT)[0]
@@ -529,7 +536,6 @@ class TreeInfo:
         )
         ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
         del tables
-        assert np.all(self.mutations_inherited_state != self.mutations_derived_state)
 
         num_mutations = np.bincount(self.ts.mutations_site, minlength=self.ts.num_sites)
         return pd.DataFrame(
@@ -540,26 +546,71 @@ class TreeInfo:
                 "num_missing_samples": num_missing_samples,
                 "num_deletion_samples": num_deletion_samples,
                 "num_mutations": num_mutations,
-            }
+            },
+        ).astype({"ancestral_state": pd.StringDtype()})
+
+    def _nodes(self, arg_counter):
+        ts = self.ts
+
+        time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
+        # NOTE not sure the internal times are getting rounded in to right days etc,
+        # but day precision is probably right anyway.
+        date = time_zero_as_date - ts.nodes_time.astype("timedelta64[D]")
+
+        return pd.DataFrame(
+            {
+                "id": np.arange(ts.num_nodes, dtype=int),
+                "flags": ts.nodes_flags,
+                "time": ts.nodes_time,
+                "date": date,
+                "max_descendant_samples": arg_counter.nodes_max_descendant_samples,
+                "num_mutations": np.bincount(ts.mutations_node, minlength=ts.num_nodes),
+            },
         )
 
-    def mutations(self):
-        mutations_position = self.ts.sites_position[self.ts.mutations_site].astype(int)
+    def _mutations(self, arg_counter):
+        ts = self.ts
+        mutations_position = ts.sites_position[ts.mutations_site].astype(int)
+        tables = ts.tables
+        assert np.all(
+            tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
+        )
+        derived_state = tables.mutations.derived_state.view("S1").astype(str)
+        assert np.all(
+            tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1)
+        )
+        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+        del tables
+        inherited_state = ancestral_state[ts.mutations_site]
+        mutations_with_parent = ts.mutations_parent != -1
+
+        parent = ts.mutations_parent[mutations_with_parent]
+        assert np.all(parent >= 0)
+        inherited_state[mutations_with_parent] = derived_state[parent]
+
+        assert np.all(inherited_state != derived_state)
+
+        is_reversion = np.zeros(ts.num_mutations, dtype=bool)
+        is_reversion[mutations_with_parent] = (
+            derived_state[mutations_with_parent] == inherited_state[parent]
+        )
         return pd.DataFrame(
             {
                 "id": np.arange(self.ts.num_mutations, dtype=int),
                 "site": self.ts.mutations_site,
                 "position": self.ts.mutations_site,
-                "inherited_state": self.mutations_inherited_state,
-                "derived_state": self.mutations_derived_state,
+                "inherited_state": inherited_state,
+                "derived_state": derived_state,
                 "parent": self.ts.mutations_parent,
                 "node": self.ts.mutations_node,
                 # TODO ADD EDGE
-                "num_parents": self.mutations_num_parents,
-                "num_descendants": self.mutations_num_descendants,
-                "num_inheritors": self.mutations_num_inheritors,
-                "is_reversion": self.mutations_is_reversion,
+                "num_parents": arg_counter.mutations_num_parents,
+                "num_descendants": arg_counter.mutations_num_descendants,
+                "num_inheritors": arg_counter.mutations_num_inheritors,
+                "is_reversion": is_reversion,
             }
+        ).astype(
+            {"derived_state": pd.StringDtype(), "inherited_state": pd.StringDtype()}
         )
 
     def summary(self):
@@ -948,11 +999,11 @@ class TreeInfo:
         return df.assign(diffs=diff_data, max_run_length=max_run_length_data)
 
     def deletions_summary(self):
-        deletion_ids = np.where(self.mutations_derived_state == "-")[0]
+        deletion_ids = np.where(self.mutations.derived_state == "-")[0]
         df = pd.DataFrame(
             {
                 "mutation": deletion_ids,
-                "position": self.mutations_position[deletion_ids],
+                "position": self.mutations.position[deletion_ids],
                 "node": self.ts.mutations_node[deletion_ids],
             }
         )
@@ -978,7 +1029,7 @@ class TreeInfo:
         data = []
         for event_list in events.values():
             for e in event_list:
-                num_inheritors = self.mutations_num_inheritors[e.mutations]
+                num_inheritors = self.mutations.num_inheritors[e.mutations]
                 data.append(
                     {
                         "start": e.start,
@@ -992,7 +1043,7 @@ class TreeInfo:
         return pd.DataFrame(data)
 
     def mutators_summary(self, threshold=10):
-        mutator_nodes = np.where(self.nodes_num_mutations > threshold)[0]
+        mutator_nodes = np.where(self.nodes.num_mutations > threshold)[0]
         df = self._collect_node_data(mutator_nodes)
         df.sort_values("mutations", inplace=True)
         return df
@@ -1229,25 +1280,13 @@ class TreeInfo:
         return fig, [ax]
 
     def plot_mutations_per_node_distribution(self):
-        nodes_with_many_muts = np.sum(self.nodes_num_mutations >= 10)
+        nodes_with_many_muts = np.sum(self.nodes.num_mutations >= 10)
         return self._histogram(
-            self.nodes_num_mutations,
+            self.nodes.num_mutations,
             title=f"Nodes with >= 10 muts: {nodes_with_many_muts}",
             bins=range(10),
             xlabel="Number of mutations",
             ylabel="Number of nodes",
-        )
-
-    def plot_missing_sites_per_sample(self):
-        return self._histogram(
-            self.nodes_num_missing_sites[self.ts.samples()],
-            title="Missing sites per sample",
-        )
-
-    def plot_deletion_sites_per_sample(self):
-        return self._histogram(
-            self.nodes_num_deletion_sites[self.ts.samples()],
-            title="Deletion sites per sample",
         )
 
     def plot_branch_length_distributions(
@@ -1267,9 +1306,9 @@ class TreeInfo:
 
     def plot_mutations_per_site_distribution(self):
         fig, ax = plt.subplots(1, 1)
-        sites_with_many_muts = np.sum(self.sites_num_mutations >= 10)
+        sites_with_many_muts = np.sum(self.sites.num_mutations >= 10)
         ax.set_title(f"Sites with >= 10 muts: {sites_with_many_muts}")
-        ax.hist(self.sites_num_mutations, range(10), rwidth=0.9)
+        ax.hist(self.sites.num_mutations, range(10), rwidth=0.9)
         ax.set_xlabel("Number of mutations")
         ax.set_ylabel("Number of site")
         return fig, [ax]
@@ -1302,9 +1341,9 @@ class TreeInfo:
         return fig, [ax]
 
     def get_mutation_spectrum(self, min_inheritors=1):
-        keep = self.mutations_num_inheritors >= min_inheritors
-        inherited = self.mutations_inherited_state[keep]
-        derived = self.mutations_derived_state[keep]
+        keep = self.mutations.num_inheritors >= min_inheritors
+        inherited = self.mutations.inherited_state.values[keep].astype("S1")
+        derived = self.mutations.derived_state.values[keep].astype("S1")
         sep = inherited.copy()
         sep[:] = ">"
         x = np.char.add(inherited, sep)
@@ -1330,27 +1369,6 @@ class TreeInfo:
     def _wide_plot(self, *args, height=4, **kwargs):
         return plt.subplots(*args, figsize=(16, height), **kwargs)
 
-    def plot_ts_tv_per_site(self, annotate_threshold=0.9):
-        nonzero = self.sites_num_transversions != 0
-        ratio = (
-            self.sites_num_transitions[nonzero] / self.sites_num_transversions[nonzero]
-        )
-        pos = self.ts.sites_position[nonzero]
-
-        fig, ax = self._wide_plot(1, 1)
-        ax.plot(pos, ratio)
-        self._add_genes_to_axis(ax)
-
-        threshold = np.max(ratio) * annotate_threshold
-        top_sites = np.where(ratio > threshold)[0]
-        for site in top_sites:
-            plt.annotate(
-                f"{int(pos[site])}", xy=(pos[site], ratio[site]), xycoords="data"
-            )
-        ax.set_ylabel("Ts/Tv")
-        ax.set_xlabel("Position on genome")
-        return fig, [ax]
-
     def _plot_per_site_count(self, count, annotate_threshold):
         fig, ax = self._wide_plot(1, 1)
         pos = self.ts.sites_position
@@ -1373,7 +1391,7 @@ class TreeInfo:
 
     def plot_mutations_per_site(self, annotate_threshold=0.9, select=None):
         if select is None:
-            count = self.sites_num_mutations
+            count = self.sites.num_mutations
         else:
             count = np.bincount(
                 self.ts.mutations_site[select], minlength=self.ts.num_sites
@@ -1390,14 +1408,14 @@ class TreeInfo:
 
     def plot_missing_samples_per_site(self, annotate_threshold=0.5):
         fig, ax = self._plot_per_site_count(
-            self.sites_num_missing_samples, annotate_threshold
+            self.sites.num_missing_samples, annotate_threshold
         )
         ax.set_ylabel("Number missing samples")
         return fig, [ax]
 
     def plot_deletion_samples_per_site(self, annotate_threshold=0.5):
         fig, ax = self._plot_per_site_count(
-            self.sites_num_deletion_samples, annotate_threshold
+            self.sites.num_deletion_samples, annotate_threshold
         )
         ax.set_ylabel("Number deletion samples")
         return fig, [ax]
@@ -1479,7 +1497,7 @@ class TreeInfo:
             if np.any(df_scorpio[col] >= scorpio_fraction):
                 keep_cols.append(col)
                 try:
-                    first_date = self.nodes_date[self.first_scorpio_sample[col]]
+                    first_date = self.nodes.date[self.first_scorpio_sample[col]]
                     first_scorpio_date.append((first_date, col))
                 except KeyError:
                     warnings.warn(f"No samples for Scorpio {col} present")
