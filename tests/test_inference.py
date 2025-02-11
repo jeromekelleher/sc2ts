@@ -2,6 +2,7 @@ import dataclasses
 import collections
 import hashlib
 import logging
+import json
 
 import numpy as np
 import numpy.testing as nt
@@ -1381,6 +1382,12 @@ class TestExtractHaplotypes:
         ts = tables.tree_sequence()
         nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
 
+@pytest.fixture
+def fx_ts_exact_matches(fx_ts_map, fx_match_db):
+    ts = fx_ts_map["2020-02-13"]
+    tsp = sc2ts.append_exact_matches(ts, fx_match_db)
+    return tsp
+
 
 class TestMapDeletions:
     def test_example(self, fx_ts_map, fx_dataset):
@@ -1412,17 +1419,32 @@ class TestMapDeletions:
             for mut in site.mutations:
                 assert mut.metadata["sc2ts"]["type"] == "post_parsimony"
 
+    def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
+        ts = fx_ts_exact_matches
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
+        remapped_sites = [
+            j
+            for j in range(ts.num_sites)
+            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
+        ]
+        assert remapped_sites == [1541, 3945, 3946, 3947]
+
     def test_validate(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
         sc2ts.validate(new_ts, fx_dataset, deletions_as_missing=False)
 
+    def test_provenance(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.125)
+        assert tsp.num_provenances == ts.num_provenances + 1
+        prov = tsp.provenance(-1)
+        assert json.loads(prov.record)["parameters"] == {
+            "command": "map_deletions",
+            "dataset": str(fx_dataset.path),
+            "frequency_threshold": 0.125,
+        }
 
-@pytest.fixture
-def fx_ts_exact_matches(fx_ts_map, fx_match_db):
-    ts = fx_ts_map["2020-02-13"]
-    tsp = sc2ts.append_exact_matches(ts, fx_match_db)
-    return tsp
 
 
 class TestAppendExactMatches:
@@ -1436,6 +1458,10 @@ class TestAppendExactMatches:
         assert ts.num_nodes == 61
         tree = ts.first()
         assert tree.num_roots == 1
+
+    def test_metadata_flags(self, fx_ts_exact_matches):
+        md = fx_ts_exact_matches.metadata["sc2ts"]
+        assert md["includes_exact_matches"]
 
     def test_times_agree(self, fx_ts_exact_matches):
         ts = fx_ts_exact_matches
@@ -1469,6 +1495,16 @@ class TestAppendExactMatches:
                     num_exact_matches += 1
             assert node_count.get(str(u), 0) == num_exact_matches
 
+    def test_provenance(self, fx_ts_map, fx_match_db):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.append_exact_matches(ts, fx_match_db)
+        assert tsp.num_provenances == ts.num_provenances + 1
+        prov = tsp.provenance(-1)
+        assert json.loads(prov.record)["parameters"] == {
+            "command": "append_exact_matches",
+            "match_db": str(fx_match_db.path),
+        }
+
 
 class TestTrimMetadata:
     def test_validate(self, fx_ts_map, fx_dataset):
@@ -1483,28 +1519,35 @@ class TestTrimMetadata:
             node = tsp.node(u)
             assert set(node.metadata.keys()) == {"strain", "date", "Viridian_pangolin"}
 
+    def test_provenance(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.trim_metadata(ts)
+        assert tsp.num_provenances == ts.num_provenances + 1
+        prov = tsp.provenance(-1)
+        assert json.loads(prov.record)["parameters"] == {"command": "trim_metadata"}
+
 
 class TestPushUpRecombinantMutations:
 
     def test_no_recombinants(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1):
         ts = fx_recombinant_example_1
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_2(self, fx_recombinant_example_2):
         ts = fx_recombinant_example_2
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_3(self, fx_recombinant_example_3):
         ts = fx_recombinant_example_3
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
-        ts.tables.assert_equals(tsp.tables)
+        ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_4(self, fx_recombinant_example_4):
         ts = fx_recombinant_example_4
@@ -1514,3 +1557,12 @@ class TestPushUpRecombinantMutations:
         tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
         mut = tsp.site(site).mutations[0]
         assert mut.node == 56
+
+    def test_provenance(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        assert tsp.num_provenances == ts.num_provenances + 1
+        prov = tsp.provenance(-1)
+        assert json.loads(prov.record)["parameters"] == {
+            "command": "push_up_unary_recombinant_mutations"
+        }

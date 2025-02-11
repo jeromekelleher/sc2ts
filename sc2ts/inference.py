@@ -1958,10 +1958,22 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
     Map deletions at sites that exceed the specified frequency threshold onto the
     ARG using parsimony (excluding flanks).
     """
+    start_time = time.time()  # wall time
     genes = core.get_gene_coordinates()
     start = genes["ORF1ab"][0]
     end = genes["ORF10"][1]
 
+    md = ts.metadata
+    num_samples = ts.num_samples
+    ts_contains_exact_matches = md["sc2ts"].get("includes_exact_matches")
+    if ts_contains_exact_matches:
+        total_exact_matches = sum(
+            md["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"].values()
+        )
+        logger.info(
+            f"Exact matches included; adjusting num_samples to remove {total_exact_matches}"
+        )
+        num_samples -= total_exact_matches
     del_sites = []
     keep_mutations = np.ones(ts.num_mutations, dtype=bool)
     for site in ts.sites():
@@ -1973,7 +1985,9 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
                 site_stop = np.searchsorted(ts.mutations_site, site.id, side="right")
                 keep_mutations[site_start:site_stop] = False
 
-    sample_id = ts.metadata["sc2ts"]["samples_strain"]
+    mutations_before = ts.num_mutations - np.sum(keep_mutations)
+    logger.info(f"Updating {len(del_sites)} sites and {mutations_before} mutations")
+    sample_id = md["sc2ts"]["samples_strain"]
     assert not sample_id[0].startswith("Wuhan")
 
     tables = ts.dump_tables()
@@ -1991,6 +2005,7 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
 
     mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
     site_metadata = {}
+    added_mutations = 0
     for var in variants:
         tree.seek(var.position)
         site = ts.site(position=var.position)
@@ -2009,7 +2024,8 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
         site_metadata[site.id] = md
         g = mask_ambiguous(var.genotypes)
         deletion_samples = site.metadata["sc2ts"]["deletion_samples"]
-        assert deletion_samples == np.sum(g == DELETION)
+        if not ts_contains_exact_matches:
+            assert deletion_samples == np.sum(g == DELETION)
         _, mutations = tree.map_mutations(
             g, list(var.alleles), ancestral_state=site.ancestral_state
         )
@@ -2021,7 +2037,9 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
                 time=ts.nodes_time[m.node],
                 metadata=mut_metadata,
             )
+            added_mutations += 1
 
+    logger.info(f"Added in {added_mutations} with parsimony")
     tables.sites.clear()
     for site in ts.sites():
         md = site_metadata.get(site.id, site.metadata)
@@ -2030,6 +2048,12 @@ def map_deletions(ts, ds, *, frequency_threshold, show_progress=False):
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
+    params = {
+        "dataset": str(ds.path),
+        "frequency_threshold": float(frequency_threshold),
+    }
+    prov = get_provenance_dict("map_deletions", params, start_time)
+    tables.provenances.add_row(json.dumps(prov))
     return tables.tree_sequence()
 
 
@@ -2038,6 +2062,7 @@ def append_exact_matches(ts, match_db, show_progress=False):
     Update the specified tree sequence to include all exact matches
     from the specified match DB.
     """
+    start_time = time.time()  # wall time
     md = ts.metadata
     date = md["sc2ts"]["date"]
     total_exact_matches = sum(
@@ -2068,16 +2093,20 @@ def append_exact_matches(ts, match_db, show_progress=False):
 
     assert total_exact_matches == len(tables.nodes) - ts.num_nodes
     md["sc2ts"]["samples_strain"] = samples_strain
+    md["sc2ts"]["includes_exact_matches"] = True
     tables.metadata = md
     tables.sort()
+    prov = get_provenance_dict(
+        "append_exact_matches", {"match_db": str(match_db.path)}, start_time
+    )
+    tables.provenances.add_row(json.dumps(prov))
     return tables.tree_sequence()
 
 
 def trim_metadata(ts, show_progress=False):
+    start_time = time.time()  # wall time
     tables = ts.dump_tables()
-
     tables.nodes.clear()
-
     nodes = tqdm.tqdm(
         ts.nodes(),
         total=ts.num_nodes,
@@ -2091,6 +2120,8 @@ def trim_metadata(ts, show_progress=False):
             # but it's too tedious to test.
             md = {k: md[k] for k in ["strain", "date", "Viridian_pangolin"]}
         tables.nodes.append(node.replace(metadata=md))
+    prov = get_provenance_dict("trim_metadata", {}, start_time)
+    tables.provenances.add_row(json.dumps(prov))
     return tables.tree_sequence()
 
 
@@ -2133,6 +2164,7 @@ def push_up_unary_recombinant_mutations(ts):
     mutations occured on the branch(es) *leading to* the recombinant than
     to have succeeded it.
     """
+    start_time = time.time()  # wall time
     recomb_parent_edges = np.where(
         ts.nodes_flags[ts.edges_parent] & core.NODE_IS_RECOMBINANT > 0
     )[0]
@@ -2160,4 +2192,6 @@ def push_up_unary_recombinant_mutations(ts):
         tables.mutations[m] = row.replace(node=node, time=ts.nodes_time[node])
     logger.info(f"Moved up {np.sum(mutations_to_move)} mutations")
     tables.sort()
+    prov = get_provenance_dict("push_up_unary_recombinant_mutations", {}, start_time)
+    tables.provenances.add_row(json.dumps(prov))
     return tables.tree_sequence()
