@@ -2,6 +2,7 @@ import datetime
 import inspect
 
 import numpy as np
+import numpy.testing as nt
 import pandas as pd
 import matplotlib
 import pytest
@@ -78,6 +79,38 @@ class TestTreeInfo:
         assert row.num_deletion_samples == 0
         assert row.num_mutations == 1
 
+    def test_mutation_values(self, fx_ti_2020_02_13):
+        df = fx_ti_2020_02_13.mutations()
+        assert df.shape[0] == 76
+        row = df.iloc[0]
+        assert row.id == 0
+        assert row.site == 197
+        assert row.position == 197
+        assert row.inherited_state == "C"
+        assert row.derived_state == "T"
+        assert row.num_parents == 0
+        assert row.parent == -1
+        assert row.node == 8
+        assert row.num_descendants == 1
+        assert row.num_inheritors == 1
+        assert not row.is_reversion
+
+        row = df.set_index("position").loc[11077]
+        assert row.id == 32
+        assert row.site == 11077
+        assert row.inherited_state == "G"
+        assert row.derived_state == "T"
+        assert row.num_parents == 0
+        assert row.parent == -1
+        assert row.node == 39
+        assert row.num_descendants == 6
+        assert row.num_inheritors == 6
+        assert not row.is_reversion
+
+    def test_mutation_is_reversion(self, fx_ti_2020_02_13):
+        df = fx_ti_2020_02_13.mutations()
+        is_reversion = sc2ts.find_reversions(fx_ti_2020_02_13.ts)
+        nt.assert_array_equal(is_reversion, df.is_reversion)
 
     @pytest.mark.parametrize(
         "method",
