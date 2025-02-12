@@ -280,9 +280,6 @@ class TestTreeInfo:
         row = df.iloc[0]
         assert row.descendants == 2
         assert row["sample"] == 53
-        assert row.num_samples == 2
-        assert row.group_size == 3
-        assert row.distinct_sample_pango == 1
         assert row.sample_pango == "Unknown"
         assert row.interval_left == 3788
         assert row.interval_right == 11083
@@ -310,7 +307,6 @@ class TestTreeInfo:
         row = df.iloc[0]
         assert row.descendants == 1
         assert row["sample"] == 55
-        assert row["distinct_sample_pango"] == 1
         assert row["recombinant"] == 56
         assert row["sample_pango"] == "Unknown"
         assert row["num_mutations"] == 0
@@ -319,9 +315,9 @@ class TestTreeInfo:
         assert row["parent_right"] == 54
         assert row["parent_right_pango"] == "Unknown"
         assert row["mrca"] == 48
-        assert row["group_size"] == 2
         assert row["diffs"] == 6
         assert row["max_run_length"] == 2
+        assert row["group_id"] == "afb7b1df06434ec1e28d67c9ea931735"
 
 
 class TestSampleGroupInfo:

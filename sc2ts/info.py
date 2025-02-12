@@ -248,6 +248,10 @@ def max_descendant_samples(ts, show_progress=True):
     return num_samples
 
 
+def get_recombinant_nodes(ts):
+    return np.where(ts.nodes_flags == core.NODE_IS_RECOMBINANT)[0]
+
+
 class TreeInfo:
     def __init__(
         self,
@@ -895,69 +899,44 @@ class TreeInfo:
         if parent_pango_source is None:
             parent_pango_source = self.pango_source
         data = []
-        for u in self.recombinants:
-            md = dict(self.nodes_metadata[u]["sc2ts"])
-            group_id = md["group_id"][: self.sample_group_id_prefix_len]
-            md["group_id"] = group_id
-            group_nodes = self.sample_group_nodes[group_id]
-            md["group_size"] = len(group_nodes)
+        ts = self.ts
+        tree = self.ts.first()
 
-            samples = []
-            for v in self.sample_group_nodes[group_id]:
-                if self.ts.nodes_flags[v] & tskit.NODE_IS_SAMPLE > 0:
-                    samples.append(v)
+        for u in get_recombinant_nodes(ts):
+            md = ts.node(u).metadata["sc2ts"]
+            group_id = md["group_id"]
+            for v in tree.nodes(u, order="levelorder"):
+                v_node = ts.node(v)
+                v_node_md = v_node.metadata
+                if (v_node.flags & tskit.NODE_IS_SAMPLE > 0) and v_node_md["sc2ts"]["group_id"] == group_id:
+                    break
 
-            causal_lineages = {}
-            hmm_matches = []
-            breakpoint_intervals = []
-            for v in samples:
-                causal_lineages[v] = self.nodes_metadata[v].get(
-                    self.pango_source, "Unknown"
-                )
-
-            # Arbitrarily pick the first sample node as the representative
-            v = samples[0]
-            node_md = self.nodes_metadata[v]["sc2ts"]
-            hmm_matches.append(node_md["hmm_match"])
-            breakpoint_intervals.append(node_md["breakpoint_intervals"])
-
-            # Only deal with 2 parents recombs for now.
-            assert self.nodes_num_parents[u] == 2
-            # assert len(set(hmm_matches)) == 1
-            # assert len(set(breakpoint_intervals)) == 1
-            hmm_match = hmm_matches[0]
+            smd = v_node_md["sc2ts"]
+            hmm_match = smd["hmm_match"]
             assert len(hmm_match["path"]) == 2
-            interval = breakpoint_intervals[0]
+            interval = smd["breakpoint_intervals"]
             parent_left = hmm_match["path"][0]["parent"]
             parent_right = hmm_match["path"][1]["parent"]
-            data.append(
-                {
+            datum = {
                     "recombinant": u,
-                    "descendants": self.nodes_max_descendant_samples[u],
+                    "descendants": self.nodes.max_descendant_samples.iloc[u],
                     "sample": v,
-                    "sample_pango": causal_lineages[v],
-                    "num_samples": len(samples),
-                    "distinct_sample_pango": len(set(causal_lineages.values())),
+                    "sample_id": v_node_md["strain"],
+                    "sample_pango": v_node_md.get(self.pango_source, "Unknown"),
                     "interval_left": interval[0][0],
                     "interval_right": interval[0][1],
-                    "parent_left": parent_left,
-                    "parent_right": parent_right,
-                    "parent_left_pango": self.nodes_metadata[parent_left].get(
-                        parent_pango_source,
-                        "Unknown",
-                    ),
-                    "parent_right_pango": self.nodes_metadata[parent_right].get(
-                        parent_pango_source,
-                        "Unknown",
-                    ),
                     "num_mutations": len(hmm_match["mutations"]),
                     **md,
                 }
-            )
+            for node, key_prefix in [(parent_left, "parent_left"), (parent_right, "parent_right")]:
+                datum[key_prefix] = node
+                parent_md = ts.node(node).metadata
+                datum[f"{key_prefix}_pango"] = parent_md.get(parent_pango_source, "Unknown")
+            data.append(datum)
+
         # Compute the MRCAs by iterating along trees in order of
         # breakpoint. We use the right interval
         df = pd.DataFrame(data).sort_values("interval_right")
-        tree = self.ts.first()
         mrca_data = []
         for _, row in df.iterrows():
             bp = row.interval_right
@@ -984,6 +963,7 @@ class TreeInfo:
     def _characterise_recombinant_copying(self, df, show_progress):
         """
         Return a copy of the specified recombinants_summary data frame
+        d
         in which we add fields to summarise the variant sites among
         the parents and sample.
         """
