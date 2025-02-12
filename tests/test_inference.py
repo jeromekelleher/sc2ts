@@ -1530,7 +1530,17 @@ class TestTrimMetadata:
         tsp = sc2ts.trim_metadata(ts)
         for u in tsp.samples():
             node = tsp.node(u)
-            assert set(node.metadata.keys()) == {"strain", "date", "Viridian_pangolin"}
+            assert set(node.metadata.keys()) == {
+                "strain",
+                "date",
+                "Viridian_pangolin",
+                "Viridian_scorpio",
+                "Country",
+                "sc2ts",
+            }
+            orig_md = ts.node(u).metadata
+            for k, v in node.metadata.items():
+                assert orig_md[k] == v
 
     def test_provenance(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]

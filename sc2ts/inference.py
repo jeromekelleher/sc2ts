@@ -2017,9 +2017,10 @@ def map_deletions(
             g, list(var.alleles), ancestral_state=site.ancestral_state
         )
 
-        logger.debug(f"Site {int(site.position)} "
-                f"mapped mutations = {len(mutations)}; current = {len(site.mutations)}"
-            )
+        logger.debug(
+            f"Site {int(site.position)} "
+            f"mapped mutations = {len(mutations)}; current = {len(site.mutations)}"
+        )
         if len(mutations) < mutations_threshold:
 
             old_mutations = []
@@ -2047,8 +2048,10 @@ def map_deletions(
             logger.debug(f"Skipping site {int(site.position)} ")
 
     added_mutations = len(tables.mutations) - ts.num_mutations
-    logger.info(f"Added in {added_mutations} mutations at "
-        f"{len(site_metadata)} sites with parsimony")
+    logger.info(
+        f"Added in {added_mutations} mutations at "
+        f"{len(site_metadata)} sites with parsimony"
+    )
     tables.sites.clear()
     for site in ts.sites():
         md = site_metadata.get(site.id, site.metadata)
@@ -2063,7 +2066,7 @@ def map_deletions(
     params = {
         "dataset": str(ds.path),
         "frequency_threshold": float(frequency_threshold),
-        "mutations_threshold":int(mutations_threshold),
+        "mutations_threshold": int(mutations_threshold),
     }
     prov = get_provenance_dict("map_deletions", params, start_time)
     tables.provenances.add_row(json.dumps(prov))
@@ -2131,7 +2134,17 @@ def trim_metadata(ts, show_progress=False):
         if node.is_sample():
             # Note it would be nice to trim down the name of the pango field here
             # but it's too tedious to test.
-            md = {k: md[k] for k in ["strain", "date", "Viridian_pangolin"]}
+            md = {
+                k: md[k]
+                for k in [
+                    "strain",
+                    "date",
+                    "Viridian_pangolin",
+                    "Viridian_scorpio",
+                    "Country",
+                    "sc2ts",
+                ]
+            }
         tables.nodes.append(node.replace(metadata=md))
     prov = get_provenance_dict("trim_metadata", {}, start_time)
     tables.provenances.add_row(json.dumps(prov))
@@ -2215,7 +2228,7 @@ def vectorise_metadata(ts, nodes=None):
     Vectorise the metadata for given fields by putting them in the top-level metadata
     under the keys "vectorised_metadata".
     """
-    # Rough initial version. Need to add progress and other fields we might want to 
+    # Rough initial version. Need to add progress and other fields we might want to
     # vectorise.
     start_time = time.time()  # wall time
 
