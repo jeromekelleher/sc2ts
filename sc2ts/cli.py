@@ -269,7 +269,7 @@ def info_ts(ts_path, recombinants, verbose):
     setup_logging(verbose)
     ts = tszip.load(ts_path)
 
-    ti = sc2ts.TreeInfo(ts, quick=False)
+    ti = sc2ts.TreeInfo(ts)
     # print("info", ti.node_counts())
     # TODO output these as TSVs rather than using pandas display?
     pd.set_option("display.max_rows", 500)
