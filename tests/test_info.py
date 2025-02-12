@@ -252,7 +252,6 @@ class TestTreeInfo:
         # Mutations may be deleted later through parsimony hueristics
         assert row1.mutations <= row2.num_mutations
 
-    @pytest.mark.skip("Broken")
     def test_node_summary(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         for u in range(ti.ts.num_nodes):
@@ -260,7 +259,6 @@ class TestTreeInfo:
             assert d["node"] == u
             assert len(d["flags"]) == 8
 
-    @pytest.mark.skip("Broken")
     def test_node_report(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         report = ti.node_report(strain="SRR11597190")

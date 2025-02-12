@@ -617,6 +617,7 @@ class TreeInfo:
                 "id": np.arange(self.ts.num_mutations, dtype=int),
                 "site": self.ts.mutations_site,
                 "position": mutations_position,
+                "time": self.ts.mutations_time,
                 "inherited_state": inherited_state,
                 "derived_state": derived_state,
                 "parent": self.ts.mutations_parent,
@@ -688,14 +689,14 @@ class TreeInfo:
 
     def _node_mutation_summary(self, u, child_mutations=True):
         mutations_above = self.ts.mutations_node == u
-        assert np.sum(mutations_above) == self.nodes_num_mutations[u]
+        assert np.sum(mutations_above) == self.nodes.num_mutations[u]
 
         data = {
-            "mutations": self.nodes_num_mutations[u],
-            "reversions": np.sum(self.mutations_is_reversion[mutations_above]),
-            "immediate_reversions": np.sum(
-                self.mutations_is_immediate_reversion[mutations_above]
-            ),
+            "mutations": self.nodes.num_mutations[u],
+            "reversions": np.sum(self.mutations.is_reversion[mutations_above]),
+            # "immediate_reversions": np.sum(
+            #     self.mutations_is_immediate_reversion[mutations_above]
+            # ),
         }
         if child_mutations:
             children = self.ts.edges_child[self.ts.edges_parent == u]
@@ -705,14 +706,14 @@ class TreeInfo:
                 child_mutations = self.ts.mutations_node == child
                 num_child_mutations += np.sum(child_mutations)
                 num_child_reversions += np.sum(
-                    self.mutations_is_reversion[child_mutations]
+                    self.mutations.is_reversion[child_mutations]
                 )
             data["child_mutations"] = num_child_mutations
             data["child_reversions"] = num_child_reversions
         return data
 
     def _node_summary(self, u, child_mutations=True):
-        md = self.nodes_metadata[u]
+        md = self.ts.node(u).metadata
         flags = self.ts.nodes_flags[u]
 
         strain = ""
@@ -743,6 +744,9 @@ class TreeInfo:
         else:
             pango = ""
 
+        # NOTE: keyed by *string* because of JSON
+        exact_matches = self.top_level_md["cumulative_stats"]["exact_matches"]["node"]
+
         return {
             "node": u,
             "flags": core.flags_summary(flags),
@@ -750,16 +754,16 @@ class TreeInfo:
             "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
             "children": np.sum(self.ts.edges_parent == u),
-            "exact_matches": self.nodes_num_exact_matches[u],
-            "descendants": self.nodes_max_descendant_samples[u],
-            "date": self.nodes_date[u],
+            "exact_matches": exact_matches.get(str(u), 0),
+            "descendants": self.nodes.max_descendant_samples[u],
+            "date": self.nodes.date[u],
             **self._node_mutation_summary(u, child_mutations=child_mutations),
         }
 
     def _children_summary(self, u):
         u_children = self.ts.edges_child[self.ts.edges_parent == u]
         counter = collections.Counter(
-            dict(zip(u_children, self.nodes_max_descendant_samples[u_children]))
+            dict(zip(u_children, self.nodes.max_descendant_samples[u_children]))
         )
 
         # Count the mutations on the parent and those on each child
@@ -1058,8 +1062,8 @@ class TreeInfo:
         for mut_id in np.where(self.ts.mutations_node == node)[0]:
             pos = int(self.ts.sites_position[self.ts.mutations_site[mut_id]])
             assert pos not in muts
-            state0 = self.mutations_inherited_state[mut_id]
-            state1 = self.mutations_derived_state[mut_id]
+            state0 = self.mutations.inherited_state[mut_id]
+            state1 = self.mutations.derived_state[mut_id]
             muts[pos] = f"{state0}>{state1}"
         return muts
 
@@ -1364,8 +1368,8 @@ class TreeInfo:
     def _tree_mutation_path(self, tree, node):
         u = node
         site_in_tree = np.logical_and(
-            self.mutations_position >= tree.interval.left,
-            self.mutations_position < tree.interval.right,
+            self.mutations.position >= tree.interval.left,
+            self.mutations.position < tree.interval.right,
         )
         ret = []
         while u != -1:
@@ -1387,29 +1391,14 @@ class TreeInfo:
         return [Markdown("## Mutation path"), df]
 
     def _mutation_summary(self, mut_id):
-        return {
-            "site": self.mutations_position[mut_id],
-            "node": self.ts.mutations_node[mut_id],
-            "descendants": self.mutations_num_descendants[mut_id],
-            "inheritors": self.mutations_num_inheritors[mut_id],
-            "inherited_state": self.mutations_inherited_state[mut_id],
-            "derived_state": self.mutations_derived_state[mut_id],
-            "is_reversion": self.mutations_is_reversion[mut_id],
-            "is_immediate_reversion": self.mutations_is_immediate_reversion[mut_id],
-            "is_transition": self.mutations_is_transition[mut_id],
-            "is_transversion": self.mutations_is_transversion[mut_id],
-            "is_insertion": self.mutations_inherited_state[mut_id] == "-",
-            "is_deletion": self.mutations_derived_state[mut_id] == "-",
-            "parent": self.ts.mutations_parent[mut_id],
-            "num_parents": self.mutations_num_parents[mut_id],
-            "time": self.ts.mutations_time[mut_id],
-            "id": mut_id,
-            "metadata": self.ts.mutation(mut_id).metadata,
-        }
+        return self.mutations.iloc[mut_id]
 
     def node_report(self, node_id=None, strain=None):
         if strain is not None:
-            node_id = self.strain_map[strain]
+            # FIXME! Not dealing with errors
+            samples_strain = self.top_level_md["samples_strain"]
+            sample_id = samples_strain.index(strain)
+            node_id = self.ts.samples()[sample_id]
         # node_summary = pd.DataFrame([self._node_summary(node_id)])
         # TODO improve this for internal nodes
         node_summary = [self.ts.node(node_id).metadata]
@@ -2188,7 +2177,6 @@ class TreeInfo:
         def tabulator(df):
             return pn.widgets.Tabulator(df, editors={k: None for k in df})
 
-
         tables_tabs = [
             ("Nodes", tabulator(self.nodes)),
             ("Mutations", tabulator(self.mutations)),
@@ -2202,6 +2190,14 @@ class TreeInfo:
             ("Tables", tables_tabs),
         )
         return tabs
+
+    def report(self, node=None):
+        import panel as pn
+
+        pn.extension("ipywidgets")
+        pn.extension("tabulator")
+
+        df = self.node_report
 
 
 @dataclasses.dataclass
