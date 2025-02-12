@@ -2263,3 +2263,29 @@ def push_up_unary_recombinant_mutations(ts):
     prov = get_provenance_dict("push_up_unary_recombinant_mutations", {}, start_time)
     tables.provenances.add_row(json.dumps(prov))
     return tables.tree_sequence()
+
+
+def vectorise_metadata(ts, nodes=None):
+    """
+    Vectorise the metadata for given fields by putting them in the top-level metadata
+    under the keys "vectorised_metadata".
+    """
+    # Rough initial version. Need to add progress and other fields we might want to 
+    # vectorise.
+    start_time = time.time()  # wall time
+
+    data = {k: [] for k in nodes}
+    for node in ts.nodes():
+        md = node.metadata
+        for key, values in data.items():
+            data[key].append(md.get(key, None))
+
+    md = ts.metadata
+    md["sc2ts"]["vectorised_metadata"] = {"nodes": data}
+    tables = ts.dump_tables()
+    tables.metadata = md
+
+    prov = get_provenance_dict("vectorise_metadata", {"nodes": nodes}, start_time)
+    tables.provenances.add_row(json.dumps(prov))
+
+    return tables.tree_sequence()

@@ -1615,3 +1615,74 @@ class TestPushUpRecombinantMutations:
         assert json.loads(prov.record)["parameters"] == {
             "command": "push_up_unary_recombinant_mutations"
         }
+
+
+class TestVectoriseMetadata:
+
+    def test_provenance(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.vectorise_metadata(ts, nodes=["Viridian_pangolin"])
+        assert tsp.num_provenances == ts.num_provenances + 1
+        prov = tsp.provenance(-1)
+        assert json.loads(prov.record)["parameters"] == {
+            "command": "vectorise_metadata",
+            "nodes": ["Viridian_pangolin"],
+        }
+
+    def test_example(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-01"]
+        tsp = sc2ts.vectorise_metadata(ts, nodes=["Viridian_pangolin"])
+        vmd = tsp.metadata["sc2ts"]["vectorised_metadata"]["nodes"]
+        assert vmd == {
+            "Viridian_pangolin": [
+                None,
+                None,
+                "A",
+                "B",
+                "B",
+                None,
+                "A",
+                None,
+                "B",
+                "B",
+                "A",
+                "B",
+                "B",
+                "B.1",
+                "B.1",
+                "B",
+                None,
+                "A",
+                "A",
+                "A",
+                "B",
+                "B",
+                None,
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "nodes",
+        [
+            [],
+            ["Viridian_pangolin"],
+            ["Viridian_pangolin", "Viridian_scorpio"],
+        ],
+    )
+    def test_validate(self, fx_ts_map, nodes):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = sc2ts.vectorise_metadata(ts, nodes=nodes)
+
+        nodes_md = tsp.metadata["sc2ts"]["vectorised_metadata"]["nodes"]
+        assert len(nodes_md) == len(nodes)
+        for v in nodes_md.values():
+            assert len(v) == ts.num_nodes
+
+        for node in ts.nodes():
+            assert node.metadata == tsp.node(node.id).metadata
+            for key in nodes_md:
+                assert nodes_md[key][node.id] == node.metadata.get(key, None)
+
+        ts.tables.assert_equals(
+            tsp.tables, ignore_provenance=True, ignore_metadata=True
+        )
