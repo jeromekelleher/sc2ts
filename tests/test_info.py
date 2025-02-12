@@ -16,8 +16,10 @@ from sc2ts import info
 
 @pytest.fixture
 def fx_ti_2020_02_13(fx_ts_map):
+    minimal_fields = ["Viridian_pangolin", "Viridian_scorpio"]
     ts = sc2ts.vectorise_metadata(
-        fx_ts_map["2020-02-13"], nodes=["Viridian_pangolin", "Viridian_scorpio"]
+        sc2ts.trim_metadata(fx_ts_map["2020-02-13"], show_progress=False), 
+        nodes=minimal_fields,
     )
     return info.TreeInfo(ts, show_progress=False)
 

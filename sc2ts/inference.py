@@ -2182,7 +2182,6 @@ def minimise_metadata(ts, show_progress=False):
         md = {}
         for key, values in consolidated_metadata.items():
             md[key] = values[node.id]
-        tables.nodes.append(node.replace(metadata=md))
 
     # We could quite reasonably drop most of provenances here too,
     # just keeping track of the development version filename
@@ -2270,7 +2269,7 @@ def vectorise_metadata(ts, nodes=None):
     Vectorise the metadata for given fields by putting them in the top-level metadata
     under the keys "vectorised_metadata".
     """
-    # Rough initial version. Need to add progress and other fields we might want to 
+    # Rough initial version. Need to add progress and other fields we might want to
     # vectorise.
     start_time = time.time()  # wall time
 

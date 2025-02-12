@@ -905,8 +905,10 @@ class TreeInfo:
         for u in get_recombinant_nodes(ts):
             md = ts.node(u).metadata["sc2ts"]
             group_id = md["group_id"]
+            print(u)
             for v in tree.nodes(u, order="levelorder"):
                 v_node = ts.node(v)
+                print(v_node)
                 v_node_md = v_node.metadata
                 if (v_node.flags & tskit.NODE_IS_SAMPLE > 0) and v_node_md["sc2ts"]["group_id"] == group_id:
                     break
