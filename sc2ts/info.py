@@ -716,6 +716,21 @@ class TreeInfo:
         md = self.ts.node(u).metadata
         flags = self.ts.nodes_flags[u]
 
+        # Temporary, work around fussy code
+        pango = md.get("Imputed_Viridian_pangolin", None)
+        if pango is None:
+            pango = md.get(self.pango_source, None)
+
+        # pango = md.get(self.pango_source, None)
+        # imputed_pango = md.get("Imputed_" + self.pango_source, None)
+        # if pango is not None:
+        #     if imputed_pango is not None and imputed_pango != pango:
+        #         pango = f"MISMATCH: {pango} != {imputed_pango}"
+        # elif imputed_pango is not None:
+        #     pango = imputed_pango
+        # else:
+        #     pango = ""
+
         strain = ""
         if flags & (tskit.NODE_IS_SAMPLE | core.NODE_IS_REFERENCE) > 0:
             strain = md["strain"]
@@ -734,15 +749,6 @@ class TreeInfo:
                 # see https://github.com/jeromekelleher/sc2ts/issues/434
                 strain = md["group_id"][:8]
 
-        pango = md.get(self.pango_source, None)
-        imputed_pango = md.get("Imputed_" + self.pango_source, None)
-        if pango is not None:
-            if imputed_pango is not None and imputed_pango != pango:
-                pango = f"MISMATCH: {pango} != {imputed_pango}"
-        elif imputed_pango is not None:
-            pango = imputed_pango
-        else:
-            pango = ""
 
         # NOTE: keyed by *string* because of JSON
         exact_matches = self.top_level_md["cumulative_stats"]["exact_matches"]["node"]
@@ -1637,7 +1643,7 @@ class TreeInfo:
         for col in df_scorpio:
             if np.any(df_scorpio[col] >= scorpio_fraction):
                 keep_cols.append(col)
-                print("FIXME")
+                # FIXME got rid of this because we don't have first_scorpio sample
                 if False:
                     try:
                         first_date = self.nodes.date[self.first_scorpio_sample[col]]
