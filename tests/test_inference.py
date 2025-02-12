@@ -610,7 +610,7 @@ class TestRealData:
         )
         ti = sc2ts.TreeInfo(ts, show_progress=False)
         expected = 0 if deletions_as_missing else 4
-        assert np.sum(ti.mutations_derived_state == "-") == expected
+        assert np.sum(ti.mutations.derived_state == "-") == expected
 
     def test_2020_02_08(self, tmp_path, fx_ts_map, fx_dataset):
         ts = run_extend(

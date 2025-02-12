@@ -905,12 +905,11 @@ class TreeInfo:
         for u in get_recombinant_nodes(ts):
             md = ts.node(u).metadata["sc2ts"]
             group_id = md["group_id"]
-            print(u)
             for v in tree.nodes(u, order="levelorder"):
                 v_node = ts.node(v)
-                print(v_node)
                 v_node_md = v_node.metadata
-                if (v_node.flags & tskit.NODE_IS_SAMPLE > 0) and v_node_md["sc2ts"]["group_id"] == group_id:
+                v_group_id = v_node_md["sc2ts"].get("group_id", None)
+                if (v_node.flags & tskit.NODE_IS_SAMPLE > 0) and v_group_id == group_id:
                     break
 
             smd = v_node_md["sc2ts"]
@@ -920,20 +919,25 @@ class TreeInfo:
             parent_left = hmm_match["path"][0]["parent"]
             parent_right = hmm_match["path"][1]["parent"]
             datum = {
-                    "recombinant": u,
-                    "descendants": self.nodes.max_descendant_samples.iloc[u],
-                    "sample": v,
-                    "sample_id": v_node_md["strain"],
-                    "sample_pango": v_node_md.get(self.pango_source, "Unknown"),
-                    "interval_left": interval[0][0],
-                    "interval_right": interval[0][1],
-                    "num_mutations": len(hmm_match["mutations"]),
-                    **md,
-                }
-            for node, key_prefix in [(parent_left, "parent_left"), (parent_right, "parent_right")]:
+                "recombinant": u,
+                "descendants": self.nodes.max_descendant_samples.iloc[u],
+                "sample": v,
+                "sample_id": v_node_md["strain"],
+                "sample_pango": v_node_md.get(self.pango_source, "Unknown"),
+                "interval_left": interval[0][0],
+                "interval_right": interval[0][1],
+                "num_mutations": len(hmm_match["mutations"]),
+                **md,
+            }
+            for node, key_prefix in [
+                (parent_left, "parent_left"),
+                (parent_right, "parent_right"),
+            ]:
                 datum[key_prefix] = node
                 parent_md = ts.node(node).metadata
-                datum[f"{key_prefix}_pango"] = parent_md.get(parent_pango_source, "Unknown")
+                datum[f"{key_prefix}_pango"] = parent_md.get(
+                    parent_pango_source, "Unknown"
+                )
             data.append(datum)
 
         # Compute the MRCAs by iterating along trees in order of
