@@ -1510,11 +1510,13 @@ class TreeInfo:
         for col in df_scorpio:
             if np.any(df_scorpio[col] >= scorpio_fraction):
                 keep_cols.append(col)
-                try:
-                    first_date = self.nodes.date[self.first_scorpio_sample[col]]
-                    first_scorpio_date.append((first_date, col))
-                except KeyError:
-                    warnings.warn(f"No samples for Scorpio {col} present")
+                print("FIXME")
+                if False:
+                    try:
+                        first_date = self.nodes.date[self.first_scorpio_sample[col]]
+                        first_scorpio_date.append((first_date, col))
+                    except KeyError:
+                        warnings.warn(f"No samples for Scorpio {col} present")
 
         df_scorpio = df_scorpio[keep_cols]
         ax4.set_title("Scorpio composition of processed samples")
@@ -1595,9 +1597,10 @@ class TreeInfo:
         data = []
         for p in ts.provenances():
             record = json.loads(p.record)
-            text_date = record["parameters"]["date"]
-            resources = record["resources"]
-            data.append({"date": text_date, **resources})
+            if record["parameters"]["command"] == "extend":
+                text_date = record["parameters"]["date"]
+                resources = record["resources"]
+                data.append({"date": text_date, **resources})
         return pd.DataFrame(data).set_index("date")
 
     def node_type_summary(self):
