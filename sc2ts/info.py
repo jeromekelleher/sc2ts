@@ -642,15 +642,13 @@ class TreeInfo:
         )
 
         samples = self.ts.samples()[1:]  # skip reference
-        nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
-        sites_with_zero_muts = np.sum(self.sites_num_mutations == 0)
-        latest_sample = self.nodes_date[samples[-1]]
-        missing_sites_per_sample = self.nodes_num_missing_sites[samples]
-        deletion_sites_per_sample = self.nodes_num_deletion_sites[samples]
+        nodes_with_zero_muts = np.sum(self.nodes.num_mutations == 0)
+        sites_with_zero_muts = np.sum(self.sites.num_mutations == 0)
+        latest_sample = self.nodes.date[samples[-1]]
         non_samples = (self.ts.nodes_flags & tskit.NODE_IS_SAMPLE) == 0
-        max_non_sample_mutations = np.max(self.nodes_num_mutations[non_samples])
-        insertions = np.sum(self.mutations_inherited_state == "-")
-        deletions = np.sum(self.mutations_derived_state == "-")
+        max_non_sample_mutations = np.max(self.nodes.num_mutations[non_samples])
+        insertions = np.sum(self.mutations.inherited_state == "-")
+        deletions = np.sum(self.mutations.derived_state == "-")
 
         data = [
             ("latest_sample", latest_sample),
@@ -663,36 +661,25 @@ class TreeInfo:
             ("imr_nodes", imr_nodes),
             ("mutations", self.ts.num_mutations),
             ("recurrent", np.sum(self.ts.mutations_parent != -1)),
-            ("reversions", np.sum(self.mutations_is_reversion)),
-            ("immediate_reversions", np.sum(self.mutations_is_immediate_reversion)),
-            ("private_mutations", np.sum(self.mutations_num_descendants == 1)),
-            ("transitions", np.sum(self.mutations_is_transition)),
-            ("transversions", np.sum(self.mutations_is_transversion)),
+            ("reversions", np.sum(self.mutations.is_reversion)),
+            ("private_mutations", np.sum(self.mutations.num_descendants == 1)),
             ("insertions", insertions),
             ("deletions", deletions),
-            ("max_mutations_parents", np.max(self.mutations_num_parents)),
+            ("max_mutations_parents", np.max(self.mutations.num_parents)),
             ("nodes_with_zero_muts", nodes_with_zero_muts),
             ("sites_with_zero_muts", sites_with_zero_muts),
-            ("max_mutations_per_site", np.max(self.sites_num_mutations)),
-            ("mean_mutations_per_site", np.mean(self.sites_num_mutations)),
-            ("median_mutations_per_site", np.median(self.sites_num_mutations)),
-            ("max_mutations_per_node", np.max(self.nodes_num_mutations)),
+            ("max_mutations_per_site", np.max(self.sites.num_mutations)),
+            ("mean_mutations_per_site", np.mean(self.sites.num_mutations)),
+            ("median_mutations_per_site", np.median(self.sites.num_mutations)),
+            ("max_mutations_per_node", np.max(self.nodes.num_mutations)),
             ("max_mutations_per_non_sample_node", max_non_sample_mutations),
-            ("max_missing_sites_per_sample", np.max(missing_sites_per_sample)),
-            ("mean_missing_sites_per_sample", np.mean(missing_sites_per_sample)),
-            ("max_missing_samples_per_site", np.max(self.sites_num_missing_samples)),
-            ("mean_missing_samples_per_site", np.mean(self.sites_num_missing_samples)),
-            ("max_deletion_sites_per_sample", np.max(deletion_sites_per_sample)),
-            ("mean_deletion_sites_per_sample", np.mean(deletion_sites_per_sample)),
-            ("max_deletion_samples_per_site", np.max(self.sites_num_deletion_samples)),
+            ("max_missing_samples_per_site", np.max(self.sites.num_missing_samples)),
+            ("mean_missing_samples_per_site", np.mean(self.sites.num_missing_samples)),
+            ("max_deletion_samples_per_site", np.max(self.sites.num_deletion_samples)),
             (
                 "mean_deletion_samples_per_site",
-                np.mean(self.sites_num_deletion_samples),
+                np.mean(self.sites.num_deletion_samples),
             ),
-            ("max_samples_per_day", np.max(self.num_samples_per_day)),
-            ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
-            ("sample_groups", len(self.sample_group_nodes)),
-            ("retro_sample_groups", len(self.retro_sample_groups)),
         ]
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}

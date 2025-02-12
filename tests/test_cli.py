@@ -450,6 +450,19 @@ class TestValidate:
         assert result.exit_code == 0
 
 
+class TestInfoTs:
+    def test_example(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        runner = ct.CliRunner(mix_stderr=False)
+        result = runner.invoke(
+            cli.cli,
+            f"info-ts {ts.path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "latest_sample" in result.stdout
+
+
 class TestInfoMatches:
     def test_defaults(self, fx_match_db):
         runner = ct.CliRunner()
