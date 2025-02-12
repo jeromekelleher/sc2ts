@@ -139,7 +139,7 @@ class TestTreeInfo:
         row = df.iloc[0]
         assert row.id == 0
         assert row.site == 197
-        assert row.position == 197
+        assert row.position == 203
         assert row.inherited_state == "C"
         assert row.derived_state == "T"
         assert row.num_parents == 0
@@ -149,9 +149,9 @@ class TestTreeInfo:
         assert row.num_inheritors == 1
         assert not row.is_reversion
 
-        row = df.set_index("position").loc[11077]
+        row = df.set_index("site").loc[11077]
         assert row.id == 32
-        assert row.site == 11077
+        assert row.position == 11083
         assert row.inherited_state == "G"
         assert row.derived_state == "T"
         assert row.num_parents == 0
