@@ -1,3 +1,4 @@
+import functools
 import collections
 import logging
 import json
@@ -7,7 +8,6 @@ import datetime
 import re
 from typing import List
 
-import numba
 import tskit
 import numpy as np
 from tqdm.auto import tqdm
@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 from IPython.display import Markdown, HTML
 
+from . import jit
 from . import core
 from . import utils
 from . import inference
@@ -189,83 +190,6 @@ def tally_lineages(ts, metadata_db, show_progress=False):
     return pd.DataFrame(data).sort_values("arg_count", ascending=False)
 
 
-@numba.njit
-def _get_root_path(parent, node):
-    u = node
-    path = []
-    while u != -1:
-        path.append(u)
-        u = parent[u]
-    return path
-
-
-def get_root_path(tree, node):
-    return _get_root_path(tree.parent_array, node)
-
-
-@numba.njit
-def _get_path_mrca(path1, path2, node_time):
-    j1 = 0
-    j2 = 0
-    while True:
-        if path1[j1] == path2[j2]:
-            return path1[j1]
-        elif node_time[path1[j1]] < node_time[path2[j2]]:
-            j1 += 1
-        elif node_time[path2[j2]] < node_time[path1[j1]]:
-            j2 += 1
-        else:
-            # Time is equal, but the nodes differ
-            j1 += 1
-            j2 += 1
-
-
-def get_path_mrca(path1, path2, node_time):
-    assert path1[-1] == path2[-1]
-    return _get_path_mrca(
-        np.array(path1, dtype=np.int32), np.array(path2, dtype=np.int32), node_time
-    )
-
-
-@numba.njit
-def _get_num_muts(
-    ts_num_nodes,
-    tree_nodes_preorder,
-    tree_parent_array,
-    tree_nodes_num_mutations,
-):
-    num_muts = np.zeros(ts_num_nodes, dtype=np.int32)
-    for node in tree_nodes_preorder:
-        pa = tree_parent_array[node]
-        if pa > -1:
-            num_muts[node] = num_muts[pa]
-        num_muts[node] += tree_nodes_num_mutations[node]
-    return num_muts
-
-
-def get_num_muts(ts):
-    num_muts_all_trees = np.zeros(ts.num_nodes, dtype=np.int32)
-    for tree in ts.trees():
-        tree_nodes_preorder = tree.preorder()
-        assert np.min(tree_nodes_preorder) >= 0
-        tree_parent_array = tree.parent_array
-        mut_pos = ts.sites_position[ts.mutations_site]
-        is_mut_in_tree = (tree.interval.left <= mut_pos) & (
-            mut_pos < tree.interval.right
-        )
-        tree_nodes_num_muts = np.bincount(
-            ts.mutations_node[is_mut_in_tree],
-            minlength=ts.num_nodes,
-        )
-        num_muts_all_trees += _get_num_muts(
-            ts_num_nodes=ts.num_nodes,
-            tree_nodes_preorder=tree_nodes_preorder,
-            tree_parent_array=tree_parent_array,
-            tree_nodes_num_mutations=tree_nodes_num_muts,
-        )
-    return num_muts_all_trees
-
-
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
 def find_runs(x):
     """Find runs of consecutive items in an array."""
@@ -324,18 +248,29 @@ def max_descendant_samples(ts, show_progress=True):
     return num_samples
 
 
+def get_recombinant_nodes(ts):
+    return np.where(ts.nodes_flags == core.NODE_IS_RECOMBINANT)[0]
+
+
 class TreeInfo:
     def __init__(
         self,
         ts,
         *,
-        quick=False,
-        show_progress=True,
         pango_source="Viridian_pangolin",
         sample_group_id_prefix_len=10,
+        show_progress=False,
     ):
         self.ts = ts
+        self.top_level_md = ts.metadata["sc2ts"]
+        self.date = self.top_level_md["date"]
         self.pango_source = pango_source
+        logger.info("Computing ARG counts")
+        c = jit.count(ts)
+        self.mutations = self._mutations(c)
+        self.nodes = self._nodes(c)
+
+    def old_stuff(self):
         self.scorpio_source = "Viridian_scorpio"
         self.strain_map = {}
         self.recombinants = np.where(ts.nodes_flags == core.NODE_IS_RECOMBINANT)[0]
@@ -584,6 +519,119 @@ class TreeInfo:
         self.sites_num_transitions = sites_num_transitions
         self.sites_num_transversions = sites_num_transversions
 
+    @functools.cached_property
+    def sites(self):
+
+        num_missing_samples = np.full(self.ts.num_sites, -1, dtype=int)
+        num_deletion_samples = np.full(self.ts.num_sites, -1, dtype=int)
+        for site in self.ts.sites():
+            md = site.metadata
+            try:
+                num_missing_samples[site.id] = md["sc2ts"]["missing_samples"]
+                num_deletion_samples[site.id] = md["sc2ts"]["deletion_samples"]
+            except KeyError:
+                # Both of these keys were added at the same time, so no point
+                # in doing two try/catches here.
+                pass
+
+        tables = self.ts.tables
+        assert np.all(
+            tables.sites.ancestral_state_offset == np.arange(self.ts.num_sites + 1)
+        )
+        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+        del tables
+
+        num_mutations = np.bincount(self.ts.mutations_site, minlength=self.ts.num_sites)
+        return pd.DataFrame(
+            {
+                "id": np.arange(self.ts.num_sites, dtype=int),
+                "position": self.ts.sites_position.astype("int"),
+                "ancestral_state": ancestral_state,
+                "num_missing_samples": num_missing_samples,
+                "num_deletion_samples": num_deletion_samples,
+                "num_mutations": num_mutations,
+            },
+        ).astype({"ancestral_state": pd.StringDtype()})
+
+    def _nodes(self, arg_counter):
+        ts = self.ts
+        time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
+        # NOTE not sure the internal times are getting rounded in to right days etc,
+        # but day precision is probably right anyway.
+        date = time_zero_as_date - ts.nodes_time.astype("timedelta64[D]")
+
+        sample_id = np.full(ts.num_nodes, None, dtype=object)
+        sample_id[ts.samples()] = self.top_level_md["samples_strain"]
+
+        fields = {
+            "id": np.arange(ts.num_nodes, dtype=int),
+            "flags": ts.nodes_flags,
+            "time": ts.nodes_time,
+            "date": date,
+            "max_descendant_samples": arg_counter.nodes_max_descendant_samples,
+            "num_mutations": np.bincount(ts.mutations_node, minlength=ts.num_nodes),
+            "sample_id": sample_id,
+        }
+        if "vectorised_metadata" in self.top_level_md:
+            nodes_md = self.top_level_md["vectorised_metadata"]["nodes"]
+            for k, v in nodes_md.items():
+                if len(v) != ts.num_nodes:
+                    raise ValueError(
+                        f"Vectorised metadata incorrect size: {k}: {len(v)}"
+                    )
+                fields[k] = v
+        else:
+            logger.warning(
+                "Vectorised node metadata not found; some functionality will be missing"
+            )
+        return pd.DataFrame(fields)
+
+    def _mutations(self, arg_counter):
+        ts = self.ts
+        mutations_position = ts.sites_position[ts.mutations_site].astype(int)
+        tables = ts.tables
+        assert np.all(
+            tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
+        )
+        derived_state = tables.mutations.derived_state.view("S1").astype(str)
+        assert np.all(
+            tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1)
+        )
+        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
+        del tables
+        inherited_state = ancestral_state[ts.mutations_site]
+        mutations_with_parent = ts.mutations_parent != -1
+
+        parent = ts.mutations_parent[mutations_with_parent]
+        assert np.all(parent >= 0)
+        inherited_state[mutations_with_parent] = derived_state[parent]
+
+        assert np.all(inherited_state != derived_state)
+
+        is_reversion = np.zeros(ts.num_mutations, dtype=bool)
+        is_reversion[mutations_with_parent] = (
+            derived_state[mutations_with_parent] == inherited_state[parent]
+        )
+        return pd.DataFrame(
+            {
+                "id": np.arange(self.ts.num_mutations, dtype=int),
+                "site": self.ts.mutations_site,
+                "position": mutations_position,
+                "time": self.ts.mutations_time,
+                "inherited_state": inherited_state,
+                "derived_state": derived_state,
+                "parent": self.ts.mutations_parent,
+                "node": self.ts.mutations_node,
+                # TODO ADD EDGE
+                "num_parents": arg_counter.mutations_num_parents,
+                "num_descendants": arg_counter.mutations_num_descendants,
+                "num_inheritors": arg_counter.mutations_num_inheritors,
+                "is_reversion": is_reversion,
+            }
+        ).astype(
+            {"derived_state": pd.StringDtype(), "inherited_state": pd.StringDtype()}
+        )
+
     def summary(self):
         # TODO use the node_counts function above
         mc_nodes = np.sum(self.ts.nodes_flags == core.NODE_IS_MUTATION_OVERLAP)
@@ -595,15 +643,13 @@ class TreeInfo:
         )
 
         samples = self.ts.samples()[1:]  # skip reference
-        nodes_with_zero_muts = np.sum(self.nodes_num_mutations == 0)
-        sites_with_zero_muts = np.sum(self.sites_num_mutations == 0)
-        latest_sample = self.nodes_date[samples[-1]]
-        missing_sites_per_sample = self.nodes_num_missing_sites[samples]
-        deletion_sites_per_sample = self.nodes_num_deletion_sites[samples]
+        nodes_with_zero_muts = np.sum(self.nodes.num_mutations == 0)
+        sites_with_zero_muts = np.sum(self.sites.num_mutations == 0)
+        latest_sample = self.nodes.date[samples[-1]]
         non_samples = (self.ts.nodes_flags & tskit.NODE_IS_SAMPLE) == 0
-        max_non_sample_mutations = np.max(self.nodes_num_mutations[non_samples])
-        insertions = np.sum(self.mutations_inherited_state == "-")
-        deletions = np.sum(self.mutations_derived_state == "-")
+        max_non_sample_mutations = np.max(self.nodes.num_mutations[non_samples])
+        insertions = np.sum(self.mutations.inherited_state == "-")
+        deletions = np.sum(self.mutations.derived_state == "-")
 
         data = [
             ("latest_sample", latest_sample),
@@ -616,36 +662,25 @@ class TreeInfo:
             ("imr_nodes", imr_nodes),
             ("mutations", self.ts.num_mutations),
             ("recurrent", np.sum(self.ts.mutations_parent != -1)),
-            ("reversions", np.sum(self.mutations_is_reversion)),
-            ("immediate_reversions", np.sum(self.mutations_is_immediate_reversion)),
-            ("private_mutations", np.sum(self.mutations_num_descendants == 1)),
-            ("transitions", np.sum(self.mutations_is_transition)),
-            ("transversions", np.sum(self.mutations_is_transversion)),
+            ("reversions", np.sum(self.mutations.is_reversion)),
+            ("private_mutations", np.sum(self.mutations.num_descendants == 1)),
             ("insertions", insertions),
             ("deletions", deletions),
-            ("max_mutations_parents", np.max(self.mutations_num_parents)),
+            ("max_mutations_parents", np.max(self.mutations.num_parents)),
             ("nodes_with_zero_muts", nodes_with_zero_muts),
             ("sites_with_zero_muts", sites_with_zero_muts),
-            ("max_mutations_per_site", np.max(self.sites_num_mutations)),
-            ("mean_mutations_per_site", np.mean(self.sites_num_mutations)),
-            ("median_mutations_per_site", np.median(self.sites_num_mutations)),
-            ("max_mutations_per_node", np.max(self.nodes_num_mutations)),
+            ("max_mutations_per_site", np.max(self.sites.num_mutations)),
+            ("mean_mutations_per_site", np.mean(self.sites.num_mutations)),
+            ("median_mutations_per_site", np.median(self.sites.num_mutations)),
+            ("max_mutations_per_node", np.max(self.nodes.num_mutations)),
             ("max_mutations_per_non_sample_node", max_non_sample_mutations),
-            ("max_missing_sites_per_sample", np.max(missing_sites_per_sample)),
-            ("mean_missing_sites_per_sample", np.mean(missing_sites_per_sample)),
-            ("max_missing_samples_per_site", np.max(self.sites_num_missing_samples)),
-            ("mean_missing_samples_per_site", np.mean(self.sites_num_missing_samples)),
-            ("max_deletion_sites_per_sample", np.max(deletion_sites_per_sample)),
-            ("mean_deletion_sites_per_sample", np.mean(deletion_sites_per_sample)),
-            ("max_deletion_samples_per_site", np.max(self.sites_num_deletion_samples)),
+            ("max_missing_samples_per_site", np.max(self.sites.num_missing_samples)),
+            ("mean_missing_samples_per_site", np.mean(self.sites.num_missing_samples)),
+            ("max_deletion_samples_per_site", np.max(self.sites.num_deletion_samples)),
             (
                 "mean_deletion_samples_per_site",
-                np.mean(self.sites_num_deletion_samples),
+                np.mean(self.sites.num_deletion_samples),
             ),
-            ("max_samples_per_day", np.max(self.num_samples_per_day)),
-            ("mean_samples_per_day", np.mean(self.num_samples_per_day)),
-            ("sample_groups", len(self.sample_group_nodes)),
-            ("retro_sample_groups", len(self.retro_sample_groups)),
         ]
         df = pd.DataFrame(
             {"property": [d[0] for d in data], "value": [d[1] for d in data]}
@@ -654,14 +689,14 @@ class TreeInfo:
 
     def _node_mutation_summary(self, u, child_mutations=True):
         mutations_above = self.ts.mutations_node == u
-        assert np.sum(mutations_above) == self.nodes_num_mutations[u]
+        assert np.sum(mutations_above) == self.nodes.num_mutations[u]
 
         data = {
-            "mutations": self.nodes_num_mutations[u],
-            "reversions": np.sum(self.mutations_is_reversion[mutations_above]),
-            "immediate_reversions": np.sum(
-                self.mutations_is_immediate_reversion[mutations_above]
-            ),
+            "mutations": self.nodes.num_mutations[u],
+            "reversions": np.sum(self.mutations.is_reversion[mutations_above]),
+            # "immediate_reversions": np.sum(
+            #     self.mutations_is_immediate_reversion[mutations_above]
+            # ),
         }
         if child_mutations:
             children = self.ts.edges_child[self.ts.edges_parent == u]
@@ -671,15 +706,30 @@ class TreeInfo:
                 child_mutations = self.ts.mutations_node == child
                 num_child_mutations += np.sum(child_mutations)
                 num_child_reversions += np.sum(
-                    self.mutations_is_reversion[child_mutations]
+                    self.mutations.is_reversion[child_mutations]
                 )
             data["child_mutations"] = num_child_mutations
             data["child_reversions"] = num_child_reversions
         return data
 
     def _node_summary(self, u, child_mutations=True):
-        md = self.nodes_metadata[u]
+        md = self.ts.node(u).metadata
         flags = self.ts.nodes_flags[u]
+
+        # Temporary, work around fussy code
+        pango = md.get("Imputed_Viridian_pangolin", None)
+        if pango is None:
+            pango = md.get(self.pango_source, None)
+
+        # pango = md.get(self.pango_source, None)
+        # imputed_pango = md.get("Imputed_" + self.pango_source, None)
+        # if pango is not None:
+        #     if imputed_pango is not None and imputed_pango != pango:
+        #         pango = f"MISMATCH: {pango} != {imputed_pango}"
+        # elif imputed_pango is not None:
+        #     pango = imputed_pango
+        # else:
+        #     pango = ""
 
         strain = ""
         if flags & (tskit.NODE_IS_SAMPLE | core.NODE_IS_REFERENCE) > 0:
@@ -699,15 +749,9 @@ class TreeInfo:
                 # see https://github.com/jeromekelleher/sc2ts/issues/434
                 strain = md["group_id"][:8]
 
-        pango = md.get(self.pango_source, None)
-        imputed_pango = md.get("Imputed_" + self.pango_source, None)
-        if pango is not None:
-            if imputed_pango is not None and imputed_pango != pango:
-                pango = f"MISMATCH: {pango} != {imputed_pango}"
-        elif imputed_pango is not None:
-            pango = imputed_pango
-        else:
-            pango = ""
+
+        # NOTE: keyed by *string* because of JSON
+        exact_matches = self.top_level_md["cumulative_stats"]["exact_matches"]["node"]
 
         return {
             "node": u,
@@ -716,16 +760,16 @@ class TreeInfo:
             "pango": pango,
             "parents": np.sum(self.ts.edges_child == u),
             "children": np.sum(self.ts.edges_parent == u),
-            "exact_matches": self.nodes_num_exact_matches[u],
-            "descendants": self.nodes_max_descendant_samples[u],
-            "date": self.nodes_date[u],
+            "exact_matches": exact_matches.get(str(u), 0),
+            "descendants": self.nodes.max_descendant_samples[u],
+            "date": self.nodes.date[u],
             **self._node_mutation_summary(u, child_mutations=child_mutations),
         }
 
     def _children_summary(self, u):
         u_children = self.ts.edges_child[self.ts.edges_parent == u]
         counter = collections.Counter(
-            dict(zip(u_children, self.nodes_max_descendant_samples[u_children]))
+            dict(zip(u_children, self.nodes.max_descendant_samples[u_children]))
         )
 
         # Count the mutations on the parent and those on each child
@@ -852,81 +896,62 @@ class TreeInfo:
         if parent_pango_source is None:
             parent_pango_source = self.pango_source
         data = []
-        for u in self.recombinants:
-            md = dict(self.nodes_metadata[u]["sc2ts"])
-            group_id = md["group_id"][: self.sample_group_id_prefix_len]
-            md["group_id"] = group_id
-            group_nodes = self.sample_group_nodes[group_id]
-            md["group_size"] = len(group_nodes)
+        ts = self.ts
+        tree = self.ts.first()
 
-            samples = []
-            for v in self.sample_group_nodes[group_id]:
-                if self.ts.nodes_flags[v] & tskit.NODE_IS_SAMPLE > 0:
-                    samples.append(v)
+        for u in get_recombinant_nodes(ts):
+            md = ts.node(u).metadata["sc2ts"]
+            group_id = md["group_id"]
+            for v in tree.nodes(u, order="levelorder"):
+                v_node = ts.node(v)
+                v_node_md = v_node.metadata
+                v_group_id = v_node_md["sc2ts"].get("group_id", None)
+                if (v_node.flags & tskit.NODE_IS_SAMPLE > 0) and v_group_id == group_id:
+                    break
 
-            causal_lineages = {}
-            hmm_matches = []
-            breakpoint_intervals = []
-            for v in samples:
-                causal_lineages[v] = self.nodes_metadata[v].get(
-                    self.pango_source, "Unknown"
-                )
-
-            # Arbitrarily pick the first sample node as the representative
-            v = samples[0]
-            node_md = self.nodes_metadata[v]["sc2ts"]
-            hmm_matches.append(node_md["hmm_match"])
-            breakpoint_intervals.append(node_md["breakpoint_intervals"])
-
-            # Only deal with 2 parents recombs for now.
-            assert self.nodes_num_parents[u] == 2
-            # assert len(set(hmm_matches)) == 1
-            # assert len(set(breakpoint_intervals)) == 1
-            hmm_match = hmm_matches[0]
+            smd = v_node_md["sc2ts"]
+            hmm_match = smd["hmm_match"]
             assert len(hmm_match["path"]) == 2
-            interval = breakpoint_intervals[0]
+            interval = smd["breakpoint_intervals"]
             parent_left = hmm_match["path"][0]["parent"]
             parent_right = hmm_match["path"][1]["parent"]
-            data.append(
-                {
-                    "recombinant": u,
-                    "descendants": self.nodes_max_descendant_samples[u],
-                    "sample": v,
-                    "sample_pango": causal_lineages[v],
-                    "num_samples": len(samples),
-                    "distinct_sample_pango": len(set(causal_lineages.values())),
-                    "interval_left": interval[0][0],
-                    "interval_right": interval[0][1],
-                    "parent_left": parent_left,
-                    "parent_right": parent_right,
-                    "parent_left_pango": self.nodes_metadata[parent_left].get(
-                        parent_pango_source,
-                        "Unknown",
-                    ),
-                    "parent_right_pango": self.nodes_metadata[parent_right].get(
-                        parent_pango_source,
-                        "Unknown",
-                    ),
-                    "num_mutations": len(hmm_match["mutations"]),
-                    **md,
-                }
-            )
+            datum = {
+                "recombinant": u,
+                "descendants": self.nodes.max_descendant_samples.iloc[u],
+                "sample": v,
+                "sample_id": v_node_md["strain"],
+                "sample_pango": v_node_md.get(self.pango_source, "Unknown"),
+                "interval_left": interval[0][0],
+                "interval_right": interval[0][1],
+                "num_mutations": len(hmm_match["mutations"]),
+                **md,
+            }
+            for node, key_prefix in [
+                (parent_left, "parent_left"),
+                (parent_right, "parent_right"),
+            ]:
+                datum[key_prefix] = node
+                parent_md = ts.node(node).metadata
+                datum[f"{key_prefix}_pango"] = parent_md.get(
+                    parent_pango_source, "Unknown"
+                )
+            data.append(datum)
+
         # Compute the MRCAs by iterating along trees in order of
         # breakpoint. We use the right interval
         df = pd.DataFrame(data).sort_values("interval_right")
-        tree = self.ts.first()
         mrca_data = []
         for _, row in df.iterrows():
             bp = row.interval_right
             tree.seek(bp)
             assert tree.interval.left == bp
-            right_path = get_root_path(tree, row.parent_right)
+            right_path = jit.get_root_path(tree, row.parent_right)
             assert tree.parent(row.recombinant) == row.parent_right
             tree.prev()
             assert tree.interval.right == bp
-            left_path = get_root_path(tree, row.parent_left)
+            left_path = jit.get_root_path(tree, row.parent_left)
             assert tree.parent(row.recombinant) == row.parent_left
-            mrca = get_path_mrca(left_path, right_path, self.ts.nodes_time)
+            mrca = jit.get_path_mrca(left_path, right_path, self.ts.nodes_time)
             mrca_data.append(mrca)
         mrca_data = np.array(mrca_data)
         df["mrca"] = mrca_data
@@ -941,6 +966,7 @@ class TreeInfo:
     def _characterise_recombinant_copying(self, df, show_progress):
         """
         Return a copy of the specified recombinants_summary data frame
+        d
         in which we add fields to summarise the variant sites among
         the parents and sample.
         """
@@ -970,11 +996,11 @@ class TreeInfo:
         return df.assign(diffs=diff_data, max_run_length=max_run_length_data)
 
     def deletions_summary(self):
-        deletion_ids = np.where(self.mutations_derived_state == "-")[0]
+        deletion_ids = np.where(self.mutations.derived_state == "-")[0]
         df = pd.DataFrame(
             {
                 "mutation": deletion_ids,
-                "position": self.mutations_position[deletion_ids],
+                "position": self.mutations.position[deletion_ids],
                 "node": self.ts.mutations_node[deletion_ids],
             }
         )
@@ -1000,7 +1026,7 @@ class TreeInfo:
         data = []
         for event_list in events.values():
             for e in event_list:
-                num_inheritors = self.mutations_num_inheritors[e.mutations]
+                num_inheritors = self.mutations.num_inheritors[e.mutations]
                 data.append(
                     {
                         "start": e.start,
@@ -1014,7 +1040,7 @@ class TreeInfo:
         return pd.DataFrame(data)
 
     def mutators_summary(self, threshold=10):
-        mutator_nodes = np.where(self.nodes_num_mutations > threshold)[0]
+        mutator_nodes = np.where(self.nodes.num_mutations > threshold)[0]
         df = self._collect_node_data(mutator_nodes)
         df.sort_values("mutations", inplace=True)
         return df
@@ -1042,8 +1068,8 @@ class TreeInfo:
         for mut_id in np.where(self.ts.mutations_node == node)[0]:
             pos = int(self.ts.sites_position[self.ts.mutations_site[mut_id]])
             assert pos not in muts
-            state0 = self.mutations_inherited_state[mut_id]
-            state1 = self.mutations_derived_state[mut_id]
+            state0 = self.mutations.inherited_state[mut_id]
+            state1 = self.mutations.derived_state[mut_id]
             muts[pos] = f"{state0}>{state1}"
         return muts
 
@@ -1183,8 +1209,8 @@ class TreeInfo:
     def _tree_mutation_path(self, tree, node):
         u = node
         site_in_tree = np.logical_and(
-            self.mutations_position >= tree.interval.left,
-            self.mutations_position < tree.interval.right,
+            self.mutations.position >= tree.interval.left,
+            self.mutations.position < tree.interval.right,
         )
         ret = []
         while u != -1:
@@ -1206,29 +1232,14 @@ class TreeInfo:
         return [Markdown("## Mutation path"), df]
 
     def _mutation_summary(self, mut_id):
-        return {
-            "site": self.mutations_position[mut_id],
-            "node": self.ts.mutations_node[mut_id],
-            "descendants": self.mutations_num_descendants[mut_id],
-            "inheritors": self.mutations_num_inheritors[mut_id],
-            "inherited_state": self.mutations_inherited_state[mut_id],
-            "derived_state": self.mutations_derived_state[mut_id],
-            "is_reversion": self.mutations_is_reversion[mut_id],
-            "is_immediate_reversion": self.mutations_is_immediate_reversion[mut_id],
-            "is_transition": self.mutations_is_transition[mut_id],
-            "is_transversion": self.mutations_is_transversion[mut_id],
-            "is_insertion": self.mutations_inherited_state[mut_id] == "-",
-            "is_deletion": self.mutations_derived_state[mut_id] == "-",
-            "parent": self.ts.mutations_parent[mut_id],
-            "num_parents": self.mutations_num_parents[mut_id],
-            "time": self.ts.mutations_time[mut_id],
-            "id": mut_id,
-            "metadata": self.ts.mutation(mut_id).metadata,
-        }
+        return self.mutations.iloc[mut_id]
 
     def node_report(self, node_id=None, strain=None):
         if strain is not None:
-            node_id = self.strain_map[strain]
+            # FIXME! Not dealing with errors
+            samples_strain = self.top_level_md["samples_strain"]
+            sample_id = samples_strain.index(strain)
+            node_id = self.ts.samples()[sample_id]
         # node_summary = pd.DataFrame([self._node_summary(node_id)])
         # TODO improve this for internal nodes
         node_summary = [self.ts.node(node_id).metadata]
@@ -1251,25 +1262,13 @@ class TreeInfo:
         return fig, [ax]
 
     def plot_mutations_per_node_distribution(self):
-        nodes_with_many_muts = np.sum(self.nodes_num_mutations >= 10)
+        nodes_with_many_muts = np.sum(self.nodes.num_mutations >= 10)
         return self._histogram(
-            self.nodes_num_mutations,
+            self.nodes.num_mutations,
             title=f"Nodes with >= 10 muts: {nodes_with_many_muts}",
             bins=range(10),
             xlabel="Number of mutations",
             ylabel="Number of nodes",
-        )
-
-    def plot_missing_sites_per_sample(self):
-        return self._histogram(
-            self.nodes_num_missing_sites[self.ts.samples()],
-            title="Missing sites per sample",
-        )
-
-    def plot_deletion_sites_per_sample(self):
-        return self._histogram(
-            self.nodes_num_deletion_sites[self.ts.samples()],
-            title="Deletion sites per sample",
         )
 
     def plot_branch_length_distributions(
@@ -1289,9 +1288,9 @@ class TreeInfo:
 
     def plot_mutations_per_site_distribution(self):
         fig, ax = plt.subplots(1, 1)
-        sites_with_many_muts = np.sum(self.sites_num_mutations >= 10)
+        sites_with_many_muts = np.sum(self.sites.num_mutations >= 10)
         ax.set_title(f"Sites with >= 10 muts: {sites_with_many_muts}")
-        ax.hist(self.sites_num_mutations, range(10), rwidth=0.9)
+        ax.hist(self.sites.num_mutations, range(10), rwidth=0.9)
         ax.set_xlabel("Number of mutations")
         ax.set_ylabel("Number of site")
         return fig, [ax]
@@ -1324,9 +1323,9 @@ class TreeInfo:
         return fig, [ax]
 
     def get_mutation_spectrum(self, min_inheritors=1):
-        keep = self.mutations_num_inheritors >= min_inheritors
-        inherited = self.mutations_inherited_state[keep]
-        derived = self.mutations_derived_state[keep]
+        keep = self.mutations.num_inheritors >= min_inheritors
+        inherited = self.mutations.inherited_state.values[keep].astype("S1")
+        derived = self.mutations.derived_state.values[keep].astype("S1")
         sep = inherited.copy()
         sep[:] = ">"
         x = np.char.add(inherited, sep)
@@ -1352,27 +1351,6 @@ class TreeInfo:
     def _wide_plot(self, *args, height=4, **kwargs):
         return plt.subplots(*args, figsize=(16, height), **kwargs)
 
-    def plot_ts_tv_per_site(self, annotate_threshold=0.9):
-        nonzero = self.sites_num_transversions != 0
-        ratio = (
-            self.sites_num_transitions[nonzero] / self.sites_num_transversions[nonzero]
-        )
-        pos = self.ts.sites_position[nonzero]
-
-        fig, ax = self._wide_plot(1, 1)
-        ax.plot(pos, ratio)
-        self._add_genes_to_axis(ax)
-
-        threshold = np.max(ratio) * annotate_threshold
-        top_sites = np.where(ratio > threshold)[0]
-        for site in top_sites:
-            plt.annotate(
-                f"{int(pos[site])}", xy=(pos[site], ratio[site]), xycoords="data"
-            )
-        ax.set_ylabel("Ts/Tv")
-        ax.set_xlabel("Position on genome")
-        return fig, [ax]
-
     def _plot_per_site_count(self, count, annotate_threshold):
         fig, ax = self._wide_plot(1, 1)
         pos = self.ts.sites_position
@@ -1395,7 +1373,7 @@ class TreeInfo:
 
     def plot_mutations_per_site(self, annotate_threshold=0.9, select=None):
         if select is None:
-            count = self.sites_num_mutations
+            count = self.sites.num_mutations
         else:
             count = np.bincount(
                 self.ts.mutations_site[select], minlength=self.ts.num_sites
@@ -1412,14 +1390,14 @@ class TreeInfo:
 
     def plot_missing_samples_per_site(self, annotate_threshold=0.5):
         fig, ax = self._plot_per_site_count(
-            self.sites_num_missing_samples, annotate_threshold
+            self.sites.num_missing_samples, annotate_threshold
         )
         ax.set_ylabel("Number missing samples")
         return fig, [ax]
 
     def plot_deletion_samples_per_site(self, annotate_threshold=0.5):
         fig, ax = self._plot_per_site_count(
-            self.sites_num_deletion_samples, annotate_threshold
+            self.sites.num_deletion_samples, annotate_threshold
         )
         ax.set_ylabel("Number deletion samples")
         return fig, [ax]
@@ -1500,11 +1478,13 @@ class TreeInfo:
         for col in df_scorpio:
             if np.any(df_scorpio[col] >= scorpio_fraction):
                 keep_cols.append(col)
-                try:
-                    first_date = self.nodes_date[self.first_scorpio_sample[col]]
-                    first_scorpio_date.append((first_date, col))
-                except KeyError:
-                    warnings.warn(f"No samples for Scorpio {col} present")
+                # FIXME got rid of this because we don't have first_scorpio sample
+                if False:
+                    try:
+                        first_date = self.nodes.date[self.first_scorpio_sample[col]]
+                        first_scorpio_date.append((first_date, col))
+                    except KeyError:
+                        warnings.warn(f"No samples for Scorpio {col} present")
 
         df_scorpio = df_scorpio[keep_cols]
         ax4.set_title("Scorpio composition of processed samples")
@@ -1518,10 +1498,11 @@ class TreeInfo:
         j = 0
         n = 5
         for date, scorpio in sorted(first_scorpio_date):
-            y = (j + 1) / n
-            ax4.annotate(f"{scorpio}", xy=(date, y), xycoords="data")
-            ax4.axvline(date, color="grey", alpha=0.5)
-            j = (j + 1) % (n - 1)
+            if start_date <= str(date) < end_date:
+                y = (j + 1) / n
+                ax4.annotate(f"{scorpio}", xy=(date, y), xycoords="data")
+                ax4.axvline(date, color="grey", alpha=0.5)
+                j = (j + 1) % (n - 1)
 
         return fig, [ax1, ax2, ax3, ax4]
 
@@ -1585,9 +1566,10 @@ class TreeInfo:
         data = []
         for p in ts.provenances():
             record = json.loads(p.record)
-            text_date = record["parameters"]["date"]
-            resources = record["resources"]
-            data.append({"date": text_date, **resources})
+            if record["parameters"]["command"] == "extend":
+                text_date = record["parameters"]["date"]
+                resources = record["resources"]
+                data.append({"date": text_date, **resources})
         return pd.DataFrame(data).set_index("date")
 
     def node_type_summary(self):
@@ -1942,6 +1924,121 @@ class TreeInfo:
             ts=tables.tree_sequence(),
             attach_date=attach_date,
         )
+
+    def panel(self):
+        import panel as pn
+
+        pn.extension("ipywidgets")
+        pn.extension("tabulator")
+
+        along_genome_figs = {
+            "Missing": self.plot_missing_samples_per_site,
+            "Deletions (data)": self.plot_deletion_samples_per_site,
+            "Deletions (ARG)": self.plot_deletion_overlaps,
+            "Mutations": self.plot_mutations_per_site,
+        }
+        by_day_figs = {
+            "Resources": self.plot_resources,
+            "Samples": self.plot_samples_per_day,
+        }
+        distribution_figs = {
+            "Mutations/node": self.plot_mutations_per_node_distribution,
+            "Mutations/site": self.plot_mutations_per_site_distribution,
+            "Branch lengths": self.plot_branch_length_distributions,
+        }
+
+        def plot_func(fig):
+            pane = pn.pane.Matplotlib(
+                fig, tight=True, format="svg", sizing_mode="stretch_width"
+            )
+            plt.close(fig)
+            return pane
+
+        wdg_annotate_threshold = pn.widgets.FloatSlider(
+            name="Annotate threshold", start=0.1, end=1, step=0.01, value=0.9
+        )
+
+        def along_genome_plot_func(annotate_threshold):
+            key = along_genome_tabs[along_genome_tabs.active][0].name
+            fig = along_genome_figs[key](annotate_threshold=annotate_threshold)[0]
+            return plot_func(fig)
+
+        along_genome_tabs = []
+        for title in along_genome_figs.keys():
+            p = pn.param.ParamFunction(
+                pn.bind(along_genome_plot_func, wdg_annotate_threshold),
+                lazy=True,
+                name=title,
+            )
+            widgets = wdg_annotate_threshold
+            along_genome_tabs.append(((title, pn.Column(p, widgets))))
+        along_genome_tabs = pn.Tabs(*along_genome_tabs, dynamic=True)
+
+        wdg_start_date = pn.widgets.TextInput(name="Start date", value="2020-04-01")
+        wdg_end_date = pn.widgets.TextInput(name="End date", value="2030")
+
+        def by_day_plot_func(start_date, end_date):
+            key = by_day_tabs[by_day_tabs.active][0].name
+            fig = by_day_figs[key](start_date=start_date, end_date=end_date)[0]
+            return plot_func(fig)
+
+        by_day_tabs = []
+        for title in by_day_figs.keys():
+            p = pn.param.ParamFunction(
+                pn.bind(by_day_plot_func, wdg_start_date, wdg_end_date),
+                lazy=True,
+                name=title,
+            )
+            widgets = pn.Row(wdg_start_date, wdg_end_date)
+            by_day_tabs.append((title, pn.Column(p, widgets)))
+        by_day_tabs = pn.Tabs(*by_day_tabs, dynamic=True)
+
+        # Placeholders for distribution bin widgets
+        wdg_bin_start = pn.widgets.TextInput(name="NON functional", value="2020-04-01")
+        wdg_bin_stop = pn.widgets.TextInput(name="NON functional", value="2030")
+
+        def distribution_plot_func(bin_start, bin_stop):
+            key = distribution_tabs[distribution_tabs.active][0].name
+            fig = distribution_figs[key]()[
+                0
+            ]  # bin_start=bin_start, bin_stop=bin_stop)[0]
+            return plot_func(fig)
+
+        distribution_tabs = []
+        for title in distribution_figs.keys():
+            p = pn.param.ParamFunction(
+                pn.bind(distribution_plot_func, wdg_bin_start, wdg_bin_stop),
+                lazy=True,
+                name=title,
+            )
+            widgets = pn.Row(wdg_bin_start, wdg_bin_stop)
+            distribution_tabs.append((title, pn.Column(p, widgets)))
+        distribution_tabs = pn.Tabs(*distribution_tabs, dynamic=True)
+
+        def tabulator(df):
+            return pn.widgets.Tabulator(df, editors={k: None for k in df})
+
+        tables_tabs = [
+            ("Nodes", tabulator(self.nodes)),
+            ("Mutations", tabulator(self.mutations)),
+        ]
+        tables_tabs = pn.Tabs(*tables_tabs, dynamic=True)
+
+        tabs = pn.Tabs(
+            ("Along genome", along_genome_tabs),
+            ("By day", by_day_tabs),
+            ("Distributions", distribution_tabs),
+            ("Tables", tables_tabs),
+        )
+        return tabs
+
+    def report(self, node=None):
+        import panel as pn
+
+        pn.extension("ipywidgets")
+        pn.extension("tabulator")
+
+        df = self.node_report
 
 
 @dataclasses.dataclass
