@@ -616,7 +616,7 @@ class TreeInfo:
             {
                 "id": np.arange(self.ts.num_mutations, dtype=int),
                 "site": self.ts.mutations_site,
-                "position": self.ts.mutations_site,
+                "position": mutations_position,
                 "inherited_state": inherited_state,
                 "derived_state": derived_state,
                 "parent": self.ts.mutations_parent,
@@ -2099,13 +2099,13 @@ class TreeInfo:
         import panel as pn
 
         pn.extension("ipywidgets")
+        pn.extension("tabulator")
 
         along_genome_figs = {
             "Missing": self.plot_missing_samples_per_site,
             "Deletions (data)": self.plot_deletion_samples_per_site,
             "Deletions (ARG)": self.plot_deletion_overlaps,
             "Mutations": self.plot_mutations_per_site,
-            "Ts/Tv": self.plot_ts_tv_per_site,
         }
         by_day_figs = {
             "Resources": self.plot_resources,
@@ -2114,8 +2114,6 @@ class TreeInfo:
         distribution_figs = {
             "Mutations/node": self.plot_mutations_per_node_distribution,
             "Mutations/site": self.plot_mutations_per_site_distribution,
-            "Missing sites/sample": self.plot_missing_sites_per_sample,
-            "Deletion sites/sample": self.plot_deletion_sites_per_sample,
             "Branch lengths": self.plot_branch_length_distributions,
         }
 
@@ -2187,10 +2185,21 @@ class TreeInfo:
             distribution_tabs.append((title, pn.Column(p, widgets)))
         distribution_tabs = pn.Tabs(*distribution_tabs, dynamic=True)
 
+        def tabulator(df):
+            return pn.widgets.Tabulator(df, editors={k: None for k in df})
+
+
+        tables_tabs = [
+            ("Nodes", tabulator(self.nodes)),
+            ("Mutations", tabulator(self.mutations)),
+        ]
+        tables_tabs = pn.Tabs(*tables_tabs, dynamic=True)
+
         tabs = pn.Tabs(
             ("Along genome", along_genome_tabs),
             ("By day", by_day_tabs),
             ("Distributions", distribution_tabs),
+            ("Tables", tables_tabs),
         )
         return tabs
 
