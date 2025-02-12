@@ -258,8 +258,8 @@ class TreeInfo:
         show_progress=False,
     ):
         self.ts = ts
-        top_level_md = ts.metadata["sc2ts"]
-        self.date = top_level_md["date"]
+        self.top_level_md = ts.metadata["sc2ts"]
+        self.date = self.top_level_md["date"]
         self.pango_source = pango_source
         logger.info("Computing ARG counts")
         c = jit.count(ts)
@@ -551,22 +551,36 @@ class TreeInfo:
 
     def _nodes(self, arg_counter):
         ts = self.ts
-
         time_zero_as_date = np.array([self.date], dtype="datetime64[D]")[0]
         # NOTE not sure the internal times are getting rounded in to right days etc,
         # but day precision is probably right anyway.
         date = time_zero_as_date - ts.nodes_time.astype("timedelta64[D]")
 
-        return pd.DataFrame(
-            {
-                "id": np.arange(ts.num_nodes, dtype=int),
-                "flags": ts.nodes_flags,
-                "time": ts.nodes_time,
-                "date": date,
-                "max_descendant_samples": arg_counter.nodes_max_descendant_samples,
-                "num_mutations": np.bincount(ts.mutations_node, minlength=ts.num_nodes),
-            },
-        )
+        sample_id = np.full(ts.num_nodes, None, dtype=object)
+        sample_id[ts.samples()] = self.top_level_md["samples_strain"]
+
+        fields = {
+            "id": np.arange(ts.num_nodes, dtype=int),
+            "flags": ts.nodes_flags,
+            "time": ts.nodes_time,
+            "date": date,
+            "max_descendant_samples": arg_counter.nodes_max_descendant_samples,
+            "num_mutations": np.bincount(ts.mutations_node, minlength=ts.num_nodes),
+            "sample_id": sample_id,
+        }
+        if "vectorised_metadata" in self.top_level_md:
+            nodes_md = self.top_level_md["vectorised_metadata"]["nodes"]
+            for k, v in nodes_md.items():
+                if len(v) != ts.num_nodes:
+                    raise ValueError(
+                        f"Vectorised metadata incorrect size: {k}: {len(v)}"
+                    )
+                fields[k] = v
+        else:
+            logger.warning(
+                "Vectorised node metadata not found; some functionality will be missing"
+            )
+        return pd.DataFrame(fields)
 
     def _mutations(self, arg_counter):
         ts = self.ts
