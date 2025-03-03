@@ -430,7 +430,7 @@ class TreeInfo:
             self.nodes_metadata[node.id] = md
             self.nodes_num_exact_matches[node.id] = exact_matches.get(str(node.id), 0)
             group_id = None
-            sc2ts_md = md["sc2ts"]
+            sc2ts_md = md.get("sc2ts", {})
             group_id = sc2ts_md.get("group_id", None)
             if group_id is not None:
                 # Shorten key for readability.
@@ -685,7 +685,7 @@ class TreeInfo:
         if flags & (tskit.NODE_IS_SAMPLE | core.NODE_IS_REFERENCE) > 0:
             strain = md["strain"]
         else:
-            md = md["sc2ts"]
+            md = md.get("sc2ts", {})
             if (
                 flags & (core.NODE_IS_MUTATION_OVERLAP | core.NODE_IS_REVERSION_PUSH)
                 > 0
