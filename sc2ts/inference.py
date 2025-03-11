@@ -1605,7 +1605,7 @@ class HmmMatch:
             )
         if mirror_coordinates:
             mutations = mutations[::-1]
-        return HmmMatch(path, mutations, self.likelihood, self.cost)
+        return HmmMatch(path, mutations, self.likelihood, int(self.cost))
 
 
 def characterise_match_mutations(ts, samples):
@@ -1912,6 +1912,7 @@ def run_hmm(
         progress_phase="HMM",
         mirror_coordinates=direction == "reverse",
     )
+    characterise_match_mutations(ts, samples)
     ret = []
     for sample in samples:
         ret.append(

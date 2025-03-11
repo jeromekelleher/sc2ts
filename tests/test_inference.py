@@ -1191,6 +1191,11 @@ class TestMatchingDetails:
         assert len(s.path) == 1
         assert s.path[0].parent == 1
         assert len(s.mutations) == 2
+        for mut in s.mutations:
+            assert mut.is_reversion is False
+            assert mut.is_immediate_reversion is False
+        asjson = runs[0].asjson()
+        assert json.loads(asjson) == runs[0].asdict()
 
     def test_match_recombinant(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
