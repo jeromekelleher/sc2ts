@@ -20,7 +20,7 @@ dependencies = [
   "scipy",
   "click",
   "tomli",
-  "zarr<2.18",
+  "zarr<3",
   "humanize",
   "resource",
   "biotite",
