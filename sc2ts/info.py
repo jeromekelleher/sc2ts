@@ -1047,17 +1047,116 @@ class TreeInfo:
             muts[pos] = f"{state0}>{state1}"
         return muts
 
-    def _copying_table(self, node, edges):
-        def css_cell(allele, bold=False, show_colour=True):
+    def copying_table(
+        self,
+        node,
+        show_bases=None,
+        hide_extra_rows=None,
+        hide_labels=False,
+        show_runlengths=True,
+        child_label=None,
+        colours=None,
+    ):
+        """
+        Return an styled HTML table indicating bases that differ between the parents of
+        a recombination node. This is suitable for display e.g. in a Jupyter notebook
+        using the ``IPython.display.HTML`` function.
+        
+        :param node int:
+            The node ID of the child node, usually a recombination node.
+            This will be placed on the second row of the copying pattern, so that
+            in the most used case of a recombination node with two parents, the
+            child is the middle row.
+        :param show_base bool:
+            If True, show the allelic state (i.e. ``A``, ``C``,
+            ``G``, ``T``, or `-`) for each position at which the parents differ.
+            If True, do not plot a character, but simply show coloured table cells.
+            If None (default), show an em-dash for deletions and a dot for
+            non-deleted bases in the child (to help indicate number of bases),
+            but otherwise do not show a character.
+        :param show_runlengths bool:
+            If True, show a bar under the copying tables indicating adjacent bases
+            (not strictly needed if site positions are shown with ``hide_extra_rows=False``).
+            If False or None, do not show this bar.
+        :param hide_extra_rows bool:
+            If True, hide the rows that show the site positions, the reference sequence,
+            and the de-novo mutations. If False or None (default), show these rows.
+        :param hide_labels bool:
+            If False or None (default), label the rows with P0, P1, etc. If True, hide these
+            row labels.
+        :param child_label str:
+            The label to use for the child node. If None (default), use "C".
+        :param colours list:
+            A list of at least 2 hex colours to use. ``colours[0]`` is used for a base in
+            the child that is not present in any parent, ``colours[1]`` for a base that
+            matches the first parent, ``colours[2]`` for the second parent, etc.
+            Default: None, treated as ``["#FC0", "#8D8", "#6AD", "#B9D", "#A88"]``.
+        :return str:
+            An HTML string representing the copying table.
+        """
+        edges = tskit.EdgeTable()
+        for e in sorted([self.ts.edge(i) for i in np.where(self.ts.edges_child==node)[0]], key=lambda e: e.left):
+            edges.append(e)
+        return self._copying_table(
+            node,
+            edges,
+            show_bases=show_bases,
+            show_runlengths=show_runlengths,
+            hide_extra_rows=hide_extra_rows,
+            hide_labels=hide_labels,
+            child_label=child_label,
+            colours=colours,
+        )
+
+    def _copying_table(
+        self,
+        node,
+        edges,
+        show_bases=True,
+        show_runlengths=None,
+        hide_extra_rows=None,
+        hide_labels=None,
+        child_label="C",
+        colours=None,
+    ):
+        # private interface, used internally
+        def css_cell(col, outline_sides=None, default_border_width=0):
             # function for the cell style - nucleotide colours faded from SNiPit
-            cols = {"A": "#869eb5", "T": "#adbda8", "C": "#d19394", "G": "#c3dde6"}
-            css = ""
-            if show_colour:
-                css += "border: 1px solid black; border-collapse: collapse"
-                css += ";background-color:" + cols.get(allele, "white")
-            if bold:
-                css += ";font-weight: bold"
-            return "" if css == "" else f' style="{css}"'
+            css = f"border: {default_border_width}px solid black;  text-align: center; width: 1em;"
+            if outline_sides is None:
+                outline_sides = []
+            elif isinstance(outline_sides, str):
+                outline_sides = [outline_sides]
+            for side in outline_sides:
+                css += f"border{side}: 3px solid black;"
+            css += "border-collapse: collapse; background-color:" + col
+            return f' style="{css}"'
+
+        def line_cell(show_line):
+            if show_line:
+                return '<td style="background: white; border-bottom: 3px solid red; "></td>'
+            return '<td style="background: white;"></td>'
+
+        def row_lab(txt):
+            return "" if hide_labels else f"<th>{txt}</th>"
+
+        def label(allele, default=""):
+            if show_bases is None:
+                return ("<b>&mdash;</b>" if allele=="-" else default)
+            if show_bases:
+                return allele
+            return ''
+        
+        if colours is None:
+            colours = [  # Chosen to be light enough that black text on top is readable
+                "#FC0",  # Gold for de-novo mutations
+                "#8D8",  # Copy from first parent: light green
+                "#6AD",  # Copy from second parent: light blue
+                "#B9D",  # Copy from third parent (if any): light purple
+                "#A88",  # Copy from fourth parent (if any): light brown
+            ]
+        parent_colours = colours.copy()
+        parent_colours[0] = "#FFF"  # white for non-matching
 
         vrl = ' style="writing-mode: vertical-rl; transform: rotate(180deg)"'
 
@@ -1074,39 +1173,80 @@ class TreeInfo:
 
         positions = []
         ref = []
+        runs = []
         parents = [[] for _ in range(len(parent_cols))]
         child = []
         extra_mut = []
+        prev_pos = None
+        prev_parent_col = None
         for var in variants:
             if len(np.unique(var.genotypes)) > 1:
                 pos = int(var.site.position)
+                if prev_pos is not None and pos == prev_pos + 1:
+                    runs[-1] = line_cell(True)
+                    runs.append(line_cell(True))
+                else:
+                    runs.append(line_cell(False))
                 positions.append(f"<td><span{vrl}>{pos}</span></td>")
                 ref.append(f"<td>{var.site.ancestral_state}</td>")
                 child_allele = var.alleles[var.genotypes[0]]
-                child.append(f"<td{css_cell(child_allele, True)}>{child_allele}</td>")
 
                 edge_index = np.searchsorted(edges.left, pos, side="right") - 1
                 parent_col = parent_cols[edges[edge_index].parent]
+                is_switch = False if prev_parent_col is None else parent_col != prev_parent_col
+
+                child_colour_index = 0
                 for j in range(1, len(var.genotypes)):
                     parent_allele = var.alleles[var.genotypes[j]]
-                    css = css_cell(
-                        parent_allele,
-                        bold=parent_allele == child_allele,
-                        show_colour=j == parent_col,
-                    )
-                    parents[j - 1].append(f"<td{css}>{parent_allele}</td>")
+                    if parent_allele == child_allele:
+                        child_colour_index=j
 
+                for j in range(1, len(var.genotypes)):
+                    parent_allele = var.alleles[var.genotypes[j]]
+                    col=parent_colours[0]
+                    if parent_allele == child_allele:
+                        try:
+                            col = parent_colours[j]
+                        except IndexError as e:
+                            raise ValueError(
+                                "Displaying the copying path only deals with a max of "
+                                f"{len(parent_colours)-1} parents"
+                            ) from e
+                    elif parent_allele == var.site.ancestral_state:
+                        col = "#DDD"
+                    outline_sides = []
+                    if j == parent_col:
+                        outline_sides.append("-top" if j == 1 else "-bottom")
+                    if is_switch and max(parent_col, 2) >= j:
+                        outline_sides.append("-left")
+                    css = css_cell(col, outline_sides)
+                    parents[j - 1].append(f"<td{css}>{label(parent_allele)}</td>")
+                    
+                css = css_cell(
+                    colours[child_colour_index],
+                    outline_sides="-left" if is_switch else None,
+                    #default_border_width=1  # uncomment to outline child bases with a border
+                )
+                child.append(f"<td{css}>{label(child_allele, '.')}</td>")
                 extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>")
-
-        html = '<tr style="font-size: 70%"><th>pos</th>' + "".join(positions) + "</tr>"
-        html += "<tr><th>ref</th>" + "".join(ref) + "</tr>"
-        html += "<tr><th>P0</th>" + "".join(parents.pop(0)) + "</tr>"
-        html += "<tr><th>C</th>" + "".join(child) + "</tr>"
+                prev_pos = pos
+                prev_parent_col = parent_col
+        html = ""
+        if not hide_extra_rows:
+            html += '<tr style="font-size: 70%">' + row_lab("pos") + "".join(positions) + '</tr>'
+            html += '<tr>' + row_lab("ref") + "".join(ref) + '</tr>'
+        rowstyle = "font-size: 10px; border: 0px; height: 14px"
+        html += f'<tr style="{rowstyle}">' + row_lab("P0") + "".join(parents.pop(0)) + '</tr>'
+        html += f'<tr style="{rowstyle}">' + row_lab(child_label) + "".join(child) + '</tr>'
         for i, parent in enumerate(parents):
-            html += f"<tr><th>P{i + 1}</th>" + "".join(parent) + "</tr>"
-        html += '<tr style="font-size: 75%"><th>mut</th>' + "".join(extra_mut) + "</tr>"
+            html += f'<tr style="{rowstyle}">' + row_lab(f"P{i+1}") + "".join(parent) + '</tr>'
+        if show_runlengths:
+            html += "<tr style='font-size: 6px; height: 6px'>" + row_lab("") + "".join(runs) + "</tr>"
+        if not hide_extra_rows:
+            html += '<tr style="font-size: 75%">' + row_lab("mut") + "".join(extra_mut) + "</tr>"
 
-        return f"<table>{html}</table>"
+        return f"<table style='border-spacing: 0px'>{html}</table>"
+
 
     def _show_parent_copying(self, child):
         edge_list = [
