@@ -1053,9 +1053,10 @@ class TreeInfo:
         show_bases=None,
         hide_extra_rows=None,
         hide_labels=False,
-        show_runlengths=True,
+        hide_runlengths=False,
         child_label=None,
         colours=None,
+        exclude_stylesheet=None,
     ):
         """
         Return an styled HTML table indicating bases that differ between the parents of
@@ -1071,19 +1072,16 @@ class TreeInfo:
             If True, show the allelic state (i.e. ``A``, ``C``,
             ``G``, ``T``, or `-`) for each position at which the parents differ.
             If True, do not plot a character, but simply show coloured table cells.
-            If None (default), show an em-dash for deletions and a dot for
-            non-deleted bases in the child (to help indicate number of bases),
-            but otherwise do not show a character.
-        :param show_runlengths bool:
-            If True, show a bar under the copying tables indicating adjacent bases
-            (not strictly needed if site positions are shown with ``hide_extra_rows=False``).
-            If False or None, do not show this bar.
+            If None (default), show an em-dash for deletions, but nothing else.
         :param hide_extra_rows bool:
-            If True, hide the rows that show the site positions, the reference sequence,
-            and the de-novo mutations. If False or None (default), show these rows.
+            If True, hide the rows showing site positions, reference alleles, and
+            de-novo mutation state changes. If False or None (default), show these rows.
+        :param hide_runlengths bool:
+            If True, omit the lower bar that indicates adjacent bases as runs of red
+            (or orange for near-adjacent) and tickmarks. If False or None, show this bar.
         :param hide_labels bool:
-            If False or None (default), label the rows with P0, P1, etc. If True, hide these
-            row labels.
+            If False or None (default), label the rows with P0, P1, etc. If True, hide
+            these row labels.
         :param child_label str:
             The label to use for the child node. If None (default), use "C".
         :param colours list:
@@ -1091,6 +1089,11 @@ class TreeInfo:
             the child that is not present in any parent, ``colours[1]`` for a base that
             matches the first parent, ``colours[2]`` for the second parent, etc.
             Default: None, treated as ``["#FC0", "#8D8", "#6AD", "#B9D", "#A88"]``.
+        :param exclude_stylesheet bool:
+            If True, exclude the default stylesheet from the HTML output. This is useful
+            simply to save space if you want to include the copying table in a larger HTML
+            document (e.g. a Jupyter notebook) that already has one copying table shown with
+            the standard stylesheet. If False or None (default), include the default stylesheet.
         :return str:
             An HTML string representing the copying table.
         """
@@ -1101,11 +1104,12 @@ class TreeInfo:
             node,
             edges,
             show_bases=show_bases,
-            show_runlengths=show_runlengths,
+            hide_runlengths=hide_runlengths,
             hide_extra_rows=hide_extra_rows,
             hide_labels=hide_labels,
             child_label=child_label,
             colours=colours,
+            exclude_stylesheet=exclude_stylesheet,
         )
 
     def _copying_table(
@@ -1113,29 +1117,32 @@ class TreeInfo:
         node,
         edges,
         show_bases=True,
-        show_runlengths=None,
+        hide_runlengths=None,
         hide_extra_rows=None,
         hide_labels=None,
         child_label="C",
         colours=None,
+        exclude_stylesheet=None,
     ):
         # private interface, used internally
-        def css_cell(col, outline_sides=None, default_border_width=0):
-            # function for the cell style - nucleotide colours faded from SNiPit
-            css = f"border: {default_border_width}px solid black;  text-align: center; width: 1em;"
+        def cell_attributes(col, outline_sides=None):
+            css = [f"background-color:{col}"]
             if outline_sides is None:
                 outline_sides = []
             elif isinstance(outline_sides, str):
                 outline_sides = [outline_sides]
             for side in outline_sides:
-                css += f"border{side}: 3px solid black;"
-            css += "border-collapse: collapse; background-color:" + col
-            return f' style="{css}"'
+                css.append(f"border-{side}-width:3px")
+            return f' style="{";".join(css)}"'
 
-        def line_cell(show_line):
-            if show_line:
-                return '<td style="background: white; border-bottom: 3px solid red; "></td>'
-            return '<td style="background: white;"></td>'
+        def line_cell(pos, prev_pos, next_pos):
+            dist_to_left = pos - prev_pos
+            dist_to_right = next_pos - pos
+            if dist_to_left > 2:
+                dist_to_left = 0
+            if dist_to_right > 2:
+                dist_to_right = 0
+            return f'<td title="{pos}" class="run-{int(dist_to_left)}-{int(dist_to_right)}"></td>'
 
         def row_lab(txt):
             return "" if hide_labels else f"<th>{txt}</th>"
@@ -1177,17 +1184,11 @@ class TreeInfo:
         parents = [[] for _ in range(len(parent_cols))]
         child = []
         extra_mut = []
-        prev_pos = None
         prev_parent_col = None
         for var in variants:
             if len(np.unique(var.genotypes)) > 1:
                 pos = int(var.site.position)
-                if prev_pos is not None and pos == prev_pos + 1:
-                    runs[-1] = line_cell(True)
-                    runs.append(line_cell(True))
-                else:
-                    runs.append(line_cell(False))
-                positions.append(f"<td><span{vrl}>{pos}</span></td>")
+                positions.append(pos)
                 ref.append(f"<td>{var.site.ancestral_state}</td>")
                 child_allele = var.alleles[var.genotypes[0]]
 
@@ -1216,36 +1217,60 @@ class TreeInfo:
                         col = "#DDD"
                     outline_sides = []
                     if j == parent_col:
-                        outline_sides.append("-top" if j == 1 else "-bottom")
+                        outline_sides.append("top" if j == 1 else "bottom")
                     if is_switch and max(parent_col, 2) >= j:
-                        outline_sides.append("-left")
-                    css = css_cell(col, outline_sides)
-                    parents[j - 1].append(f"<td{css}>{label(parent_allele)}</td>")
+                        outline_sides.append("left")
+                    attr = cell_attributes(col, outline_sides)
+                    parents[j - 1].append(f"<td{attr}>{label(parent_allele)}</td>")
                     
-                css = css_cell(
+                attr = cell_attributes(
                     colours[child_colour_index],
-                    outline_sides="-left" if is_switch else None,
+                    outline_sides="left" if is_switch else None,
                     #default_border_width=1  # uncomment to outline child bases with a border
                 )
-                child.append(f"<td{css}>{label(child_allele, '.')}</td>")
+                child.append(f"<td{attr}>{label(child_allele)}</td>")
                 extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>")
-                prev_pos = pos
                 prev_parent_col = parent_col
         html = ""
+        if not exclude_stylesheet:
+            # a class like "run-1-2" means a cell which has a closest left hand neighbour
+            # 1 bp away (i.e. adjacent) but a right hand neighbour 2 bp away.
+            # "0" is the "null" value, so "run-0-0" means neither neighbour is nearby
+            runlength_cols = ("white", "red", "orange")
+            bg_im_src = (
+                "background-image:linear-gradient(to right, {0} 50%, {1} 50%);"
+                "background-image:-webkit-linear-gradient(left, {0} 50%, {1} 50%);"  # for imgkit/wkhtmltopdf
+            )
+            html += "<style>"
+            html += ".copying-table .pattern td {border:0px solid black; text-align: center; width:1em}"
+            html += ".copying-table {border-spacing: 0px; border-collapse: collapse}"
+            html += ".copying-table .runlengths {font-size:3px; height:3px;}"
+            html += ".copying-table .runlengths td {border-style: solid; background: white; border-width:0px 1px; border-color: black}"
+            for left in range(len(runlength_cols)):
+                for right in range(len(runlength_cols)):
+                    html += (
+                        f".copying-table .runlengths .run-{left}-{right}" +
+                        "{" + bg_im_src.format(runlength_cols[left], runlength_cols[right]) + "}"
+                    )
+            html += "</style>"
+        html += '<table class="copying-table">'
         if not hide_extra_rows:
-            html += '<tr style="font-size: 70%">' + row_lab("pos") + "".join(positions) + '</tr>'
+            pos = [f"<td><span{vrl}>{p}</span></td>" for p in positions]
+            html += '<tr style="font-size: 70%">' + row_lab("pos") + "".join(pos) + '</tr>'
             html += '<tr>' + row_lab("ref") + "".join(ref) + '</tr>'
         rowstyle = "font-size: 10px; border: 0px; height: 14px"
-        html += f'<tr style="{rowstyle}">' + row_lab("P0") + "".join(parents.pop(0)) + '</tr>'
-        html += f'<tr style="{rowstyle}">' + row_lab(child_label) + "".join(child) + '</tr>'
+        html += f'<tr class="pattern" style="{rowstyle}">' + row_lab("P0") + "".join(parents.pop(0)) + '</tr>'
+        html += f'<tr class="pattern" style="{rowstyle}">' + row_lab(child_label) + "".join(child) + '</tr>'
         for i, parent in enumerate(parents):
-            html += f'<tr style="{rowstyle}">' + row_lab(f"P{i+1}") + "".join(parent) + '</tr>'
-        if show_runlengths:
-            html += "<tr style='font-size: 6px; height: 6px'>" + row_lab("") + "".join(runs) + "</tr>"
+            html += f'<tr class="pattern" style="{rowstyle}">' + row_lab(f"P{i+1}") + "".join(parent) + '</tr>'
+        if not hide_runlengths:
+            p = np.concatenate(([-np.inf], positions, [np.inf]))
+            runs = [line_cell(p[i+1], p[i], p[i+2]) for i in range(len(positions))]
+            html += "<tr style='font-size: 3px; height: 3px'></tr>"
+            html += "<tr class='runlengths'>" + row_lab("") + "".join(runs) + "</tr>"
         if not hide_extra_rows:
             html += '<tr style="font-size: 75%">' + row_lab("mut") + "".join(extra_mut) + "</tr>"
-
-        return f"<table style='border-spacing: 0px'>{html}</table>"
+        return html + "</table>"
 
 
     def _show_parent_copying(self, child):
