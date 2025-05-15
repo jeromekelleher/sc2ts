@@ -2018,9 +2018,10 @@ def map_deletions(
             g, list(var.alleles), ancestral_state=site.ancestral_state
         )
 
-        logger.debug(f"Site {int(site.position)} "
-                f"mapped mutations = {len(mutations)}; current = {len(site.mutations)}"
-            )
+        logger.debug(
+            f"Site {int(site.position)} "
+            f"mapped mutations = {len(mutations)}; current = {len(site.mutations)}"
+        )
         if len(mutations) < mutations_threshold:
 
             old_mutations = []
@@ -2048,8 +2049,10 @@ def map_deletions(
             logger.debug(f"Skipping site {int(site.position)} ")
 
     added_mutations = len(tables.mutations) - ts.num_mutations
-    logger.info(f"Added in {added_mutations} mutations at "
-        f"{len(site_metadata)} sites with parsimony")
+    logger.info(
+        f"Added in {added_mutations} mutations at "
+        f"{len(site_metadata)} sites with parsimony"
+    )
     tables.sites.clear()
     for site in ts.sites():
         md = site_metadata.get(site.id, site.metadata)
@@ -2064,7 +2067,7 @@ def map_deletions(
     params = {
         "dataset": str(ds.path),
         "frequency_threshold": float(frequency_threshold),
-        "mutations_threshold":int(mutations_threshold),
+        "mutations_threshold": int(mutations_threshold),
     }
     prov = get_provenance_dict("map_deletions", params, start_time)
     tables.provenances.add_row(json.dumps(prov))
@@ -2117,26 +2120,77 @@ def append_exact_matches(ts, match_db, show_progress=False):
     return tables.tree_sequence()
 
 
-def trim_metadata(ts, show_progress=False):
+def minimise_metadata(ts, show_progress=False):
+    """
+    Remove all metadata other than node metadata, and store only
+    what is required to join effectively with the Zarr dataset.
+    """
     start_time = time.time()  # wall time
     tables = ts.dump_tables()
+    tables.metadata = {}
+    tables.mutations.drop_metadata()
+    tables.sites.drop_metadata()
+
     tables.nodes.clear()
     nodes = tqdm.tqdm(
         ts.nodes(),
         total=ts.num_nodes,
-        desc="Trim node metadata",
+        desc="Read node metadata",
+        disable=not show_progress,
+    )
+
+    consolidated_metadata = {
+        "strain": [],
+        "Viridian_pangolin": [],
+    }
+    group_id = []
+    for node in nodes:
+        md = node.metadata
+        for field in consolidated_metadata:
+            consolidated_metadata[field].append(md.get(field, ""))
+
+    # Remap to more usable names
+    consolidated_metadata = {
+        "sample_id": consolidated_metadata["strain"],
+        "pango": consolidated_metadata["Viridian_pangolin"],
+    }
+
+    schema_properties = {}
+    for key in list(consolidated_metadata.keys()):
+        a = np.array(consolidated_metadata[key], dtype="S")
+        schema_properties[key] = {
+            "type": "string",
+            "binaryFormat": f"{a.dtype.itemsize}s",
+            "nullTerminated": True,
+        }
+        consolidated_metadata[key] = a.astype(str)
+
+    struct_schema = {
+        "codec": "struct",
+        "type": "object",
+        "properties": schema_properties,
+        "additionalProperties": False,
+    }
+    tables.nodes.metadata_schema = tskit.MetadataSchema(struct_schema)
+    nodes = tqdm.tqdm(
+        ts.nodes(),
+        total=ts.num_nodes,
+        desc="Recode node metadata",
         disable=not show_progress,
     )
     for node in nodes:
-        md = node.metadata
-        if node.is_sample():
-            # Note it would be nice to trim down the name of the pango field here
-            # but it's too tedious to test.
-            md = {k: md[k] for k in ["strain", "date", "Viridian_pangolin"]}
+        md = {}
+        for key, values in consolidated_metadata.items():
+            md[key] = values[node.id]
         tables.nodes.append(node.replace(metadata=md))
-    prov = get_provenance_dict("trim_metadata", {}, start_time)
+
+    # We could quite reasonably drop most of provenances here too,
+    # just keeping track of the development version filename
+    prov = get_provenance_dict("minimise_metadata", {}, start_time)
     tables.provenances.add_row(json.dumps(prov))
-    return tables.tree_sequence()
+    ts = tables.tree_sequence()
+    return ts
+
 
 
 def find_reversions(ts):

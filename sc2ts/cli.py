@@ -567,16 +567,37 @@ def postprocess(
         with sc2ts.MatchDb(match_db) as db:
             ts = sc2ts.append_exact_matches(ts, db, show_progress=progress)
 
-    ts = sc2ts.trim_metadata(ts, show_progress=progress)
-
     ts = sc2ts.push_up_unary_recombinant_mutations(ts)
-
     # See if we can remove some of the reversions in a straightforward way.
     mutations_is_reversion = sc2ts.find_reversions(ts)
     mutations_before = ts.num_mutations
     ts = sc2ts.push_up_reversions(
         ts, ts.mutations_node[mutations_is_reversion], date=None
     )
+    ts.dump(ts_out)
+
+
+@click.command()
+@click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
+@click.option("--progress/--no-progress", default=True)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def minimise_metadata(
+    ts_in,
+    ts_out,
+    progress,
+    verbose,
+    log_file,
+):
+    """
+    Generate the final "analysis" version of the ARG by dropping all
+    metadata other than samples, and recoding the minimal information
+    using the struct codec.
+    """
+    setup_logging(verbose, log_file)
+    ts = tszip.load(ts_in)
+    ts = sc2ts.minimise_metadata(ts, show_progress=progress)
     ts.dump(ts_out)
 
 
@@ -616,9 +637,11 @@ def map_deletions(
     ds = sc2ts.Dataset(dataset)
     ts = tszip.load(ts_in)
     ts = sc2ts.map_deletions(
-        ts, ds, frequency_threshold=frequency_threshold,
+        ts,
+        ds,
+        frequency_threshold=frequency_threshold,
         mutations_threshold=mutations_threshold,
-        show_progress=progress
+        show_progress=progress,
     )
     ts.dump(ts_out)
 
@@ -658,6 +681,7 @@ cli.add_command(info_ts)
 cli.add_command(infer)
 cli.add_command(validate)
 cli.add_command(postprocess)
+cli.add_command(minimise_metadata)
 cli.add_command(map_deletions)
 cli.add_command(run_hmm)
 
