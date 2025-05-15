@@ -18,7 +18,7 @@ class TestImportAlignments:
 
     def test_init(self, tmp_path, fx_alignments_fasta):
         ds_path = tmp_path / "ds.zarr"
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"import-alignments {ds_path} {fx_alignments_fasta} -i --no-progress",
@@ -28,7 +28,7 @@ class TestImportAlignments:
 
     def test_duplicate_aligments(self, tmp_path, fx_alignments_fasta):
         ds_path = tmp_path / "ds.zarr"
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"import-alignments {ds_path} {fx_alignments_fasta} -i --no-progress",
@@ -46,7 +46,7 @@ class TestImportAlignments:
 class TestImportMetadata:
     def test_suite_data(self, tmp_path, fx_metadata_tsv, fx_alignments_fasta):
         ds_path = tmp_path / "ds.zarr"
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"import-alignments {ds_path} {fx_alignments_fasta} -i --no-progress",
@@ -69,7 +69,7 @@ class TestImportMetadata:
         self, tmp_path, fx_raw_viridian_metadata_tsv, fx_alignments_fasta
     ):
         ds_path = tmp_path / "ds.zarr"
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"import-alignments {ds_path} {fx_alignments_fasta} -i --no-progress",
@@ -91,7 +91,7 @@ class TestRunHmm:
         ts = fx_ts_map["2020-02-04"]
         ts_path = tmp_path / "ts.ts"
         ts.dump(ts_path)
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"run-hmm {fx_dataset.path} {ts_path} {strain}",
@@ -113,7 +113,7 @@ class TestRunHmm:
         ts = fx_ts_map["2020-02-13"]
         ts_path = tmp_path / "ts.ts"
         ts.dump(ts_path)
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"run-hmm {fx_dataset.path} {ts_path} " + " ".join(strains),
@@ -137,7 +137,7 @@ class TestRunHmm:
         ts = fx_ts_map["2020-02-04"]
         ts_path = tmp_path / "ts.ts"
         ts.dump(ts_path)
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"run-hmm {fx_dataset.path} {ts_path} {strain}"
@@ -192,7 +192,7 @@ class TestInfer:
 
     def test_initialise_defaults(self, tmp_path, fx_dataset):
         config_file = self.make_config(tmp_path, fx_dataset)
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-01",
@@ -210,7 +210,7 @@ class TestInfer:
     @pytest.mark.parametrize("problematic", [[100], [100, 200]])
     def test_problematic_sites(self, tmp_path, fx_dataset, problematic):
         config_file = self.make_config(tmp_path, fx_dataset, exclude_sites=problematic)
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-01",
@@ -229,7 +229,7 @@ class TestInfer:
         config_file = self.make_config(
             tmp_path, fx_dataset, exclude_sites=[56, 57, 58, 59, 60]
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-20",
@@ -245,7 +245,7 @@ class TestInfer:
         config_file = self.make_config(
             tmp_path, fx_dataset, extra_top_level={"Akey": 1, "B": 2}
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         with pytest.raises(ValueError, match="Akey"):
             result = runner.invoke(
                 cli.cli, f"infer {config_file} ", catch_exceptions=False
@@ -257,7 +257,7 @@ class TestInfer:
             fx_dataset,
             no_such_param=1,
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         with pytest.raises(TypeError, match="no_such_param"):
             result = runner.invoke(
                 cli.cli, f"infer {config_file} ", catch_exceptions=False
@@ -267,7 +267,7 @@ class TestInfer:
         config_file = self.make_config(
             tmp_path, fx_dataset, exclude_sites=[56, 57, 58, 59, 60]
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-20",
@@ -291,7 +291,7 @@ class TestInfer:
             exclude_sites=[56, 57, 58, 59, 60],
             include_samples=["SRR14631544", "NO_SUCH_STRAIN"],
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-02",
@@ -321,7 +321,7 @@ class TestInfer:
                 }
             ],
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-02",
@@ -359,7 +359,7 @@ class TestInfer:
             ],
             hmm_cost_threshold=4000,
         )
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"infer {config_file} --stop 2020-01-02",
@@ -381,7 +381,7 @@ class TestPostprocess:
     def test_example(self, tmp_path, fx_ts_map, fx_match_db):
         ts = fx_ts_map["2020-02-13"]
         out_ts_path = tmp_path / "ts.ts"
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"postprocess {ts.path} {out_ts_path} --match-db={fx_match_db.path}",
@@ -390,7 +390,26 @@ class TestPostprocess:
         assert result.exit_code == 0
         out = tskit.load(out_ts_path)
         assert out.num_samples == ts.num_samples + 8
-        assert out.num_provenances == ts.num_provenances + 3
+        assert out.num_provenances == ts.num_provenances + 2
+
+
+class TestMinimiseMetadata:
+
+    def test_example(self, tmp_path, fx_ts_map, fx_match_db):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "ts.ts"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"minimise-metadata {ts.path} {out_ts_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        ts.tables.assert_equals(
+            out.tables, ignore_metadata=True, ignore_provenance=True
+        )
+        assert isinstance(out.nodes_metadata, np.ndarray)
 
 
 class TestMapDeletions:
@@ -398,7 +417,7 @@ class TestMapDeletions:
     def test_example(self, tmp_path, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         out_ts_path = tmp_path / "ts.ts"
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"map-deletions {fx_dataset.path} {ts.path} {out_ts_path} "
@@ -422,7 +441,7 @@ class TestValidate:
         ts = fx_ts_map[date]
         ts_path = tmp_path / "ts.ts"
         ts.dump(ts_path)
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"validate {fx_dataset.path} {ts_path} --date-field=date",
@@ -433,7 +452,7 @@ class TestValidate:
 
 class TestInfoMatches:
     def test_defaults(self, fx_match_db):
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"info-matches {fx_match_db.path}",
@@ -442,7 +461,7 @@ class TestInfoMatches:
         assert result.exit_code == 0
 
     def test_all_matches(self, fx_match_db):
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"info-matches -A {fx_match_db.path}",
@@ -464,7 +483,7 @@ class TestInfoMatches:
 
 class TestInfoDataset:
     def test_defaults(self, fx_dataset):
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"info-dataset {fx_dataset.path}",
@@ -474,7 +493,7 @@ class TestInfoDataset:
         assert "with 55 samples and 26 metadata fields" in result.stdout
 
     def test_zarr(self, fx_dataset):
-        runner = ct.CliRunner(mix_stderr=False)
+        runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
             f"info-dataset {fx_dataset.path} -z",
