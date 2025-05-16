@@ -64,7 +64,7 @@ def node_data(ts):
     md = ts.nodes_metadata
     cols = {k: md[k].astype(str) for k in md.dtype.names}
     flags = ts.nodes_flags
-    cols["id"] = np.arange(ts.num_nodes)
+    cols["node_id"] = np.arange(ts.num_nodes)
     cols["is_sample"] = (flags & tskit.NODE_IS_SAMPLE) > 0
     cols["is_recombinant"] = (flags & core.NODE_IS_RECOMBINANT) > 0
     # Are other flags useful of just debug info? Lets leave them out
@@ -90,7 +90,7 @@ def mutation_data(ts):
     counter = jit.count(ts)
     inherited_state, derived_state = compute_mutation_states(ts)
 
-    cols["id"] = np.arange(ts.num_mutations)
+    cols["mutation_id"] = np.arange(ts.num_mutations)
     cols["position"] = ts.sites_position[ts.mutations_site].astype(int)
     cols["parent"] = ts.mutations_parent
     cols["node"] = ts.mutations_node
