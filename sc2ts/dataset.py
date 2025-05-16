@@ -175,6 +175,18 @@ class CachedMetadataMapping(collections.abc.Mapping):
             data[k] = self.fields[k][:]
         return pd.DataFrame(data).set_index("sample_id")
 
+    def field_descriptors(self):
+        data = []
+        for k, v in self.fields.items():
+            data.append(
+                {
+                    "field": k,
+                    "dtype": v.dtype,
+                    "description": v.attrs.get("description", ""),
+                }
+            )
+        return pd.DataFrame(data)
+
 
 @dataclasses.dataclass
 class Variant:
