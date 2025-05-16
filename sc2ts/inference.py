@@ -2127,7 +2127,7 @@ def minimise_metadata(ts, show_progress=False):
     """
     start_time = time.time()  # wall time
     tables = ts.dump_tables()
-    tables.metadata = {}
+    tables.metadata = {"time_zero_date": ts.metadata["sc2ts"]["date"]}
     tables.mutations.drop_metadata()
     tables.sites.drop_metadata()
 

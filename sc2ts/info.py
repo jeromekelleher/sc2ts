@@ -26,30 +26,28 @@ logger = logging.getLogger(__name__)
 
 
 def node_data(ts):
+    time_zero_date = ts.metadata["time_zero_date"]
+    time_zero_date = np.array([time_zero_date], dtype="datetime64[D]")[0]
+    # Not clear that we're rounding things in the right direction here
+    # we could output the dates in higher precision if we wanted to
+    # but day precision is probably right anyway
+    date = time_zero_date - ts.nodes_time.astype("timedelta64[D]")
 
     md = ts.nodes_metadata
     cols = {k: md[k].astype(str) for k in md.dtype.names}
-
     flags = ts.nodes_flags
     cols["is_sample"] = (flags & tskit.NODE_IS_SAMPLE) > 0
-    cols["is_recombinant"]= (flags & core.NODE_IS_RECOMBINANT) > 0
+    cols["is_recombinant"] = (flags & core.NODE_IS_RECOMBINANT) > 0
     # Are other flags useful of just debug info? Lets leave them out
     # for now.
-    cols["num_mutations"] = np.bincount(
-            ts.mutations_node, minlength=ts.num_nodes
-        )
+    cols["num_mutations"] = np.bincount(ts.mutations_node, minlength=ts.num_nodes)
     # This is the same as is_recombinant but less obvious
     # cols["num_parents"] = np.bincount(ts.edges_child,
     #         minlength=ts.num_edges)
     counter = jit.count(ts)
-    # print(counter)
     cols["max_descendant_samples"] = counter.nodes_max_descendant_samples
-
+    cols["date"] = date
     return pd.DataFrame(cols)
-
-
-
-
 
 
 @dataclasses.dataclass
@@ -1048,7 +1046,10 @@ class TreeInfo:
             An HTML string representing the copying table.
         """
         edges = tskit.EdgeTable()
-        for e in sorted([self.ts.edge(i) for i in np.where(self.ts.edges_child==node)[0]], key=lambda e: e.left):
+        for e in sorted(
+            [self.ts.edge(i) for i in np.where(self.ts.edges_child == node)[0]],
+            key=lambda e: e.left,
+        ):
             edges.append(e)
         return self._copying_table(
             node,
@@ -1099,10 +1100,10 @@ class TreeInfo:
 
         def label(allele, default=""):
             if show_bases is None:
-                return ("<b>&mdash;</b>" if allele=="-" else default)
+                return "<b>&mdash;</b>" if allele == "-" else default
             if show_bases:
                 return allele
-            return ''
+            return ""
 
         if colours is None:
             colours = [  # Chosen to be light enough that black text on top is readable
@@ -1144,17 +1145,19 @@ class TreeInfo:
 
                 edge_index = np.searchsorted(edges.left, pos, side="right") - 1
                 parent_col = parent_cols[edges[edge_index].parent]
-                is_switch = False if prev_parent_col is None else parent_col != prev_parent_col
+                is_switch = (
+                    False if prev_parent_col is None else parent_col != prev_parent_col
+                )
 
                 child_colour_index = 0
                 for j in range(1, len(var.genotypes)):
                     parent_allele = var.alleles[var.genotypes[j]]
                     if parent_allele == child_allele:
-                        child_colour_index=j
+                        child_colour_index = j
 
                 for j in range(1, len(var.genotypes)):
                     parent_allele = var.alleles[var.genotypes[j]]
-                    col=parent_colours[0]
+                    col = parent_colours[0]
                     if parent_allele == child_allele:
                         try:
                             col = parent_colours[j]
@@ -1176,7 +1179,7 @@ class TreeInfo:
                 attr = cell_attributes(
                     colours[child_colour_index],
                     outline_sides="left" if is_switch else None,
-                    #default_border_width=1  # uncomment to outline child bases with a border
+                    # default_border_width=1  # uncomment to outline child bases with a border
                 )
                 child.append(f"<td{attr}>{label(child_allele)}</td>")
                 extra_mut.append(f"<td><span{vrl}>{mutations.get(pos, '')}</span></td>")
@@ -1199,29 +1202,52 @@ class TreeInfo:
             for left in range(len(runlength_cols)):
                 for right in range(len(runlength_cols)):
                     html += (
-                        f".copying-table .runlengths .run-{left}-{right}" +
-                        "{" + bg_im_src.format(runlength_cols[left], runlength_cols[right]) + "}"
+                        f".copying-table .runlengths .run-{left}-{right}"
+                        + "{"
+                        + bg_im_src.format(runlength_cols[left], runlength_cols[right])
+                        + "}"
                     )
             html += "</style>"
         html += '<table class="copying-table">'
         if not hide_extra_rows:
             pos = [f"<td><span{vrl}>{p}</span></td>" for p in positions]
-            html += '<tr style="font-size: 70%">' + row_lab("pos") + "".join(pos) + '</tr>'
-            html += '<tr>' + row_lab("ref") + "".join(ref) + '</tr>'
+            html += (
+                '<tr style="font-size: 70%">' + row_lab("pos") + "".join(pos) + "</tr>"
+            )
+            html += "<tr>" + row_lab("ref") + "".join(ref) + "</tr>"
         rowstyle = "font-size: 10px; border: 0px; height: 14px"
-        html += f'<tr class="pattern" style="{rowstyle}">' + row_lab("P0") + "".join(parents.pop(0)) + '</tr>'
-        html += f'<tr class="pattern" style="{rowstyle}">' + row_lab(child_label) + "".join(child) + '</tr>'
+        html += (
+            f'<tr class="pattern" style="{rowstyle}">'
+            + row_lab("P0")
+            + "".join(parents.pop(0))
+            + "</tr>"
+        )
+        html += (
+            f'<tr class="pattern" style="{rowstyle}">'
+            + row_lab(child_label)
+            + "".join(child)
+            + "</tr>"
+        )
         for i, parent in enumerate(parents):
-            html += f'<tr class="pattern" style="{rowstyle}">' + row_lab(f"P{i+1}") + "".join(parent) + '</tr>'
+            html += (
+                f'<tr class="pattern" style="{rowstyle}">'
+                + row_lab(f"P{i+1}")
+                + "".join(parent)
+                + "</tr>"
+            )
         if not hide_runlengths:
             p = np.concatenate(([-np.inf], positions, [np.inf]))
-            runs = [line_cell(p[i+1], p[i], p[i+2]) for i in range(len(positions))]
+            runs = [line_cell(p[i + 1], p[i], p[i + 2]) for i in range(len(positions))]
             html += "<tr style='font-size: 3px; height: 3px'></tr>"
             html += "<tr class='runlengths'>" + row_lab("") + "".join(runs) + "</tr>"
         if not hide_extra_rows:
-            html += '<tr style="font-size: 75%">' + row_lab("mut") + "".join(extra_mut) + "</tr>"
+            html += (
+                '<tr style="font-size: 75%">'
+                + row_lab("mut")
+                + "".join(extra_mut)
+                + "</tr>"
+            )
         return html + "</table>"
-
 
     def _show_parent_copying(self, child):
         edge_list = [

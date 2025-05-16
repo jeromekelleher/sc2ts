@@ -2,6 +2,7 @@ import datetime
 import inspect
 
 import numpy as np
+import numpy.testing as nt
 import pandas as pd
 import matplotlib
 import pytest
@@ -233,9 +234,15 @@ class TestSampleGroupInfo:
         assert svg.startswith("<svg")
 
 
-class TestNodeInfo:
+class TestNodeData:
 
-    def test_example(self, fx_ts_min_2020_02_15):
+    def test_example(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
+        ts = fx_ts_min_2020_02_15
         df = info.node_data(fx_ts_min_2020_02_15)
-        print(df)
-        print(df.is_sample)
+        ti = fx_ti_2020_02_15
+        assert df.shape[0] == ti.ts.num_nodes
+        nt.assert_array_equal(ti.nodes_num_mutations, df["num_mutations"])
+        nt.assert_array_equal(ti.nodes_max_descendant_samples, df["max_descendant_samples"])
+        nt.assert_array_equal(ti.nodes_date, df["date"])
+        assert list(np.where(df["is_recombinant"])[0]) == list(ti.recombinants)
+        assert list(np.where(df["is_sample"])[0]) == list(ts.samples())
