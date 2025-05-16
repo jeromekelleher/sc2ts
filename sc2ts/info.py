@@ -25,6 +25,33 @@ from . import inference
 logger = logging.getLogger(__name__)
 
 
+def node_data(ts):
+
+    md = ts.nodes_metadata
+    cols = {k: md[k].astype(str) for k in md.dtype.names}
+
+    flags = ts.nodes_flags
+    cols["is_sample"] = (flags & tskit.NODE_IS_SAMPLE) > 0
+    cols["is_recombinant"]= (flags & core.NODE_IS_RECOMBINANT) > 0
+    # Are other flags useful of just debug info? Lets leave them out
+    # for now.
+    cols["num_mutations"] = np.bincount(
+            ts.mutations_node, minlength=ts.num_nodes
+        )
+    # This is the same as is_recombinant but less obvious
+    # cols["num_parents"] = np.bincount(ts.edges_child,
+    #         minlength=ts.num_edges)
+    counter = jit.count(ts)
+    # print(counter)
+    cols["max_descendant_samples"] = counter.nodes_max_descendant_samples
+
+    return pd.DataFrame(cols)
+
+
+
+
+
+
 @dataclasses.dataclass
 class LineageDetails:
     """
@@ -985,7 +1012,7 @@ class TreeInfo:
         Return an styled HTML table indicating bases that differ between the parents of
         a recombination node. This is suitable for display e.g. in a Jupyter notebook
         using the ``IPython.display.HTML`` function.
-        
+
         :param node int:
             The node ID of the child node, usually a recombination node.
             This will be placed on the second row of the copying pattern, so that
@@ -1076,7 +1103,7 @@ class TreeInfo:
             if show_bases:
                 return allele
             return ''
-        
+
         if colours is None:
             colours = [  # Chosen to be light enough that black text on top is readable
                 "#FC0",  # Gold for de-novo mutations
@@ -1145,7 +1172,7 @@ class TreeInfo:
                         outline_sides.append("left")
                     attr = cell_attributes(col, outline_sides)
                     parents[j - 1].append(f"<td{attr}>{label(parent_allele)}</td>")
-                    
+
                 attr = cell_attributes(
                     colours[child_colour_index],
                     outline_sides="left" if is_switch else None,

@@ -24,6 +24,11 @@ def fx_ti_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
     return info.TreeInfo(ts, show_progress=False)
 
+@pytest.fixture
+def fx_ts_min_2020_02_15(fx_ts_map):
+    ts = fx_ts_map["2020-02-15"]
+    return sc2ts.minimise_metadata(ts)
+
 
 @pytest.fixture
 def fx_ti_recombinant_example_1(fx_recombinant_example_1):
@@ -226,3 +231,11 @@ class TestSampleGroupInfo:
         sg_info = ti.get_sample_group_info(sg)
         svg = sg_info.draw_svg()
         assert svg.startswith("<svg")
+
+
+class TestNodeInfo:
+
+    def test_example(self, fx_ts_min_2020_02_15):
+        df = info.node_data(fx_ts_min_2020_02_15)
+        print(df)
+        print(df.is_sample)
