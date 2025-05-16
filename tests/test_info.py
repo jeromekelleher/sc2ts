@@ -25,6 +25,7 @@ def fx_ti_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
     return info.TreeInfo(ts, show_progress=False)
 
+
 @pytest.fixture
 def fx_ts_min_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
@@ -242,7 +243,9 @@ class TestDataFuncs:
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_nodes
         nt.assert_array_equal(ti.nodes_num_mutations, df["num_mutations"])
-        nt.assert_array_equal(ti.nodes_max_descendant_samples, df["max_descendant_samples"])
+        nt.assert_array_equal(
+            ti.nodes_max_descendant_samples, df["max_descendant_samples"]
+        )
         nt.assert_array_equal(ti.nodes_date, df["date"])
         assert list(np.where(df["is_recombinant"])[0]) == list(ti.recombinants)
         assert list(np.where(df["is_sample"])[0]) == list(ts.samples())
@@ -256,8 +259,5 @@ class TestDataFuncs:
         nt.assert_array_equal(ti.mutations_num_inheritors, df["num_inheritors"])
         nt.assert_array_equal(ti.mutations_derived_state, df["derived_state"])
         nt.assert_array_equal(ti.mutations_inherited_state, df["inherited_state"])
-        print(df)
-        # nt.assert_array_equal(ti.nodes_max_descendant_samples, df["max_descendant_samples"])
-        # nt.assert_array_equal(ti.nodes_date, df["date"])
-        # assert list(np.where(df["is_recombinant"])[0]) == list(ti.recombinants)
-        # assert list(np.where(df["is_sample"])[0]) == list(ts.samples())
+        nt.assert_array_equal(ts.mutations_node, df["node"])
+        nt.assert_array_equal(ts.mutations_parent, df["parent"])

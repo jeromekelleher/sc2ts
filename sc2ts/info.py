@@ -93,6 +93,7 @@ def mutation_data(ts):
     cols["id"] = np.arange(ts.num_mutations)
     cols["position"] = ts.sites_position[ts.mutations_site].astype(int)
     cols["parent"] = ts.mutations_parent
+    cols["node"] = ts.mutations_node
     cols["inherited_state"] = inherited_state
     cols["derived_state"] = derived_state
     cols["num_descendants"] = counter.mutations_num_descendants
