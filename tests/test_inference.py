@@ -1536,7 +1536,7 @@ class TestMinimiseMetadata:
     def test_properties(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         tables = sc2ts.minimise_metadata(ts).dump_tables()
-        assert tables.metadata == {}
+        assert tables.metadata == {"time_zero_date": '2020-02-13'}
         assert len(tables.sites.metadata) == 0
         assert len(tables.mutations.metadata) == 0
 
