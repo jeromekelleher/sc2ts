@@ -167,10 +167,13 @@ class CachedMetadataMapping(collections.abc.Mapping):
     def samples_for_date(self, date):
         return self.sample_id[self.sample_date == date]
 
-    def as_dataframe(self):
-        return pd.DataFrame({"sample_id": self.sample_id, **self.fields}).set_index(
-            "sample_id"
-        )
+    def as_dataframe(self, fields=None):
+        if fields is None:
+            fields = list(self.fields.keys())
+        data = {"sample_id": self.sample_id}
+        for k in fields:
+            data[k] = self.fields[k][:]
+        return pd.DataFrame(data).set_index("sample_id")
 
 
 @dataclasses.dataclass
