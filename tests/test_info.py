@@ -243,6 +243,7 @@ class TestDataFuncs:
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_nodes
         nt.assert_array_equal(ti.nodes_num_mutations, df["num_mutations"])
+        nt.assert_array_equal(np.arange(ti.ts.num_nodes), df["node_id"])
         nt.assert_array_equal(
             ti.nodes_max_descendant_samples, df["max_descendant_samples"]
         )
@@ -255,6 +256,7 @@ class TestDataFuncs:
         df = info.mutation_data(fx_ts_min_2020_02_15)
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_mutations
+        nt.assert_array_equal(np.arange(ti.ts.num_mutations), df["mutation_id"])
         nt.assert_array_equal(ti.mutations_num_descendants, df["num_descendants"])
         nt.assert_array_equal(ti.mutations_num_inheritors, df["num_inheritors"])
         nt.assert_array_equal(ti.mutations_derived_state, df["derived_state"])

@@ -417,9 +417,22 @@ class TestDatasetMetadata:
             data2 = df2[col]
             nt.assert_array_equal(data1.to_numpy(), data2.to_numpy())
 
+    def test_as_dataframe_fields(self, fx_dataset, fx_metadata_df):
+        fields = ["Viridian_N", "Viridian_pangolin"]
+        df1 = fx_dataset.metadata.as_dataframe(fields)
+        df2 = fx_metadata_df[fields].loc[df1.index]
+        assert df1.shape[0] == df2.shape[0]
+        for col, data1 in df2.items():
+            data2 = df2[col]
+            nt.assert_array_equal(data1.to_numpy(), data2.to_numpy())
+
     def test_metadata_field_descriptions(self, fx_dataset):
         for array in fx_dataset.metadata.fields.values():
             assert array.attrs["description"] == ""
+
+    def test_field_descriptors(self, fx_dataset):
+        df = fx_dataset.metadata.field_descriptors()
+        assert df.shape[0] == fx_dataset.metadata.num_fields
 
 
 class TestEncodeAlignment:
@@ -451,7 +464,8 @@ class TestEncodeAlignment:
 
 class TestMaskFlankingDeletions:
 
-    @pytest.mark.parametrize(["nucs", "expected"],
+    @pytest.mark.parametrize(
+        ["nucs", "expected"],
         [
             ("---", "NNN"),
             ("AAA", "AAA"),
@@ -461,7 +475,8 @@ class TestMaskFlankingDeletions:
             ("A-G", "A-G"),
             ("--AAATTT--", "NNAAATTTNN"),
             ("--A-AT-T--", "NNA-AT-TNN"),
-        ])
+        ],
+    )
     def test_examples(self, nucs, expected):
         a = sc2ts.encode_alignment(np.array(list(nucs), dtype="U1"))
         b = sc2ts.encode_alignment(np.array(list(expected), dtype="U1"))
