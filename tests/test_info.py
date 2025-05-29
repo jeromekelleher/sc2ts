@@ -43,28 +43,6 @@ def test_get_gene_coordinates():
     assert d["S"] == (21563, 25385)
 
 
-# This functionality should be removed and kept track of online in the metadata.
-@pytest.mark.skip("Broken by dataset")
-class TestTallyLineages:
-
-    def test_last_date(self, fx_ts_map, fx_metadata_db):
-        date = "2020-02-13"
-        df = info.tally_lineages(fx_ts_map[date], fx_metadata_db)
-        assert list(df["pango"]) == [
-            "B",
-            "A",
-            "B.1",
-            "B.40",
-            "B.33",
-            "B.4",
-            "A.5",
-            "B.1.177",
-            "B.1.36.29",
-        ]
-        assert list(df["db_count"]) == [26, 15, 4, 4, 1, 3, 1, 1, 1]
-        assert list(df["arg_count"]) == [23, 15, 4, 3, 1, 1, 0, 0, 0]
-
-
 class TestTreeInfo:
     def test_tree_info_values(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13

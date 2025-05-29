@@ -214,59 +214,6 @@ major_lineages = [
 ]
 
 
-def tally_lineages(ts, metadata_db, show_progress=False):
-    cov_lineages = core.get_cov_lineages_data()
-
-    md = ts.metadata["sc2ts"]
-    date = md["date"]
-    # Take the exact matches into account also.
-    counter = collections.Counter(md["exact_matches"]["pango"])
-    key = "Viridian_pangolin"
-    iterator = tqdm(
-        ts.samples()[1:],
-        desc="ARG metadata",
-        disable=not show_progress,
-    )
-    for u in iterator:
-        node = ts.node(u)
-        counter[node.metadata[key]] += 1
-
-    # print(counter)
-    result = metadata_db.query(
-        f"SELECT {key}, COUNT(*) FROM samples "
-        f"WHERE date <= '{date}'"
-        f" GROUP BY {key}"
-    )
-    data = []
-    today = datetime.datetime.fromisoformat(date)
-    for row in result:
-        pango = row[key]
-        if pango in cov_lineages:
-            lin_data = cov_lineages[pango]
-        else:
-            logger.warning(f"Lineage {pango} not in cov-lineages dataset")
-            lin_data = core.CovLineage(".", date, date, "")
-        # Some lineages don't have an earliest date
-        if lin_data.earliest_date == "":
-            logger.warning(f"Lineage {pango} has no earliest date")
-            lin_data.earliest_date = "2019-12-01"
-        if lin_data.latest_date == "":
-            logger.warning(f"Lineage {pango} has no latest date")
-            lin_data.earliest_date = "2029-12-01"
-        earliest_date = datetime.datetime.fromisoformat(lin_data.earliest_date)
-        data.append(
-            {
-                "arg_count": counter[pango],
-                "db_count": row["COUNT(*)"],
-                "earliest_date": lin_data.earliest_date,
-                "latest_date": lin_data.latest_date,
-                "earliest_date_offset": (today - earliest_date).days,
-                "pango": pango,
-            }
-        )
-    return pd.DataFrame(data).sort_values("arg_count", ascending=False)
-
-
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
 def find_runs(x):
     """Find runs of consecutive items in an array."""
