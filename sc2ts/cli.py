@@ -467,23 +467,6 @@ def validate(
 
 
 @click.command()
-@click.argument("ts", type=click.Path(exists=True, dir_okay=False))
-@click.argument("metadata", type=click.Path(exists=True, dir_okay=False))
-@click.option("-v", "--verbose", count=True)
-def tally_lineages(ts, metadata, verbose):
-    """
-    Output a table in TSV format comparing the number of samples associated
-    each pango lineage in the ARG along with the corresponding number in
-    the metadata DB.
-    """
-    setup_logging(verbose)
-    ts = tszip.load(ts)
-    with sc2ts.MetadataDb(metadata) as metadata_db:
-        df = info.tally_lineages(ts, metadata_db, show_progress=True)
-    df.to_csv(sys.stdout, sep="\t", index=False)
-
-
-@click.command()
 @click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("strains", nargs=-1)
@@ -684,5 +667,3 @@ cli.add_command(postprocess)
 cli.add_command(minimise_metadata)
 cli.add_command(map_deletions)
 cli.add_command(run_hmm)
-
-cli.add_command(tally_lineages)
