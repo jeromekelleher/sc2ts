@@ -2120,7 +2120,7 @@ def append_exact_matches(ts, match_db, show_progress=False):
     return tables.tree_sequence()
 
 
-def minimise_metadata(ts, show_progress=False):
+def minimise_metadata(ts, pango_field=None, show_progress=False):
     """
     Remove all metadata other than node metadata, and store only
     what is required to join effectively with the Zarr dataset.
@@ -2141,8 +2141,9 @@ def minimise_metadata(ts, show_progress=False):
 
     consolidated_metadata = {
         "strain": [],
-        "Viridian_pangolin": [],
     }
+    if pango_field is not None:
+        consolidated_metadata[pango_field] = []
     group_id = []
     for node in nodes:
         md = node.metadata
@@ -2150,10 +2151,10 @@ def minimise_metadata(ts, show_progress=False):
             consolidated_metadata[field].append(md.get(field, ""))
 
     # Remap to more usable names
-    consolidated_metadata = {
-        "sample_id": consolidated_metadata["strain"],
-        "pango": consolidated_metadata["Viridian_pangolin"],
-    }
+    copy = dict(consolidated_metadata)
+    consolidated_metadata = {"sample_id": consolidated_metadata["strain"]}
+    if pango_field is not None:
+        consolidated_metadata["pango"] = copy[pango_field]
 
     schema_properties = {}
     for key in list(consolidated_metadata.keys()):
@@ -2190,7 +2191,6 @@ def minimise_metadata(ts, show_progress=False):
     tables.provenances.add_row(json.dumps(prov))
     ts = tables.tree_sequence()
     return ts
-
 
 
 def find_reversions(ts):
