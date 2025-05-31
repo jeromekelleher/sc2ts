@@ -1536,25 +1536,26 @@ class TestMinimiseMetadata:
     def test_properties(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         tables = sc2ts.minimise_metadata(ts).dump_tables()
-        assert tables.metadata == {"time_zero_date": '2020-02-13'}
+        assert tables.metadata == {"time_zero_date": "2020-02-13"}
         assert len(tables.sites.metadata) == 0
         assert len(tables.mutations.metadata) == 0
 
-    def test_fields(self, fx_ts_map):
+    @pytest.mark.parametrize("pango_field", ["Viridian_pangolin", "Viridian_scorpio"])
+    def test_fields(self, fx_ts_map, pango_field):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts)
+        tsp = sc2ts.minimise_metadata(ts, pango_field=pango_field)
         for u in tsp.samples():
             md_old = ts.node(u).metadata
             md_new = tsp.node(u).metadata
             if "strain" in md_old:
                 assert md_old["strain"] == md_new["sample_id"]
-                assert md_old["Viridian_pangolin"] == md_new["pango"]
+                assert md_old[pango_field] == md_new["pango"]
             else:
                 assert md_new == {"sample_id": "", pango: ""}
 
     def test_dataframe_access(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts)
+        tsp = sc2ts.minimise_metadata(ts, pango_field="Viridian_pangolin")
         data = tsp.nodes_metadata
         cols = {k: data[k].astype(str) for k in data.dtype.names}
         df = pd.DataFrame(cols)

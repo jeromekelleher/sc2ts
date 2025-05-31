@@ -563,12 +563,14 @@ def postprocess(
 @click.command()
 @click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
+@click.option("--pango-field", default=None)
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def minimise_metadata(
     ts_in,
     ts_out,
+    pango_field,
     progress,
     verbose,
     log_file,
@@ -580,7 +582,7 @@ def minimise_metadata(
     """
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
-    ts = sc2ts.minimise_metadata(ts, show_progress=progress)
+    ts = sc2ts.minimise_metadata(ts, pango_field=pango_field, show_progress=progress)
     ts.dump(ts_out)
 
 
