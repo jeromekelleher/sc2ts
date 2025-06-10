@@ -417,11 +417,15 @@ class TestMapDeletions:
     def test_example(self, tmp_path, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         out_ts_path = tmp_path / "ts.ts"
+        del_sites_path = tmp_path / "deletion_sites.txt"
+        with open(del_sites_path, "w") as f:
+            print("1547 3951 3952 3953", file=f)
+
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
-            f"map-deletions {fx_dataset.path} {ts.path} {out_ts_path} "
-            "--frequency-threshold=0.0001",
+            f"map-deletions {fx_dataset.path} {ts.path} {del_sites_path} "
+            f"{out_ts_path} ",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
