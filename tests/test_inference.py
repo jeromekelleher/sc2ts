@@ -1398,13 +1398,14 @@ def fx_ts_exact_matches(fx_ts_map, fx_match_db):
 class TestMapDeletions:
     def test_example(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
+        sites = [1547, 3951, 3952, 3953]
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
         remapped_sites = [
             j
             for j in range(ts.num_sites)
             if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
         ]
-        assert remapped_sites == [1541, 3945, 3946, 3947]
+        assert remapped_sites == list(np.searchsorted(ts.sites_position, sites))
 
         for site_id in remapped_sites:
             site = new_ts.site(site_id)
@@ -1425,11 +1426,22 @@ class TestMapDeletions:
             for mut in site.mutations:
                 assert mut.metadata["sc2ts"]["type"] == "post_parsimony"
 
-    def test_filter_all(self, fx_ts_map, fx_dataset):
+    def test_empty(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        new_ts = sc2ts.map_deletions(
-            ts, fx_dataset, frequency_threshold=0.001, mutations_threshold=0
-        )
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, [])
+        remapped_sites = [
+            j
+            for j in range(ts.num_sites)
+            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
+        ]
+        assert remapped_sites == []
+
+    def test_missing_site(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        missing_positions = [56, 57, 58, 59, 60]
+        assert len(set(missing_positions) & set(ts.sites_position.astype(int))) == 0
+
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, missing_positions)
         remapped_sites = [
             j
             for j in range(ts.num_sites)
@@ -1439,29 +1451,31 @@ class TestMapDeletions:
 
     def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
         ts = fx_ts_exact_matches
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
+        sites = [1547, 3951, 3952, 3953]
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
         remapped_sites = [
             j
             for j in range(ts.num_sites)
             if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
         ]
-        assert remapped_sites == [1541, 3945, 3946, 3947]
+        assert remapped_sites == list(np.searchsorted(ts.sites_position, sites))
 
     def test_validate(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.001)
+        sites = [1547, 3951, 3952, 3953]
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
         sc2ts.validate(new_ts, fx_dataset, deletions_as_missing=False)
 
     def test_provenance(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.map_deletions(ts, fx_dataset, frequency_threshold=0.125)
+        sites = [1547, 3951, 3952, 3953]
+        tsp = sc2ts.map_deletions(ts, fx_dataset, sites)
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
         assert json.loads(prov.record)["parameters"] == {
             "command": "map_deletions",
             "dataset": str(fx_dataset.path),
-            "frequency_threshold": 0.125,
-            "mutations_threshold": 2**64,
+            "sites": sites,
         }
 
 

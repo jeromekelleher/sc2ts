@@ -589,28 +589,16 @@ def minimise_metadata(
 @click.command()
 @click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
+@click.argument("sites", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
-@click.option(
-    "--frequency-threshold",
-    type=float,
-    default=0.01,
-    help="Frequency threshold for deletions to get mapped back",
-)
-@click.option(
-    "--mutations-threshold",
-    type=int,
-    default=None,
-    help="Maximum number of mutations at a site after parsimony",
-)
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def map_deletions(
-    ts_in,
     dataset,
+    ts_in,
+    sites,
     ts_out,
-    frequency_threshold,
-    mutations_threshold,
     progress,
     verbose,
     log_file,
@@ -621,13 +609,8 @@ def map_deletions(
     setup_logging(verbose, log_file)
     ds = sc2ts.Dataset(dataset)
     ts = tszip.load(ts_in)
-    ts = sc2ts.map_deletions(
-        ts,
-        ds,
-        frequency_threshold=frequency_threshold,
-        mutations_threshold=mutations_threshold,
-        show_progress=progress,
-    )
+    sites = np.loadtxt(sites, dtype=int)
+    ts = sc2ts.map_deletions(ts, ds, sites, show_progress=progress)
     ts.dump(ts_out)
 
 
