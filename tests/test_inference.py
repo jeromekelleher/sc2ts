@@ -1398,7 +1398,7 @@ def fx_ts_exact_matches(fx_ts_map, fx_match_db):
 class TestMapDeletions:
     def test_example(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        sites =  [1547, 3951, 3952, 3953]
+        sites = [1547, 3951, 3952, 3953]
         new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
         remapped_sites = [
             j
@@ -1428,7 +1428,20 @@ class TestMapDeletions:
 
     def test_empty(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        new_ts = sc2ts.map_deletions( ts, fx_dataset, [])
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, [])
+        remapped_sites = [
+            j
+            for j in range(ts.num_sites)
+            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
+        ]
+        assert remapped_sites == []
+
+    def test_missing_site(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        missing_positions = [56, 57, 58, 59, 60]
+        assert len(set(missing_positions) & set(ts.sites_position.astype(int))) == 0
+
+        new_ts = sc2ts.map_deletions(ts, fx_dataset, missing_positions)
         remapped_sites = [
             j
             for j in range(ts.num_sites)
@@ -1438,7 +1451,7 @@ class TestMapDeletions:
 
     def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
         ts = fx_ts_exact_matches
-        sites =  [1547, 3951, 3952, 3953]
+        sites = [1547, 3951, 3952, 3953]
         new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
         remapped_sites = [
             j
@@ -1449,13 +1462,13 @@ class TestMapDeletions:
 
     def test_validate(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        sites =  [1547, 3951, 3952, 3953]
+        sites = [1547, 3951, 3952, 3953]
         new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
         sc2ts.validate(new_ts, fx_dataset, deletions_as_missing=False)
 
     def test_provenance(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        sites =  [1547, 3951, 3952, 3953]
+        sites = [1547, 3951, 3952, 3953]
         tsp = sc2ts.map_deletions(ts, fx_dataset, sites)
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)

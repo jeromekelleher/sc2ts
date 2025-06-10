@@ -1983,7 +1983,11 @@ def map_deletions(ts, ds, sites, *, show_progress=False):
     keep_mutations = np.ones(ts.num_mutations, dtype=bool)
     for var in variants:
         tree.seek(var.position)
-        site = ts.site(position=var.position)
+        try:
+            site = ts.site(position=var.position)
+        except ValueError:
+            logger.warning(f"No site at position {var.position}; skipping")
+            continue
 
         g = mask_ambiguous(var.genotypes)
         _, mutations = tree.map_mutations(
