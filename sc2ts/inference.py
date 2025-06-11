@@ -1954,12 +1954,21 @@ def get_recombinant_strains(ts):
     return ret
 
 
-def map_deletions(ts, ds, sites, *, show_progress=False):
+@dataclasses.dataclass
+class MapDeletionsResult:
+    tree_sequence: tskit.TreeSequence
+    report: pd.DataFrame
+
+
+def map_deletions(ts, ds, sites=None, *, show_progress=False):
     """
     Map deletions at the specified set of site positions ARG using parsimony.
     """
     start_time = time.time()  # wall time
-    sites = np.array(sites, dtype=int)
+    if sites is not None:
+        sites = np.array(sites, dtype=int)
+    else:
+        sites = ts.sites_position.astype(int)
     md = ts.metadata
 
     sample_id = md["sc2ts"]["samples_strain"]
@@ -1979,8 +1988,8 @@ def map_deletions(ts, ds, sites, *, show_progress=False):
     logger.info(f"Remapping {len(sites)} sites")
 
     mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
-    site_metadata = {}
     keep_mutations = np.ones(ts.num_mutations, dtype=bool)
+    report_data = []
     for var in variants:
         tree.seek(var.position)
         try:
@@ -1988,30 +1997,33 @@ def map_deletions(ts, ds, sites, *, show_progress=False):
         except ValueError:
             logger.warning(f"No site at position {var.position}; skipping")
             continue
-
         g = mask_ambiguous(var.genotypes)
-        _, mutations = tree.map_mutations(
-            g, list(var.alleles), ancestral_state=site.ancestral_state
+
+        if np.all(g == -1):
+            mutations = []
+        else:
+            _, mutations = tree.map_mutations(
+                g, list(var.alleles), ancestral_state=site.ancestral_state
+            )
+
+        old_mutations = set((mut.node, mut.derived_state) for mut in site.mutations)
+        new_mutations = set((mut.node, mut.derived_state) for mut in mutations)
+        inter = old_mutations & new_mutations
+        report_data.append(
+            {
+                "site": int(site.position),
+                "old": len(old_mutations),
+                "new": len(new_mutations),
+                "intersection": len(inter),
+            }
         )
 
         logger.debug(
             f"Site {int(site.position)} "
-            f"mapped mutations = {len(mutations)}; current = {len(site.mutations)}"
+            f"old={len(old_mutations)} new={len(new_mutations)} inter={len(inter)}"
         )
-
-        old_mutations = []
         for mut in site.mutations:
             keep_mutations[mut.id] = False
-            old_mutations.append(
-                {
-                    "node": mut.node,
-                    "derived_state": mut.derived_state,
-                    "metadata": mut.metadata,
-                }
-            )
-        md = dict(site.metadata)
-        md["sc2ts"]["original_mutations"] = old_mutations
-        site_metadata[site.id] = md
         for m in mutations:
             tables.mutations.add_row(
                 site=site.id,
@@ -2023,13 +2035,8 @@ def map_deletions(ts, ds, sites, *, show_progress=False):
 
     added_mutations = len(tables.mutations) - ts.num_mutations
     logger.info(
-        f"Added in {added_mutations} mutations at "
-        f"{len(site_metadata)} sites with parsimony"
+        f"Added in {added_mutations} mutations at " f"{len(sites)} sites with parsimony"
     )
-    tables.sites.clear()
-    for site in ts.sites():
-        md = site_metadata.get(site.id, site.metadata)
-        tables.sites.append(site.replace(metadata=md))
 
     keep_mutations = np.append(keep_mutations, np.ones(added_mutations, dtype=bool))
     tables.mutations.keep_rows(keep_mutations)
@@ -2040,7 +2047,8 @@ def map_deletions(ts, ds, sites, *, show_progress=False):
     params = {"dataset": str(ds.path), "sites": sites.tolist()}
     prov = get_provenance_dict("map_deletions", params, start_time)
     tables.provenances.add_row(json.dumps(prov))
-    return tables.tree_sequence()
+
+    return MapDeletionsResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
 
 def append_exact_matches(ts, match_db, show_progress=False):

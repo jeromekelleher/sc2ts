@@ -1399,77 +1399,65 @@ class TestMapDeletions:
     def test_example(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         sites = [1547, 3951, 3952, 3953]
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
-        remapped_sites = [
-            j
-            for j in range(ts.num_sites)
-            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
-        ]
-        assert remapped_sites == list(np.searchsorted(ts.sites_position, sites))
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        report = result.report
+        assert list(report.site.values) == sites
+        assert np.all(report.old == 1)
+        assert np.all(report.new == 1)
+        assert np.all(report.intersection == 1)
 
-        for site_id in remapped_sites:
-            site = new_ts.site(site_id)
-            old_site = ts.site(site_id)
-            original_mutations = site.metadata["sc2ts"]["original_mutations"]
-            assert original_mutations == [
-                {
-                    "node": mutation.node,
-                    "derived_state": mutation.derived_state,
-                    "metadata": mutation.metadata,
-                }
-                for mutation in old_site.mutations
-            ]
-            d = site.metadata["sc2ts"]
-            del d["original_mutations"]
-            assert old_site.metadata["sc2ts"] == d
-
+        new_ts = result.tree_sequence
+        for pos in sites:
+            site = new_ts.site(position=pos)
             for mut in site.mutations:
                 assert mut.metadata["sc2ts"]["type"] == "post_parsimony"
 
     def test_empty(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, [])
-        remapped_sites = [
-            j
-            for j in range(ts.num_sites)
-            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
-        ]
-        assert remapped_sites == []
+        result = sc2ts.map_deletions(ts, fx_dataset, [])
+        ts.tables.assert_equals(
+            result.tree_sequence.tables, ignore_metadata=True, ignore_provenance=True
+        )
+        assert result.report.shape[0] == 0
+
+    def test_empty_all_sites(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        result = sc2ts.map_deletions(ts, fx_dataset)
+        assert result.report.shape[0] == ts.num_sites
 
     def test_missing_site(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         missing_positions = [56, 57, 58, 59, 60]
         assert len(set(missing_positions) & set(ts.sites_position.astype(int))) == 0
 
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, missing_positions)
-        remapped_sites = [
-            j
-            for j in range(ts.num_sites)
-            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
-        ]
-        assert remapped_sites == []
+        result = sc2ts.map_deletions(ts, fx_dataset, missing_positions)
+        ts.tables.assert_equals(
+            result.tree_sequence.tables, ignore_metadata=True, ignore_provenance=True
+        )
+        assert result.report.shape[0] == 0
 
     def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
         ts = fx_ts_exact_matches
         sites = [1547, 3951, 3952, 3953]
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
-        remapped_sites = [
-            j
-            for j in range(ts.num_sites)
-            if "original_mutations" in new_ts.site(j).metadata["sc2ts"]
-        ]
-        assert remapped_sites == list(np.searchsorted(ts.sites_position, sites))
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        report = result.report
+        assert list(report.site.values) == sites
+        assert np.all(report.old == 1)
+        assert np.all(report.new == 1)
+        assert np.all(report.intersection == 1)
 
     def test_validate(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         sites = [1547, 3951, 3952, 3953]
-        new_ts = sc2ts.map_deletions(ts, fx_dataset, sites)
-        sc2ts.validate(new_ts, fx_dataset, deletions_as_missing=False)
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        sc2ts.validate(result.tree_sequence, fx_dataset, deletions_as_missing=False)
 
     def test_provenance(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         sites = [1547, 3951, 3952, 3953]
-        tsp = sc2ts.map_deletions(ts, fx_dataset, sites)
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        tsp = result.tree_sequence
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
         assert json.loads(prov.record)["parameters"] == {

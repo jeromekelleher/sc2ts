@@ -3,6 +3,7 @@ import json
 import collections
 
 import numpy as np
+import numpy.testing as nt
 import click.testing as ct
 import pytest
 import tskit
@@ -418,24 +419,58 @@ class TestMapDeletions:
         ts = fx_ts_map["2020-02-13"]
         out_ts_path = tmp_path / "ts.ts"
         del_sites_path = tmp_path / "deletion_sites.txt"
+        report_path = tmp_path / "report.csv"
         with open(del_sites_path, "w") as f:
             print("1547 3951 3952 3953", file=f)
 
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
-            f"map-deletions {fx_dataset.path} {ts.path} {del_sites_path} "
-            f"{out_ts_path} ",
+            f"map-deletions {fx_dataset.path} {ts.path} --sites={del_sites_path} "
+            f"{out_ts_path} --report={report_path}",
             catch_exceptions=False,
         )
         assert result.exit_code == 0
         out = tskit.load(out_ts_path)
-        remapped_sites = [
-            j
-            for j in range(ts.num_sites)
-            if "original_mutations" in out.site(j).metadata["sc2ts"]
-        ]
-        assert remapped_sites == [1541, 3945, 3946, 3947]
+        assert out.metadata == ts.metadata  # quick check, nothing systematic
+        df = pd.read_csv(report_path)
+        nt.assert_array_equal(df.site.values, [1547, 3951, 3952, 3953])
+
+    def test_example_no_report(self, tmp_path, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "ts.ts"
+        del_sites_path = tmp_path / "deletion_sites.txt"
+        with open(del_sites_path, "w") as f:
+            print("", file=f)
+
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"map-deletions {fx_dataset.path} {ts.path} --sites={del_sites_path} "
+            f"{out_ts_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        ts.tables.assert_equals(
+            out.tables, ignore_metadata=True, ignore_provenance=True
+        )
+
+    def test_example_no_sites(self, tmp_path, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "ts.ts"
+        report_path = tmp_path / "report.csv"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"map-deletions {fx_dataset.path} {ts.path} {out_ts_path} "
+            f"--report={report_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        df = pd.read_csv(report_path)
+        nt.assert_array_equal(df.site.values, ts.sites_position.astype(int))
 
 
 class TestValidate:

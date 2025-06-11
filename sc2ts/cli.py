@@ -589,16 +589,18 @@ def minimise_metadata(
 @click.command()
 @click.argument("dataset", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
-@click.argument("sites", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
+@click.option("--sites", default=None)
+@click.option("--report", default=None)
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def map_deletions(
     dataset,
     ts_in,
-    sites,
     ts_out,
+    sites,
+    report,
     progress,
     verbose,
     log_file,
@@ -609,9 +611,12 @@ def map_deletions(
     setup_logging(verbose, log_file)
     ds = sc2ts.Dataset(dataset)
     ts = tszip.load(ts_in)
-    sites = np.loadtxt(sites, dtype=int)
-    ts = sc2ts.map_deletions(ts, ds, sites, show_progress=progress)
-    ts.dump(ts_out)
+    if sites is not None:
+        sites = np.loadtxt(sites, dtype=int)
+    result = sc2ts.map_deletions(ts, ds, sites, show_progress=progress)
+    if report is not None:
+        result.report.to_csv(report)
+    result.tree_sequence.dump(ts_out)
 
 
 def find_previous_date_path(date, path_pattern):
