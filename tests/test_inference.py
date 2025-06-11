@@ -16,6 +16,12 @@ import sc2ts
 import util
 
 
+@pytest.fixture
+def fx_ts_min_2020_02_15(fx_ts_map):
+    ts = fx_ts_map["2020-02-15"]
+    return sc2ts.minimise_metadata(ts)
+
+
 def run_extend(dataset, base_ts, date, match_db, **kwargs):
     return sc2ts.extend(
         dataset=dataset.path,
@@ -1383,6 +1389,7 @@ class TestExtractHaplotypes:
         ts = tskit.Tree.generate_comb(4).tree_sequence
         tables = ts.dump_tables()
         tables.sites.add_row(0, "A")
+
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         ts = tables.tree_sequence()
         nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
@@ -1411,6 +1418,32 @@ class TestMapDeletions:
             site = new_ts.site(position=pos)
             for mut in site.mutations:
                 assert mut.metadata["sc2ts"]["type"] == "post_parsimony"
+
+    def test_example_minimised_md(self, fx_ts_min_2020_02_15, fx_dataset):
+        ts = fx_ts_min_2020_02_15
+        sites = [1547, 3951, 3952, 3953]
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        report = result.report
+        assert list(report.site.values) == sites
+        assert np.all(report.old == 1)
+        assert np.all(report.new == 1)
+        assert np.all(report.intersection == 1)
+
+        new_ts = result.tree_sequence
+        for pos in sites:
+            site = new_ts.site(position=pos)
+            for mut in site.mutations:
+                assert mut.metadata == b""
+
+    def test_example_minimised_zero_sites(self, fx_ts_min_2020_02_15, fx_dataset):
+        ts = fx_ts_min_2020_02_15
+        sites = []
+        result = sc2ts.map_deletions(ts, fx_dataset, sites)
+        report = result.report
+        assert report.shape[0] == 0
+        ts.tables.assert_equals(
+            result.tree_sequence.tables, ignore_metadata=True, ignore_provenance=True
+        )
 
     def test_empty(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]

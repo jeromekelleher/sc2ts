@@ -28,6 +28,7 @@ import humanize
 import pandas as pd
 
 from . import core
+from . import stats
 from . import tree_ops
 from . import dataset as _dataset
 
@@ -1971,7 +1972,17 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
         sites = ts.sites_position.astype(int)
     md = ts.metadata
 
-    sample_id = md["sc2ts"]["samples_strain"]
+    # If we're working with a debug ARG, build in some metadata to
+    # see these new sites. If not, leave it out because the metadata
+    # will have been dropped.
+    if "sc2ts" in md:
+        mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
+        sample_id = md["sc2ts"]["samples_strain"]
+    else:
+        mut_metadata = None
+        dfn = stats.node_data(ts, inheritance_stats=False)
+        sample_id = dfn[dfn.is_sample].sample_id.values
+
     assert not sample_id[0].startswith("Wuhan")
 
     tables = ts.dump_tables()
@@ -1987,7 +1998,6 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
 
     logger.info(f"Remapping {len(sites)} sites")
 
-    mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
     keep_mutations = np.ones(ts.num_mutations, dtype=bool)
     report_data = []
     for var in variants:

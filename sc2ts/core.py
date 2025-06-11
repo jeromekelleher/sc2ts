@@ -9,6 +9,7 @@ import numba
 import pyfaidx
 import numpy as np
 
+from . import jit
 
 __version__ = "undefined"
 try:
