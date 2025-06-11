@@ -35,7 +35,7 @@ def compute_mutation_states(ts):
     return inherited_state, derived_state
 
 
-def node_data(ts):
+def node_data(ts, inheritance_stats=True):
     """
     Return a pandas dataframe with one row for each node (in node ID order)
     from the specified tree sequence. This must be the output of
@@ -55,20 +55,20 @@ def node_data(ts):
     # cols["num_parents"] = np.bincount(ts.edges_child,
     #         minlength=ts.num_edges)
 
-    counter = jit.count(ts)
-    cols["max_descendant_samples"] = counter.nodes_max_descendant_samples
+    if inheritance_stats:
+        counter = jit.count(ts)
+        cols["max_descendant_samples"] = counter.nodes_max_descendant_samples
     cols["date"] = convert_date(ts, ts.nodes_time)
     return pd.DataFrame(cols)
 
 
-def mutation_data(ts):
+def mutation_data(ts, inheritance_stats=True):
     """
     Return a pandas dataframe with one row for each mutation (in mutation ID order)
     from the specified tree sequence. This must be the output of
     ``sc2ts.minimise_metadata``, and will not work on the raw output of sc2ts.
     """
     cols = {}
-    counter = jit.count(ts)
     inherited_state, derived_state = compute_mutation_states(ts)
 
     cols["mutation_id"] = np.arange(ts.num_mutations)
@@ -77,8 +77,10 @@ def mutation_data(ts):
     cols["node"] = ts.mutations_node
     cols["inherited_state"] = inherited_state
     cols["derived_state"] = derived_state
-    cols["num_descendants"] = counter.mutations_num_descendants
-    cols["num_inheritors"] = counter.mutations_num_inheritors
     cols["date"] = convert_date(ts, ts.mutations_time)
+    if inheritance_stats:
+        counter = jit.count(ts)
+        cols["num_descendants"] = counter.mutations_num_descendants
+        cols["num_inheritors"] = counter.mutations_num_inheritors
 
     return pd.DataFrame(cols)
