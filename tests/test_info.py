@@ -217,7 +217,7 @@ class TestDataFuncs:
 
     def test_example_node(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
-        df = info.node_data(fx_ts_min_2020_02_15)
+        df = sc2ts.node_data(fx_ts_min_2020_02_15)
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_nodes
         nt.assert_array_equal(ti.nodes_num_mutations, df["num_mutations"])
@@ -231,7 +231,7 @@ class TestDataFuncs:
 
     def test_example_mutation(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
-        df = info.mutation_data(fx_ts_min_2020_02_15)
+        df = sc2ts.mutation_data(fx_ts_min_2020_02_15)
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_mutations
         nt.assert_array_equal(np.arange(ti.ts.num_mutations), df["mutation_id"])

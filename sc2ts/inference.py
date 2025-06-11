@@ -28,6 +28,7 @@ import humanize
 import pandas as pd
 
 from . import core
+from . import stats
 from . import tree_ops
 from . import dataset as _dataset
 
@@ -1971,7 +1972,12 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
         sites = ts.sites_position.astype(int)
     md = ts.metadata
 
-    sample_id = md["sc2ts"]["samples_strain"]
+    if "sc2ts" in md:
+        sample_id = md["sc2ts"]["samples_strain"]
+    else:
+        dfn = stats.node_data(ts)
+        sample_id = dfn[dfn.is_sample].sample_id.values
+
     assert not sample_id[0].startswith("Wuhan")
 
     tables = ts.dump_tables()
