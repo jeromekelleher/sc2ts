@@ -2107,7 +2107,7 @@ def append_exact_matches(ts, match_db, show_progress=False):
     return tables.tree_sequence()
 
 
-def minimise_metadata(ts, pango_field=None, show_progress=False):
+def minimise_metadata(ts, field_mapping=None, show_progress=False):
     """
     Remove all metadata other than node metadata, and store only
     what is required to join effectively with the Zarr dataset.
@@ -2126,22 +2126,21 @@ def minimise_metadata(ts, pango_field=None, show_progress=False):
         disable=not show_progress,
     )
 
-    consolidated_metadata = {
-        "strain": [],
-    }
-    if pango_field is not None:
-        consolidated_metadata[pango_field] = []
-    group_id = []
+    if field_mapping is None:
+        field_mapping = {"strain": "sample_id"}
+
+    logger.info(f"Remapping with fields: {field_mapping}")
+    metadata_cols = {key: [] for key in field_mapping}
     for node in nodes:
         md = node.metadata
-        for field in consolidated_metadata:
-            consolidated_metadata[field].append(md.get(field, ""))
+        for field in metadata_cols:
+            # This assumes they are strings. We'd need a default
+            # value mapping as input to deal with this in general
+            metadata_cols[field].append(md.get(field, ""))
 
-    # Remap to more usable names
-    copy = dict(consolidated_metadata)
-    consolidated_metadata = {"sample_id": consolidated_metadata["strain"]}
-    if pango_field is not None:
-        consolidated_metadata["pango"] = copy[pango_field]
+    consolidated_metadata = {}
+    for field, data in metadata_cols.items():
+        consolidated_metadata[field_mapping[field]] = data
 
     schema_properties = {}
     for key in list(consolidated_metadata.keys()):
@@ -2174,7 +2173,9 @@ def minimise_metadata(ts, pango_field=None, show_progress=False):
 
     # We could quite reasonably drop most of provenances here too,
     # just keeping track of the development version filename
-    prov = get_provenance_dict("minimise_metadata", {}, start_time)
+    prov = get_provenance_dict(
+        "minimise_metadata", {"field_mapping": field_mapping}, start_time
+    )
     tables.provenances.add_row(json.dumps(prov))
     ts = tables.tree_sequence()
     return ts
