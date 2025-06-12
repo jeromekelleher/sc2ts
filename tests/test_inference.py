@@ -1578,7 +1578,7 @@ class TestMinimiseMetadata:
     @pytest.mark.parametrize("pango_field", ["Viridian_pangolin", "Viridian_scorpio"])
     def test_fields(self, fx_ts_map, pango_field):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts, pango_field=pango_field)
+        tsp = sc2ts.minimise_metadata(ts, {"strain": "sample_id", pango_field: "pango"})
         for u in tsp.samples():
             md_old = ts.node(u).metadata
             md_new = tsp.node(u).metadata
@@ -1590,7 +1590,9 @@ class TestMinimiseMetadata:
 
     def test_dataframe_access(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts, pango_field="Viridian_pangolin")
+        tsp = sc2ts.minimise_metadata(
+            ts, {"strain": "sample_id", "Viridian_pangolin": "pango"}
+        )
         data = tsp.nodes_metadata
         cols = {k: data[k].astype(str) for k in data.dtype.names}
         df = pd.DataFrame(cols)
@@ -1609,7 +1611,10 @@ class TestMinimiseMetadata:
         tsp = sc2ts.minimise_metadata(ts)
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
-        assert json.loads(prov.record)["parameters"] == {"command": "minimise_metadata"}
+        assert json.loads(prov.record)["parameters"] == {
+            "command": "minimise_metadata",
+            "field_mapping": {"strain": "sample_id"},
+        }
 
 
 class TestPushUpRecombinantMutations:

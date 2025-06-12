@@ -563,26 +563,41 @@ def postprocess(
 @click.command()
 @click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
 @click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
-@click.option("--pango-field", default=None)
+@click.option("--field-mapping", "-m", type=(str, str), multiple=True)
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def minimise_metadata(
     ts_in,
     ts_out,
-    pango_field,
+    field_mapping,
     progress,
     verbose,
     log_file,
 ):
     """
     Generate the final "analysis" version of the ARG by dropping all
-    metadata other than samples, and recoding the minimal information
+    metadata other the specified fields, and recoding the minimal information
     using the struct codec.
+
+    By default we only remap the "strain" metadata field to "sample_id". If
+    other fields are required, these can be provided with the
+    -m [old metadata name] [new metadata name], e.g
+
+    python -m sc2ts minimise-metadata -m strain sample_id -m Viridian_pangolin pango
+
+    The -m option can be provided as many times as we like, but it's important
+    to note that the strain/sample ID mapping *must* be provided if so.
+
+    Currently only supports string fields
     """
+    if len(field_mapping) == 0:
+        field_mapping = None
+    else:
+        field_mapping = dict(field_mapping)
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
-    ts = sc2ts.minimise_metadata(ts, pango_field=pango_field, show_progress=progress)
+    ts = sc2ts.minimise_metadata(ts, field_mapping, show_progress=progress)
     ts.dump(ts_out)
 
 

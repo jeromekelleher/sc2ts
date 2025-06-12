@@ -410,7 +410,27 @@ class TestMinimiseMetadata:
         ts.tables.assert_equals(
             out.tables, ignore_metadata=True, ignore_provenance=True
         )
-        assert isinstance(out.nodes_metadata, np.ndarray)
+        dfn = sc2ts.node_data(out, inheritance_stats=False)
+        assert "sample_id" in dfn
+
+    def test_example_args(self, tmp_path, fx_ts_map, fx_match_db):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "ts.ts"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"minimise-metadata {ts.path} {out_ts_path} "
+            f"-m strain sample_id -m Viridian_pangolin pango",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        ts.tables.assert_equals(
+            out.tables, ignore_metadata=True, ignore_provenance=True
+        )
+        dfn = sc2ts.node_data(out, inheritance_stats=False)
+        assert "sample_id" in dfn
+        assert "pango" in dfn
 
 
 class TestMapDeletions:
