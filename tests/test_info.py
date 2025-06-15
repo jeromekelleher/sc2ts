@@ -43,6 +43,18 @@ def test_get_gene_coordinates():
     assert d["S"] == (21563, 25385)
 
 
+class TestCopyingTable:
+    def test_copying_table(self, fx_ti_recombinant_example_1):
+        # should work with a plain tree sequence
+        ti = fx_ti_recombinant_example_1
+        ts = ti.ts
+        recombinants = np.where(ts.nodes_flags & sc2ts.NODE_IS_RECOMBINANT)[0]
+        re_node = recombinants[0]
+        ct_via_ti = ti.copying_table(re_node, child_label="TestChild")
+        ct_via_ts = info.CopyingTable(ts, re_node).html(child_label="TestChild")
+        assert "TestChild" in ct_via_ti
+        assert ct_via_ti == ct_via_ts
+
 class TestTreeInfo:
     def test_tree_info_values(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
