@@ -224,6 +224,67 @@ class TestCreateDataset:
         xt.assert_equal(permuted, sg_ds2)
 
 
+class TestDatasetFasta:
+
+    def test_write_fasta_all(self, tmp_path, fx_dataset, fx_alignments_fasta):
+        path = tmp_path / "export.fa"
+        with open(path, "w") as f:
+            fx_dataset.write_fasta(f)
+
+        fr1 = sc2ts.FastaReader(fx_alignments_fasta)
+        fr2 = sc2ts.FastaReader(path)
+        for k, a1 in fr1.items():
+            a2 = fr2[k]
+            nt.assert_array_equal(a1, a2)
+        assert set(fr2.keys()) == set(fr1.keys())
+
+    @pytest.mark.parametrize(
+        "sample_id",
+        [
+            [
+                "SRR11597195",
+            ],
+            [
+                "SRR11597146",
+                "SRR11597196",
+                "SRR11597178",
+                "SRR11597168",
+                "SRR11597195",
+                "SRR11597190",
+                "SRR11597164",
+                "SRR11597115",
+            ],
+            [
+                "SRR11597115",
+                "SRR11597146",
+            ],
+            [
+                "SRR11597115",
+                "SRR11597146",
+                "SRR11597164",
+                "SRR11597168",
+                "SRR11597178",
+                "SRR11597190",
+                "SRR11597195",
+                "SRR11597196",
+            ],
+        ],
+    )
+    def test_write_fasta_subset(
+        self, tmp_path, fx_dataset, fx_alignments_fasta, sample_id
+    ):
+        path = tmp_path / "export.fa"
+        with open(path, "w") as f:
+            fx_dataset.write_fasta(f, sample_id)
+
+        fr1 = sc2ts.FastaReader(fx_alignments_fasta)
+        fr2 = sc2ts.FastaReader(path)
+        for k in sample_id:
+            a1 = fr1[k]
+            a2 = fr2[k]
+            nt.assert_array_equal(a1, a2)
+
+
 class TestDatasetVariants:
 
     def test_all(self, fx_dataset):
