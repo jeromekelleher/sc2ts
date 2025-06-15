@@ -289,6 +289,21 @@ class Dataset(collections.abc.Mapping):
                             variant_alleles[j],
                         )
 
+    def write_fasta(self, out, sample_id=None):
+        """
+        Writes the alignment data in FASTA format to the specified file.
+        """
+        if sample_id is None:
+            sample_id = self.sample_id
+
+        for sid in sample_id:
+            h = self.haplotypes[sid]
+            a = core.decode_alignment(h)
+            print(f">{sid}", file=out)
+            # FIXME this is probably a terrible way to write a large numpy string to
+            # a file
+            print("".join(a), file=out)
+
     def copy(
         self,
         path,
