@@ -610,7 +610,7 @@ def minimise_metadata(
 @click.option("--progress/--no-progress", default=True)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
-def map_deletions(
+def map_parsimony(
     dataset,
     ts_in,
     ts_out,
@@ -621,14 +621,14 @@ def map_deletions(
     log_file,
 ):
     """
-    Map deletions onto the specified ARG.
+    Map variation at the specified set of sites to the ARG using parsimony.
     """
     setup_logging(verbose, log_file)
     ds = sc2ts.Dataset(dataset)
     ts = tszip.load(ts_in)
     if sites is not None:
         sites = np.loadtxt(sites, dtype=int)
-    result = sc2ts.map_deletions(ts, ds, sites, show_progress=progress)
+    result = sc2ts.map_parsimony(ts, ds, sites, show_progress=progress)
     if report is not None:
         result.report.to_csv(report)
     result.tree_sequence.dump(ts_out)
@@ -670,5 +670,5 @@ cli.add_command(infer)
 cli.add_command(validate)
 cli.add_command(postprocess)
 cli.add_command(minimise_metadata)
-cli.add_command(map_deletions)
+cli.add_command(map_parsimony)
 cli.add_command(run_hmm)

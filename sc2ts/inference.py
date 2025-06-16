@@ -1956,14 +1956,16 @@ def get_recombinant_strains(ts):
 
 
 @dataclasses.dataclass
-class MapDeletionsResult:
+class MapParsimonyResult:
     tree_sequence: tskit.TreeSequence
     report: pd.DataFrame
 
 
-def map_deletions(ts, ds, sites=None, *, show_progress=False):
+def map_parsimony(ts, ds, sites=None, *, show_progress=False):
     """
-    Map deletions at the specified set of site positions ARG using parsimony.
+    Map variation at the specified set of site positions to the ARG using parsimony
+    and return the resulting tree sequence. States ACGT- are treated as alleles
+    and all other states are treated as missing data.
     """
     start_time = time.time()  # wall time
     if sites is not None:
@@ -2066,10 +2068,10 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
     tables.build_index()
     tables.compute_mutation_parents()
     params = {"dataset": str(ds.path), "sites": sites.tolist()}
-    prov = get_provenance_dict("map_deletions", params, start_time)
+    prov = get_provenance_dict("map_parsimony", params, start_time)
     tables.provenances.add_row(json.dumps(prov))
 
-    return MapDeletionsResult(tables.tree_sequence(), pd.DataFrame(report_data))
+    return MapParsimonyResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
 
 def append_exact_matches(ts, match_db, show_progress=False):
