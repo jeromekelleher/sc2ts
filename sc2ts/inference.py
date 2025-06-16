@@ -1956,14 +1956,16 @@ def get_recombinant_strains(ts):
 
 
 @dataclasses.dataclass
-class MapDeletionsResult:
+class MapParsimonyResult:
     tree_sequence: tskit.TreeSequence
     report: pd.DataFrame
 
 
-def map_deletions(ts, ds, sites=None, *, show_progress=False):
+def map_parsimony(ts, ds, sites=None, *, show_progress=False):
     """
-    Map deletions at the specified set of site positions ARG using parsimony.
+    Map variation at the specified set of site positions to the ARG using parsimony
+    and return the resulting tree sequence. States ACGT- are treated as alleles
+    and all other states are treated as missing data.
     """
     start_time = time.time()  # wall time
     if sites is not None:
@@ -1977,9 +1979,11 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
     # will have been dropped.
     if "sc2ts" in md:
         mut_metadata = {"sc2ts": {"type": "post_parsimony"}}
+        site_metadata = {"sc2ts": {"type": "post_parsimony"}}
         sample_id = md["sc2ts"]["samples_strain"]
     else:
         mut_metadata = None
+        site_metadata = None
         dfn = stats.node_data(ts, inheritance_stats=False)
         sample_id = dfn[dfn.is_sample].sample_id.values
 
@@ -2000,13 +2004,25 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
 
     keep_mutations = np.ones(ts.num_mutations, dtype=bool)
     report_data = []
+    current_sites = set(ts.sites_position)
     for var in variants:
         tree.seek(var.position)
-        try:
+        if var.position in current_sites:
             site = ts.site(position=var.position)
-        except ValueError:
-            logger.warning(f"No site at position {var.position}; skipping")
-            continue
+            site_id = site.id
+            old_mutations = set((mut.node, mut.derived_state) for mut in site.mutations)
+            for mut in site.mutations:
+                keep_mutations[mut.id] = False
+        else:
+            assert ts.reference_sequence.data[0] == "X"
+            site_id = tables.sites.add_row(
+                position=var.position,
+                ancestral_state=ts.reference_sequence.data[var.position],
+                metadata=site_metadata,
+            )
+            site = tables.sites[site_id]
+            old_mutations = set()
+
         g = mask_ambiguous(var.genotypes)
 
         if np.all(g == -1):
@@ -2016,7 +2032,6 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
                 g, list(var.alleles), ancestral_state=site.ancestral_state
             )
 
-        old_mutations = set((mut.node, mut.derived_state) for mut in site.mutations)
         new_mutations = set((mut.node, mut.derived_state) for mut in mutations)
         inter = old_mutations & new_mutations
         report_data.append(
@@ -2032,11 +2047,9 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
             f"Site {int(site.position)} "
             f"old={len(old_mutations)} new={len(new_mutations)} inter={len(inter)}"
         )
-        for mut in site.mutations:
-            keep_mutations[mut.id] = False
         for m in mutations:
             tables.mutations.add_row(
-                site=site.id,
+                site=site_id,
                 node=m.node,
                 derived_state=m.derived_state,
                 time=ts.nodes_time[m.node],
@@ -2055,10 +2068,10 @@ def map_deletions(ts, ds, sites=None, *, show_progress=False):
     tables.build_index()
     tables.compute_mutation_parents()
     params = {"dataset": str(ds.path), "sites": sites.tolist()}
-    prov = get_provenance_dict("map_deletions", params, start_time)
+    prov = get_provenance_dict("map_parsimony", params, start_time)
     tables.provenances.add_row(json.dumps(prov))
 
-    return MapDeletionsResult(tables.tree_sequence(), pd.DataFrame(report_data))
+    return MapParsimonyResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
 
 def append_exact_matches(ts, match_db, show_progress=False):

@@ -433,7 +433,7 @@ class TestMinimiseMetadata:
         assert "pango" in dfn
 
 
-class TestMapDeletions:
+class TestMapParsimony:
 
     def test_example(self, tmp_path, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
@@ -446,7 +446,7 @@ class TestMapDeletions:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
-            f"map-deletions {fx_dataset.path} {ts.path} --sites={del_sites_path} "
+            f"map-parsimony {fx_dataset.path} {ts.path} --sites={del_sites_path} "
             f"{out_ts_path} --report={report_path}",
             catch_exceptions=False,
         )
@@ -466,7 +466,7 @@ class TestMapDeletions:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
-            f"map-deletions {fx_dataset.path} {ts.path} --sites={del_sites_path} "
+            f"map-parsimony {fx_dataset.path} {ts.path} --sites={del_sites_path} "
             f"{out_ts_path}",
             catch_exceptions=False,
         )
@@ -483,7 +483,7 @@ class TestMapDeletions:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
-            f"map-deletions {fx_dataset.path} {ts.path} {out_ts_path} "
+            f"map-parsimony {fx_dataset.path} {ts.path} {out_ts_path} "
             f"--report={report_path}",
             catch_exceptions=False,
         )
