@@ -1458,16 +1458,43 @@ class TestMapDeletions:
         result = sc2ts.map_deletions(ts, fx_dataset)
         assert result.report.shape[0] == ts.num_sites
 
-    def test_missing_site(self, fx_ts_map, fx_dataset):
+    def test_missing_sites(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         missing_positions = [56, 57, 58, 59, 60]
         assert len(set(missing_positions) & set(ts.sites_position.astype(int))) == 0
 
         result = sc2ts.map_deletions(ts, fx_dataset, missing_positions)
+        assert (
+            len(
+                set(missing_positions)
+                & set(result.tree_sequence.sites_position.astype(int))
+            )
+            == 5
+        )
+        assert list(result.report.site) == missing_positions
+        assert np.all(result.report.old == 0)
+        assert np.all(result.report.new == 0)
+        assert np.all(result.report.intersection == 0)
+
+    def test_readd_existing_site(self, fx_ts_map, fx_dataset):
+        ts = fx_ts_map["2020-02-13"]
+        site = ts.site(position=203)
+        assert len(site.mutations) == 1
+        ts_del = ts.delete_sites([site.id])
+
+        result = sc2ts.map_deletions(ts_del, fx_dataset, [site.position])
+        new_site = result.tree_sequence.site(position=site.position)
+        assert new_site.ancestral_state == site.ancestral_state
+        assert new_site.position == site.position
+        assert new_site.id == site.id
+
         ts.tables.assert_equals(
             result.tree_sequence.tables, ignore_metadata=True, ignore_provenance=True
         )
-        assert result.report.shape[0] == 0
+        assert result.report.shape[0] == 1
+        assert np.all(result.report.old == 0)
+        assert np.all(result.report.new == 1)
+        assert np.all(result.report.intersection == 0)
 
     def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
         ts = fx_ts_exact_matches
