@@ -29,7 +29,12 @@ def fx_ti_2020_02_15(fx_ts_map):
 @pytest.fixture
 def fx_ts_min_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
-    return sc2ts.minimise_metadata(ts)
+    field_mapping = {
+        "strain": "sample_id",
+        "Viridian_pangolin": "pango",
+        "Viridian_scorpio": "scorpio",
+    }
+    return sc2ts.minimise_metadata(ts, field_mapping)
 
 
 @pytest.fixture
@@ -238,6 +243,8 @@ class TestDataFuncs:
         nt.assert_array_equal(
             ti.nodes_max_descendant_samples, df["max_descendant_samples"]
         )
+        print(ti.nodes_date.dtype)
+        print(df["date"].dtype)
         nt.assert_array_equal(ti.nodes_date, df["date"])
         assert list(np.where(df["is_recombinant"])[0]) == list(ti.recombinants)
         assert list(np.where(df["is_sample"])[0]) == list(ts.samples())
