@@ -55,6 +55,7 @@ class TestCopyingTable:
         assert "TestChild" in ct_via_ti
         assert ct_via_ti == ct_via_ts
 
+
 class TestTreeInfo:
     def test_tree_info_values(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
@@ -229,8 +230,8 @@ class TestDataFuncs:
 
     def test_example_node(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
-        df = sc2ts.node_data(fx_ts_min_2020_02_15)
         ti = fx_ti_2020_02_15
+        df = sc2ts.node_data(ts)
         assert df.shape[0] == ti.ts.num_nodes
         nt.assert_array_equal(ti.nodes_num_mutations, df["num_mutations"])
         nt.assert_array_equal(np.arange(ti.ts.num_nodes), df["node_id"])
@@ -240,6 +241,16 @@ class TestDataFuncs:
         nt.assert_array_equal(ti.nodes_date, df["date"])
         assert list(np.where(df["is_recombinant"])[0]) == list(ti.recombinants)
         assert list(np.where(df["is_sample"])[0]) == list(ts.samples())
+
+    def test_example_node_no_date(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
+        ts = fx_ts_min_2020_02_15
+        df1 = sc2ts.node_data(ts)
+        tables = ts.dump_tables()
+        tables.metadata = {}
+        df2 = sc2ts.node_data(tables.tree_sequence())
+        assert set(df1) == set(df2) | {"date"}
+        for col in df2:
+            nt.assert_array_equal(df1[col].values, df2[col].values)
 
     def test_example_mutation(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
@@ -253,3 +264,13 @@ class TestDataFuncs:
         nt.assert_array_equal(ti.mutations_inherited_state, df["inherited_state"])
         nt.assert_array_equal(ts.mutations_node, df["node"])
         nt.assert_array_equal(ts.mutations_parent, df["parent"])
+
+    def test_example_mutation_no_date(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
+        ts = fx_ts_min_2020_02_15
+        df1 = sc2ts.mutation_data(ts)
+        tables = ts.dump_tables()
+        tables.metadata = {}
+        df2 = sc2ts.mutation_data(tables.tree_sequence())
+        assert set(df1) == set(df2) | {"date"}
+        for col in df2:
+            nt.assert_array_equal(df1[col].values, df2[col].values)

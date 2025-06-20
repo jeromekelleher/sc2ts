@@ -58,7 +58,8 @@ def node_data(ts, inheritance_stats=True):
     if inheritance_stats:
         counter = jit.count(ts)
         cols["max_descendant_samples"] = counter.nodes_max_descendant_samples
-    cols["date"] = convert_date(ts, ts.nodes_time)
+    if "time_zero_date" in ts.metadata:
+        cols["date"] = convert_date(ts, ts.nodes_time)
     return pd.DataFrame(cols)
 
 
@@ -77,7 +78,8 @@ def mutation_data(ts, inheritance_stats=True):
     cols["node"] = ts.mutations_node
     cols["inherited_state"] = inherited_state
     cols["derived_state"] = derived_state
-    cols["date"] = convert_date(ts, ts.mutations_time)
+    if "time_zero_date" in ts.metadata:
+        cols["date"] = convert_date(ts, ts.mutations_time)
     if inheritance_stats:
         counter = jit.count(ts)
         cols["num_descendants"] = counter.mutations_num_descendants
