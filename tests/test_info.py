@@ -176,7 +176,7 @@ class TestTreeInfo:
         df = fx_ti_recombinant_example_1.recombinants_summary()
         assert df.shape[0] == 1
         row = df.iloc[0]
-        assert row.descendants == 2
+        assert row.num_descendant_samples == 2
         assert row["sample"] == 53
         assert row.num_samples == 2
         assert row.group_size == 3
@@ -189,8 +189,8 @@ class TestTreeInfo:
         assert row.parent_right == 46
         assert row.parent_right_pango == "Unknown"
         assert row.num_mutations == 0
-        assert row.mrca == 1
-        assert row.t_mrca == 51
+        assert row.parent_mrca == 1
+        assert row.parent_mrca_time == 51
         assert "diffs" not in df
 
         df2 = fx_ti_recombinant_example_1.recombinants_summary(
@@ -206,17 +206,19 @@ class TestTreeInfo:
         df = ti.recombinants_summary(characterise_copying=True, show_progress=False)
         assert df.shape[0] == 1
         row = df.iloc[0]
-        assert row.descendants == 1
+        assert row.num_descendant_samples == 1
         assert row["sample"] == 55
         assert row["distinct_sample_pango"] == 1
         assert row["recombinant"] == 56
+        assert row["recombinant_pango"] == "Unknown"
+        assert row["recombinant_time"] == 0.000001
         assert row["sample_pango"] == "Unknown"
         assert row["num_mutations"] == 0
         assert row["parent_left"] == 53
         assert row["parent_left_pango"] == "Unknown"
         assert row["parent_right"] == 54
         assert row["parent_right_pango"] == "Unknown"
-        assert row["mrca"] == 48
+        assert row["parent_mrca"] == 48
         assert row["group_size"] == 2
         assert row["diffs"] == 6
         assert row["max_run_length"] == 2
@@ -243,8 +245,6 @@ class TestDataFuncs:
         nt.assert_array_equal(
             ti.nodes_max_descendant_samples, df["max_descendant_samples"]
         )
-        print(ti.nodes_date.dtype)
-        print(df["date"].dtype)
         nt.assert_array_equal(ti.nodes_date, df["date"])
         assert list(np.where(df["is_recombinant"])[0]) == list(ti.recombinants)
         assert list(np.where(df["is_sample"])[0]) == list(ts.samples())
