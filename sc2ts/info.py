@@ -240,7 +240,6 @@ class CopyingTable:
             muts[site.position] = f"{state0}>{state1}"
         return muts
 
-
     def __init__(
         self,
         ts,
@@ -258,10 +257,13 @@ class CopyingTable:
         self.node = node
         if edges is None:  # the required edge table wasn't given, so recalculate
             edges = tskit.EdgeTable()
-            for e in sorted([ts.edge(i) for i in np.where(ts.edges_child==node)[0]], key=lambda e: e.left):
+            for e in sorted(
+                [ts.edge(i) for i in np.where(ts.edges_child == node)[0]],
+                key=lambda e: e.left,
+            ):
                 edges.append(e)
         self.edges = edges
-        
+
     def html(
         self,
         show_bases=True,
@@ -278,7 +280,7 @@ class CopyingTable:
         using the ``IPython.display.HTML`` function.
 
         :param ts TreeSequence:
-            The tree sequence to which the nodes refer 
+            The tree sequence to which the nodes refer
         :param node int:
             The node ID of the child node, usually a recombination node.
             This will be placed on the second row of the copying pattern, so that
@@ -311,6 +313,7 @@ class CopyingTable:
             document (e.g. a Jupyter notebook) that already has one copying table shown with
             the standard stylesheet. If False or None (default), include the default stylesheet.
         """
+
         def row_lab(txt):
             return "" if hide_labels else f"<th>{txt}</th>"
 
@@ -972,6 +975,7 @@ class TreeInfo:
             md = dict(self.nodes_metadata[u]["sc2ts"])
             group_id = md["group_id"][: self.sample_group_id_prefix_len]
             md["group_id"] = group_id
+
             group_nodes = self.sample_group_nodes[group_id]
             md["group_size"] = len(group_nodes)
 
@@ -983,13 +987,17 @@ class TreeInfo:
             causal_lineages = {}
             hmm_matches = []
             breakpoint_intervals = []
+            copying_path_mutations = collections.defaultdict(list)
             for v in samples:
-                causal_lineages[v] = self.nodes_metadata[v].get(
-                    self.pango_source, "Unknown"
-                )
+                sample_md = self.nodes_metadata[v]
+                causal_lineages[v] = sample_md.get(self.pango_source, "Unknown")
+                hmm_mutations = len(sample_md["sc2ts"]["hmm_match"]["mutations"])
+                copying_path_mutations[hmm_mutations].append(v)
 
-            # Arbitrarily pick the first sample node as the representative
-            v = samples[0]
+            min_mutations = min(copying_path_mutations.keys())
+            # Choose our representative sample as one of the ones that have the
+            # fewest mutations in it's copying path.
+            v = copying_path_mutations[min_mutations][0]
             node_md = self.nodes_metadata[v]["sc2ts"]
             hmm_matches.append(node_md["hmm_match"])
             breakpoint_intervals.append(node_md["breakpoint_intervals"])
