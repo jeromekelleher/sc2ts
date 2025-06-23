@@ -178,6 +178,7 @@ class TestTreeInfo:
         row = df.iloc[0]
         assert row.num_descendant_samples == 2
         assert row["sample"] == 53
+        assert row.sample_id == "recombinant_example_1_0"
         assert row.num_samples == 2
         assert row.group_size == 3
         assert row.distinct_sample_pango == 1
@@ -208,6 +209,7 @@ class TestTreeInfo:
         row = df.iloc[0]
         assert row.num_descendant_samples == 1
         assert row["sample"] == 55
+        assert row["sample_id"] == "recombinant_114:29825"
         assert row["distinct_sample_pango"] == 1
         assert row["recombinant"] == 56
         assert row["recombinant_pango"] == "Unknown"

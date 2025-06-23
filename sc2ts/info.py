@@ -1035,6 +1035,7 @@ class TreeInfo:
                 )
 
             datum = {
+                "sample_id": self.nodes_metadata[v]["strain"],
                 "num_descendant_samples": self.nodes_max_descendant_samples[u],
                 "num_samples": len(samples),
                 "distinct_sample_pango": len(set(causal_lineages.values())),
