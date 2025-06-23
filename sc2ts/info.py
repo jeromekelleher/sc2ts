@@ -1026,12 +1026,20 @@ class TreeInfo:
             parent_left = hmm_match["path"][0]["parent"]
             parent_right = hmm_match["path"][1]["parent"]
 
+            edges_right = self.ts.edges_right[self.ts.edges_child == u]
+            interval_right = int(edges_right.min())
+            if interval_right != interval[0][1]:
+                logger.warning(
+                    f"RE: {u} interval right shifted from {interval[0][1]} "
+                    f"to {interval_right}"
+                )
+
             datum = {
                 "num_descendant_samples": self.nodes_max_descendant_samples[u],
                 "num_samples": len(samples),
                 "distinct_sample_pango": len(set(causal_lineages.values())),
                 "interval_left": interval[0][0],
-                "interval_right": interval[0][1],
+                "interval_right": interval_right,
                 "num_mutations": len(hmm_match["mutations"]),
                 "Viridian_amplicon_scheme": self.nodes_metadata[v].get(
                     "Viridian_amplicon_scheme", "Unknown"

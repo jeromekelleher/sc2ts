@@ -223,6 +223,21 @@ class TestTreeInfo:
         assert row["diffs"] == 6
         assert row["max_run_length"] == 2
 
+    def test_recombinants_summary_example_2_bp_shift(self, fx_recombinant_example_2):
+        tables = fx_recombinant_example_2.dump_tables()
+        sample = 55
+        row = tables.nodes[sample]
+        md = row.metadata
+        # Shift the bp one base right
+        md["sc2ts"]["breakpoint_intervals"] = [[114, 29826]]
+        tables.nodes[sample] = row.replace(metadata=md)
+        ts = tables.tree_sequence()
+        ti = info.TreeInfo(ts, show_progress=False)
+        df1 = ti.recombinants_summary(characterise_copying=True, show_progress=False)
+        ti = info.TreeInfo(fx_recombinant_example_2, show_progress=False)
+        df2 = ti.recombinants_summary(characterise_copying=True, show_progress=False)
+        pd.testing.assert_frame_equal(df1, df2)
+
 
 class TestSampleGroupInfo:
     def test_draw_svg(self, fx_ti_2020_02_13):
