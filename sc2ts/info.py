@@ -235,7 +235,7 @@ class CopyingTable:
                 )
             state0 = site.ancestral_state
             if mut.parent != tskit.NULL:
-                state0 = ts.mutation(mut.parent).derived_state
+                state0 = self.ts.mutation(mut.parent).derived_state
             state1 = mut.derived_state
             muts[site.position] = f"{state0}>{state1}"
         return muts
