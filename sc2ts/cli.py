@@ -557,6 +557,7 @@ def postprocess(
     ts = sc2ts.push_up_reversions(
         ts, ts.mutations_node[mutations_is_reversion], date=None
     )
+    ts = sc2ts.drop_vestigial_root_edge(ts)
     ts.dump(ts_out)
 
 

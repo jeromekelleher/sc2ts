@@ -1237,6 +1237,10 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
         # sort
         ts = mirror_ts_coordinates(ts)
 
+    # Note: this is inefficient here as we're rebuilding indexes etc for no
+    # real reason. Could inline here if we want.
+    ts = insert_vestigial_root_edge(ts)
+
     tables = ts.tables
     assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
     ancestral_state = core.encode_alignment(

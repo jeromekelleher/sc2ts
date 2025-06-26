@@ -1115,20 +1115,27 @@ class TestMatchingDetails:
     )
     @pytest.mark.parametrize("num_mismatches", [2, 3, 4])
     @pytest.mark.parametrize("direction", ["forward", "reverse"])
+    @pytest.mark.parametrize("drop_vestigial", [False, True])
     def test_exact_matches(
         self,
+        tmp_path,
         fx_ts_map,
         fx_dataset,
         strain,
         parent,
         num_mismatches,
         direction,
+        drop_vestigial,
     ):
         ts = fx_ts_map["2020-02-10"]
+        ts_path = tmp_path / "ts.trees"
+        if drop_vestigial:
+            ts = sc2ts.drop_vestigial_root_edge(ts)
+        ts.dump(ts_path)
 
         runs = sc2ts.run_hmm(
             fx_dataset.path,
-            ts.path,
+            ts_path,
             [strain],
             num_mismatches=num_mismatches,
             direction=direction,
