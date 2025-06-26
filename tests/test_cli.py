@@ -392,6 +392,8 @@ class TestPostprocess:
         out = tskit.load(out_ts_path)
         assert out.num_samples == ts.num_samples + 8
         assert out.num_provenances == ts.num_provenances + 2
+        # Check we've dropped the vestigial root edge
+        assert out.edge(-1).parent == 1
 
 
 class TestMinimiseMetadata:
