@@ -392,13 +392,14 @@ class TestPostprocess:
         out = tskit.load(out_ts_path)
         assert out.num_samples == ts.num_samples + 8
         assert out.num_provenances == ts.num_provenances + 2
-        # Check we've dropped the vestigial root edge
-        assert out.edge(-1).parent == 1
+        # Check we've kept the vestigial root edge as the trees can't be
+        # dated otherwise
+        assert out.edge(-1).parent == 0
 
 
 class TestMinimiseMetadata:
 
-    def test_example(self, tmp_path, fx_ts_map, fx_match_db):
+    def test_example(self, tmp_path, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         out_ts_path = tmp_path / "ts.ts"
         runner = ct.CliRunner()
@@ -414,8 +415,26 @@ class TestMinimiseMetadata:
         )
         dfn = sc2ts.node_data(out, inheritance_stats=False)
         assert "sample_id" in dfn
+        # Check we've kept the vestigial root edge
+        assert out.edge(-1).parent == 0
 
-    def test_example_args(self, tmp_path, fx_ts_map, fx_match_db):
+    def test_example_drop_vestigial_root(self, tmp_path, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "ts.ts"
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"minimise-metadata {ts.path} {out_ts_path} --drop-vestigial-root",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        # Check we've dropped the vestigial root edge
+        dfn = sc2ts.node_data(out, inheritance_stats=False)
+        assert "sample_id" in dfn
+        assert out.edge(-1).parent == 1
+
+    def test_example_args(self, tmp_path, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
         out_ts_path = tmp_path / "ts.ts"
         runner = ct.CliRunner()

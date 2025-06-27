@@ -558,7 +558,6 @@ def postprocess(
     ts = sc2ts.push_up_reversions(
         ts, ts.mutations_node[mutations_is_reversion], date=None
     )
-    ts = sc2ts.drop_vestigial_root_edge(ts)
     ts.dump(ts_out)
 
 
@@ -567,6 +566,7 @@ def postprocess(
 @click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
 @click.option("--field-mapping", "-m", type=(str, str), multiple=True)
 @click.option("--progress/--no-progress", default=True)
+@click.option("--drop-vestigial-root/--no-drop-vestigial-root", default=False)
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def minimise_metadata(
@@ -574,6 +574,7 @@ def minimise_metadata(
     ts_out,
     field_mapping,
     progress,
+    drop_vestigial_root,
     verbose,
     log_file,
 ):
@@ -600,6 +601,8 @@ def minimise_metadata(
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
     ts = sc2ts.minimise_metadata(ts, field_mapping, show_progress=progress)
+    if drop_vestigial_root:
+        ts = sc2ts.drop_vestigial_root_edge(ts)
     ts.dump(ts_out)
 
 
