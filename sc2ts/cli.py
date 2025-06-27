@@ -517,6 +517,7 @@ def run_hmm(
         ts_path,
         strains=strains,
         num_mismatches=num_mismatches,
+        deletions_as_missing=deletions_as_missing,
         mismatch_threshold=mismatch_threshold,
         direction=direction,
         num_threads=num_threads,
