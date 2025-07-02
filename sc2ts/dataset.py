@@ -68,8 +68,13 @@ def readahead_retrieve(array, blocks):
     def worker(block):
         return block, array.blocks[block]
 
-    with cf.ThreadPoolExecutor(4) as executor:
-        yield from executor.map(worker, blocks)
+    result = worker(blocks[0])
+    with cf.ThreadPoolExecutor(1) as executor:
+        for block in blocks[1:]:
+            future = executor.submit(worker, block)
+            yield result
+            result = future.result()
+    yield result
 
 
 class CachedHaplotypeMapping(collections.abc.Mapping):
