@@ -297,7 +297,6 @@ class Dataset(collections.abc.Mapping):
             if np.any(v_select):
                 v_chunks.append(v_chunk)
 
-        # for v_chunk in v_chunks:
         for v_chunk, G in readahead_retrieve(call_genotype, v_chunks):
             v_select = variant_select.blocks[v_chunk]
             for k in range(G.shape[0]):
