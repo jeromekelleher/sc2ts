@@ -1066,7 +1066,7 @@ class TreeInfo:
         df = pd.DataFrame(data).sort_values("interval_right")
         tree = self.ts.first()
         mrca_data = []
-        for _, row in df.iterrows():
+        for j, row in df.iterrows():
             bp = row.interval_right
             tree.seek(bp)
             assert tree.interval.left == bp
@@ -1077,9 +1077,10 @@ class TreeInfo:
             left_path = jit.get_root_path(tree, row.parent_left)
             assert tree.parent(row.recombinant) == row.parent_left
             mrca = jit.get_path_mrca(left_path, right_path, self.ts.nodes_time)
-            mrca_data.append(node_info(mrca, "parent_mrca"))
+            mrca_data.append({"index": j, **node_info(mrca, "parent_mrca")})
 
-        mrca_df = pd.DataFrame(mrca_data)
+        # Make sure this mrca dataframe uses the same index as the first.
+        mrca_df = pd.DataFrame(mrca_data).set_index("index")
         for col in mrca_df:
             df[col] = mrca_df[col]
 
