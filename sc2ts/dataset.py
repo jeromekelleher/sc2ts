@@ -8,6 +8,7 @@ import zipfile
 import collections
 import logging
 import pathlib
+import concurrent.futures as cf
 
 import tskit
 import tqdm
@@ -60,6 +61,23 @@ def massage_viridian_metadata(df):
         a[~missing] = np.array(data[~missing], dtype=int)
         df[name] = a
     return df
+
+
+def readahead_retrieve(array, blocks):
+
+    if len(blocks) == 0:
+        return
+
+    def worker(block):
+        return block, array.blocks[block]
+
+    result = worker(blocks[0])
+    with cf.ThreadPoolExecutor(1) as executor:
+        for block in blocks[1:]:
+            future = executor.submit(worker, block)
+            yield result
+            result = future.result()
+    yield result
 
 
 class CachedHaplotypeMapping(collections.abc.Mapping):
@@ -274,20 +292,24 @@ class Dataset(collections.abc.Mapping):
         )
         variant_select[index] = True
 
+        v_chunks = []
         for v_chunk in range(call_genotype.cdata_shape[0]):
             # NOTE: could improve performance quite a lot for small sample
             # sets by pulling only S chunks that are needed.
             v_select = variant_select.blocks[v_chunk]
             if np.any(v_select):
-                G = call_genotype.blocks[v_chunk]
-                for k in range(G.shape[0]):
-                    if v_select[k]:
-                        j = v_chunk * v_chunk_size + k
-                        yield Variant(
-                            variant_position[j],
-                            G[k, sample_index].squeeze(1),
-                            variant_alleles[j],
-                        )
+                v_chunks.append(v_chunk)
+
+        for v_chunk, G in readahead_retrieve(call_genotype, v_chunks):
+            v_select = variant_select.blocks[v_chunk]
+            for k in range(G.shape[0]):
+                if v_select[k]:
+                    j = v_chunk * v_chunk_size + k
+                    yield Variant(
+                        variant_position[j],
+                        G[k, sample_index].squeeze(1),
+                        variant_alleles[j],
+                    )
 
     def write_fasta(self, out, sample_id=None):
         """
