@@ -65,6 +65,9 @@ def massage_viridian_metadata(df):
 
 def readahead_retrieve(array, blocks):
 
+    if len(blocks) == 0:
+        return
+
     def worker(block):
         return block, array.blocks[block]
 

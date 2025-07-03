@@ -303,6 +303,9 @@ class TestDatasetVariants:
             [0, 29903],
             [9999, 10002],
             [333, 2900],
+            [0, 0],
+            [10_000, 10_000],
+            [29903, 29903],
         ],
     )
     def test_variant_slice(self, fx_dataset, start, stop):
@@ -316,6 +319,33 @@ class TestDatasetVariants:
             nt.assert_array_equal(var.alleles, alleles[j])
             j += 1
         assert j == stop - start
+
+    @pytest.mark.parametrize(
+        ["start", "stop"],
+        [
+            [0, 1],
+            [0, 10],
+            [0, -1],
+            [0, 55],
+            [7, 14],
+            [7, 15],
+            [30, 40],
+            [40, 50],
+            [0, 0],
+        ],
+    )
+    def test_sample_slice(self, fx_dataset, start, stop):
+        samples = fx_dataset["sample_id"][start: stop]
+        G = fx_dataset["call_genotype"][:, start:stop].squeeze()
+        pos = fx_dataset["variant_position"][:]
+        alleles =fx_dataset["variant_allele"][:]
+        j = 0
+        for var in fx_dataset.variants(sample_id=samples):
+            nt.assert_array_equal(var.genotypes, G[j])
+            assert var.position == pos[j]
+            nt.assert_array_equal(var.alleles, alleles[j])
+            j += 1
+        assert j == fx_dataset.num_variants
 
 
 class TestDatasetMethods:
