@@ -372,6 +372,12 @@ class TestDatasetMethods:
         # The point is just to see if they are different here
         assert len(diffs) == 6
 
+    def test_str(self, fx_dataset):
+        assert str(fx_dataset).startswith("Dataset")
+
+    def test_repr_markdown(self, fx_dataset):
+        assert str(fx_dataset) == fx_dataset._repr_markdown_()
+
 
 class TestMafftAlignments:
 

@@ -570,7 +570,7 @@ class TestInfoDataset:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert "with 55 samples and 26 metadata fields" in result.stdout
+        assert "with 55 samples" in result.stdout
 
     def test_zarr(self, fx_dataset):
         runner = ct.CliRunner()
