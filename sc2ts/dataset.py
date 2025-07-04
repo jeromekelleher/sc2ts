@@ -203,7 +203,7 @@ class CachedMetadataMapping(collections.abc.Mapping):
                     "description": v.attrs.get("description", ""),
                 }
             )
-        return pd.DataFrame(data)
+        return pd.DataFrame(data).set_index("field")
 
 
 @dataclasses.dataclass
@@ -240,6 +240,7 @@ class Dataset(collections.abc.Mapping):
             chunk_cache_size=chunk_cache_size,
         )
 
+
     def __getitem__(self, key):
         return self.root[key]
 
@@ -267,9 +268,14 @@ class Dataset(collections.abc.Mapping):
 
     def __str__(self):
         return (
-            f"Dataset at {self.path} with {self.num_samples} samples "
-            f"and {self.metadata.num_fields} metadata fields"
+            f"Dataset at {self.path} with {self.num_samples} samples, "
+            f"{self.num_variants} variants, "
+            f"and {self.metadata.num_fields} metadata fields. See "
+            "ds.metadata.field_descriptors() for a description of the fields."
         )
+
+    def _repr_markdown_(self):
+        return str(self)
 
     def variants(self, sample_id=None, position=None):
         variant_position = self["variant_position"][:]
