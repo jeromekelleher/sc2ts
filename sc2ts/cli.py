@@ -35,7 +35,7 @@ dataset = click.argument("dataset", type=click.Path(exists=True, dir_okay=True))
 num_mismatches = click.option(
     "-k",
     "--num-mismatches",
-    default=3,
+    default=4,
     show_default=True,
     type=float,
     help="Number of mismatches to accept in favour of recombination",
