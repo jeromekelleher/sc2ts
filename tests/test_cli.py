@@ -103,7 +103,7 @@ class TestRunHmm:
         assert len(lines) == 1
         d = json.loads(lines[0])
         assert d["strain"] == strain
-        assert d["num_mismatches"] == 3
+        assert d["num_mismatches"] == 4
         assert d["direction"] == "forward"
         assert len(d["match"]["path"]) == 1
         assert len(d["match"]["mutations"]) == 5
@@ -125,7 +125,7 @@ class TestRunHmm:
         assert len(lines) == copies
         d = json.loads(lines[0])
         assert d["strain"] == strains[0]
-        assert d["num_mismatches"] == 3
+        assert d["num_mismatches"] == 4
         assert d["direction"] == "forward"
         assert len(d["match"]["path"]) == 1
         assert len(d["match"]["mutations"]) == 0
@@ -340,7 +340,7 @@ class TestInfer:
         assert ts.num_samples == 1
 
     def test_multiple_override(self, tmp_path, fx_ts_map, fx_dataset):
-        hmm_cost_threshold = 3
+        hmm_cost_threshold = 4
         config_file = self.make_config(
             tmp_path,
             fx_dataset,
