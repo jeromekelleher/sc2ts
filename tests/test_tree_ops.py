@@ -246,6 +246,16 @@ class TestCoalesceMutations:
         ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
         ts3.tables.assert_equals(ts2.tables)
 
+    def test_time_bug(self):
+        # We rely on the mutation time being the time of the node at the
+        # bottom of the edge.
+        ts = tskit.load("tests/data/coalesce_mutations_time_bug.trees")
+        tables = ts.dump_tables()
+        # Only the first three mutations are necessary.
+        tables.mutations.truncate(3)
+        ts2 = sc2ts.coalesce_mutations(tables.tree_sequence(), [0])
+        assert ts2.num_mutations == 2
+
 
 class TestPushUpReversions:
     def test_no_mutations(self):
