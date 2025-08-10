@@ -8,6 +8,7 @@ import dataclasses
 from typing import List
 
 import tskit
+import tqdm
 import numpy as np
 import scipy.spatial.distance
 import scipy.cluster.hierarchy
@@ -277,7 +278,7 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     return tables.tree_sequence()
 
 
-def coalesce_mutations(ts, samples=None, date="1999-01-01"):
+def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False):
     """
     Examine all time-0 samples and their (full-sequence) sibs and create
     new nodes to represent overlapping sets of mutations. The algorithm
@@ -316,12 +317,15 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
             if edge.left == 0 and edge.right == ts.sequence_length:
                 nodes.add(v)
 
-    node_mutations = nodes_mutation_descriptors(ts, list(nodes))
+    logger.debug(f"Computing mutation descriptors for {len(nodes)}")
+    node_mutations = nodes_mutation_descriptors(
+        ts, list(nodes), show_progress=show_progress
+    )
 
     # For each sample, what is the ("a" more accurately - this is greedy)
     # maximum mutation overlap with one of its sibs?
     max_sample_overlap = {}
-    for sample in samples:
+    for sample in tqdm.tqdm(samples, disable=not show_progress):
         u = tree.parent(sample)
         max_overlap = set()
         for v in tree.children(u):
@@ -335,7 +339,7 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
     sib_groups = collections.defaultdict(set)
     # Make sure we don't use the same node in more than one sib-set
     used_nodes = set()
-    for sample in samples:
+    for sample in tqdm.tqdm(samples, disable=not show_progress):
         u = tree.parent(sample)
         sample_overlap = frozenset(max_sample_overlap[sample])
         key = (u, sample_overlap)
@@ -349,6 +353,8 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
         if len(sib_groups[key]) < 2:
             del sib_groups[key]
 
+    logger.debug(f"Found {len(sib_groups)} sib groups")
+
     mutations_to_delete = []
     edges_to_delete = []
     for (_, overlap), sibs in sib_groups.items():
@@ -358,7 +364,9 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
                 edges_to_delete.append(tree.edge(sib))
 
     tables = ts.dump_tables()
-    for (parent, overlap), sibs in sib_groups.items():
+    for (parent, overlap), sibs in tqdm.tqdm(
+        sib_groups.items(), disable=not show_progress
+    ):
         group_parent = len(tables.nodes)
         tables.edges.add_row(0, ts.sequence_length, parent, group_parent)
         max_sib_time = 0
@@ -407,7 +415,7 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
 
 # NOTE: "samples" is a bad name here, this is actually the set of attach_nodes
 # that we get from making a local tree from a group.
-def push_up_reversions(ts, samples, date="1999-01-01"):
+def push_up_reversions(ts, samples, date="1999-01-01", show_progress=False):
     # We depend on mutations having a time below.
     assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
 
@@ -444,7 +452,9 @@ def push_up_reversions(ts, samples, date="1999-01-01"):
         all_nodes.add(child)
         all_nodes.add(parent)
 
-    descriptors = nodes_mutation_descriptors(ts, list(all_nodes))
+    descriptors = nodes_mutation_descriptors(
+        ts, list(all_nodes), show_progress=show_progress
+    )
 
     # For each node check if it has an immediate reversion
     sib_groups = collections.defaultdict(list)
@@ -466,10 +476,12 @@ def push_up_reversions(ts, samples, date="1999-01-01"):
         if len(reversions) > len(sib_groups[parent]):
             sib_groups[parent] = reversions
 
+    logger.debug(f"Found {len(sib_groups)} sib groups")
+
     tables = ts.dump_tables()
     edges_to_delete = []
     mutations_to_delete = []
-    for parent, reversions in sib_groups.items():
+    for parent, reversions in tqdm.tqdm(sib_groups.items(), disable=not show_progress):
         if len(reversions) == 0:
             continue
 
@@ -554,36 +566,15 @@ class ReversionDescriptor:
     parent_mutation: MutationDescriptor
 
 
-def node_mutation_descriptors(ts, u):
-    """
-    Return a mapping of unique mutations
-    (site, inherited_state, derived_state, parent_id) to the corresponding
-    mutation IDs that are on the specified node.
-    """
-    descriptors = {}
-    for mut_id in np.where(ts.mutations_node == u)[0]:
-        mut = ts.mutation(mut_id)
-        inherited_state = ts.site(mut.site).ancestral_state
-        if mut.parent != -1:
-            parent_mut = ts.mutation(mut.parent)
-            if parent_mut.node == u:
-                raise ValueError("Multiple mutations on same branch not supported")
-            inherited_state = parent_mut.derived_state
-        assert inherited_state != mut.derived_state
-        desc = MutationDescriptor(
-            mut.site, mut.derived_state, inherited_state, mut.parent
-        )
-        assert desc not in descriptors
-        descriptors[desc] = mut_id
-    return descriptors
-
-
-def nodes_mutation_descriptors(ts, nodes):
+def nodes_mutation_descriptors(ts, nodes, show_progress=False):
     dfm = stats.mutation_data(ts, inheritance_stats=False).set_index("node")
     ret = {node: {} for node in nodes}
     nodes = np.sort(np.array(nodes))
     present_nodes = np.intersect1d(nodes, dfm.index.unique())
-    for node, row in dfm.loc[present_nodes].iterrows():
+    subset = dfm.loc[present_nodes]
+    for node, row in tqdm.tqdm(
+        subset.iterrows(), total=subset.shape[0], disable=not show_progress
+    ):
         desc = MutationDescriptor(
             row["site_id"],
             row["derived_state"],
