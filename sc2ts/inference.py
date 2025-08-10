@@ -2078,6 +2078,51 @@ def map_parsimony(ts, ds, sites=None, *, show_progress=False):
     return MapParsimonyResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
 
+def get_inherited_state(ts, site, mutation):
+    inherited_state = site.ancestral_state
+    if mutation.parent != -1:
+        parent_mutation = ts.mutation(mutation.parent)
+        inherited_state = parent_mutation.derived_state
+    return inherited_state
+
+
+def apply_node_parsimony_heuristics(ts, show_progress=False):
+
+    # Find nodes with unparsimonious mutations
+    sibling_mutation_nodes = set()
+    immediate_reversion_nodes = set()
+    tree = ts.first()
+    for site in tqdm.tqdm(ts.sites(), total=ts.num_sites, disable=not show_progress):
+        tree.seek(site.position)
+        # Key by parent node and state transition
+        sib_map = collections.defaultdict(set)
+        for mut in site.mutations:
+            inherited_state = get_inherited_state(ts, site, mut)
+            if mut.parent != -1:
+                parent_inherited_state = get_inherited_state(
+                    ts, site, ts.mutation(mut.parent)
+                )
+                if parent_inherited_state == mut.derived_state:
+                    immediate_reversion_nodes.add(mut.node)
+
+            parent_node = tree.parent(mut.node)
+            if parent_node != -1:
+                key = (parent_node, inherited_state, mut.derived_state)
+                sib_map[key].add(mut.node)
+
+        for key, sibs in sib_map.items():
+            if len(sibs) > 1:
+                sibling_mutation_nodes.update(sibs)
+
+    logger.info(
+        f"Found {len(sibling_mutation_nodes)} potential nodes to coalesce "
+        f"and  {len(immediate_reversion_nodes)} potential immediate reversions"
+    )
+    ts2 = tree_ops.coalesce_mutations(ts, sibling_mutation_nodes)
+    ts3 = tree_ops.push_up_reversions(ts2, immediate_reversion_nodes)
+    return ts3
+
+
 def append_exact_matches(ts, match_db, show_progress=False):
     """
     Update the specified tree sequence to include all exact matches
