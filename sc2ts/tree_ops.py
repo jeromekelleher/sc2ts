@@ -258,9 +258,8 @@ def trim_branches(ts):
 
 def update_tables(tables, edges_to_delete, mutations_to_delete):
     # Updating the mutations is a real faff, and the only way I
-    # could get it to work is by setting the time values. This should
+    # could get it to work is by using the time values. This should
     # be easier...
-    # NOTE: this should be easier to do now that we have the "keep_rows" methods
     mutations_to_keep = np.ones(len(tables.mutations), dtype=bool)
     mutations_to_keep[mutations_to_delete] = False
     tables.mutations.replace_with(tables.mutations[mutations_to_keep])
@@ -286,8 +285,13 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
     Also note that we don't recurse and only reason about mutation sharing
     at a single level in the tree.
     """
-    # We depend on mutations having a time below.
-    assert np.all(np.logical_not(np.isnan(ts.mutations_time)))
+
+    tables = ts.dump_tables()
+    # Set the mutations time to the time of the node. We rely on this
+    # for sorting and to make sure we don't violate constraints during
+    # parsimony updates
+    tables.mutations.time = ts.nodes_time[ts.mutations_node]
+
     if samples is None:
         samples = ts.samples(time=0)
 
@@ -363,7 +367,6 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
                 mutations_to_delete.append(node_mutations[sib][mut_desc])
                 edges_to_delete.append(tree.edge(sib))
 
-    tables = ts.dump_tables()
     for (parent, overlap), sibs in tqdm.tqdm(
         sib_groups.items(), disable=not show_progress
     ):
