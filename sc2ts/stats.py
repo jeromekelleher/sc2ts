@@ -80,12 +80,13 @@ def mutation_data(ts, inheritance_stats=True):
     inherited_state, derived_state = compute_mutation_states(ts)
 
     cols["mutation_id"] = np.arange(ts.num_mutations)
+    cols["site_id"] = ts.mutations_site
     cols["position"] = ts.sites_position[ts.mutations_site].astype(int)
     cols["parent"] = ts.mutations_parent
     cols["node"] = ts.mutations_node
     cols["inherited_state"] = inherited_state
     cols["derived_state"] = derived_state
-    if "time_zero_date" in ts.metadata:
+    if not isinstance(ts.metadata, bytes) and "time_zero_date" in ts.metadata:
         cols["date"] = convert_date(ts, ts.mutations_time)
     if inheritance_stats:
         counter = jit.count(ts)

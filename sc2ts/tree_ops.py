@@ -14,6 +14,7 @@ import scipy.cluster.hierarchy
 import biotite.sequence.phylo as bsp
 
 from . import core
+from . import stats
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +304,8 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
     logger.info(f"Coalescing mutations for {len(samples)} full-span samples")
 
     # For each node in one of the sib groups, the set of mutations.
-    node_mutations = {}
+    nodes = set()
+    # node_mutations = {}
     for sample in samples:
         u = tree.parent(sample)
         for v in tree.children(u):
@@ -312,8 +314,9 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01"):
             edge = ts.edge(tree.edge(v))
             assert edge.child == v and edge.parent == u
             if edge.left == 0 and edge.right == ts.sequence_length:
-                if v not in node_mutations:
-                    node_mutations[v] = node_mutation_descriptors(ts, v)
+                nodes.add(v)
+
+    node_mutations = nodes_mutation_descriptors(ts, list(nodes))
 
     # For each sample, what is the ("a" more accurately - this is greedy)
     # maximum mutation overlap with one of its sibs?
@@ -435,14 +438,20 @@ def push_up_reversions(ts, samples, date="1999-01-01"):
 
     logger.info(f"Pushing reversions for {len(full_span_samples)} full-span samples")
 
+    all_nodes = set()
+    for child in full_span_samples:
+        parent = tree.parent(child)
+        all_nodes.add(child)
+        all_nodes.add(parent)
+
+    descriptors = nodes_mutation_descriptors(ts, list(all_nodes))
+
     # For each node check if it has an immediate reversion
     sib_groups = collections.defaultdict(list)
     for child in full_span_samples:
         parent = tree.parent(child)
-        child_muts = {desc.site: desc for desc in node_mutation_descriptors(ts, child)}
-        parent_muts = {
-            desc.site: desc for desc in node_mutation_descriptors(ts, parent)
-        }
+        child_muts = {desc.site: desc for desc in descriptors[child]}
+        parent_muts = {desc.site: desc for desc in descriptors[parent]}
         reversions = []
         for site in child_muts:
             if site in parent_muts:
@@ -567,3 +576,19 @@ def node_mutation_descriptors(ts, u):
         assert desc not in descriptors
         descriptors[desc] = mut_id
     return descriptors
+
+
+def nodes_mutation_descriptors(ts, nodes):
+    dfm = stats.mutation_data(ts, inheritance_stats=False).set_index("node")
+    ret = {node: {} for node in nodes}
+    nodes = np.sort(np.array(nodes))
+    present_nodes = np.intersect1d(nodes, dfm.index.unique())
+    for node, row in dfm.loc[present_nodes].iterrows():
+        desc = MutationDescriptor(
+            row["site_id"],
+            row["derived_state"],
+            row["inherited_state"],
+            row["parent"],
+        )
+        ret[node][desc] = row["mutation_id"]
+    return ret
