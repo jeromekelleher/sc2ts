@@ -2118,6 +2118,8 @@ def apply_node_parsimony_heuristics(ts, show_progress=False):
         f"Found {len(sibling_mutation_nodes)} potential nodes to coalesce "
         f"and  {len(immediate_reversion_nodes)} potential immediate reversions"
     )
+    sibling_mutation_nodes = np.array(list(sibling_mutation_nodes))
+    immediate_reversion_nodes = np.array(list(immediate_reversion_nodes))
     ts2 = tree_ops.coalesce_mutations(
         ts, sibling_mutation_nodes, show_progress=show_progress
     )
