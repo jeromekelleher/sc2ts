@@ -268,7 +268,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 6
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts, push_reversions=False)
         ts3.tables.assert_equals(ts2.tables)
 
     def test_time_bug(self):

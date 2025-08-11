@@ -639,6 +639,33 @@ def map_parsimony(
     result.tree_sequence.dump(ts_out)
 
 
+@click.command()
+@click.argument("ts_in", type=click.Path(exists=True, dir_okay=False))
+@click.argument("ts_out", type=click.Path(exists=False, dir_okay=False))
+@click.option("--report", default=None)
+@click.option("--progress/--no-progress", default=True)
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def apply_node_parsimony(
+    ts_in,
+    ts_out,
+    report,
+    progress,
+    verbose,
+    log_file,
+):
+    """
+    Apply the node parsimony hueristics iteratively until convergance
+    and save the output.
+    """
+    setup_logging(verbose, log_file)
+    ts = tszip.load(ts_in)
+
+    ts = sc2ts.apply_node_parsimony_heuristics(ts, show_progress=progress)
+
+    ts.dump(ts_out)
+
+
 def find_previous_date_path(date, path_pattern):
     """
     Find the path with the most-recent date to the specified one
@@ -676,4 +703,5 @@ cli.add_command(validate)
 cli.add_command(postprocess)
 cli.add_command(minimise_metadata)
 cli.add_command(map_parsimony)
+cli.add_command(apply_node_parsimony)
 cli.add_command(run_hmm)

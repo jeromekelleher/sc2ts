@@ -278,7 +278,7 @@ class TestDataFuncs:
 
     def test_example_mutation(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
-        df = sc2ts.mutation_data(fx_ts_min_2020_02_15)
+        df = sc2ts.mutation_data(fx_ts_min_2020_02_15, parsimony_stats=True)
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_mutations
         nt.assert_array_equal(np.arange(ti.ts.num_mutations), df["mutation_id"])
@@ -288,6 +288,9 @@ class TestDataFuncs:
         nt.assert_array_equal(ti.mutations_inherited_state, df["inherited_state"])
         nt.assert_array_equal(ts.mutations_node, df["node"])
         nt.assert_array_equal(ts.mutations_parent, df["parent"])
+        nt.assert_array_equal(
+            ti.mutations_is_immediate_reversion, df["is_immediate_reversion"]
+        )
 
     def test_example_mutation_no_date(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15

@@ -70,7 +70,7 @@ def node_data(ts, inheritance_stats=True):
     return pd.DataFrame(cols).astype(dtype)
 
 
-def mutation_data(ts, inheritance_stats=True):
+def mutation_data(ts, inheritance_stats=True, parsimony_stats=False):
     """
     Return a pandas dataframe with one row for each mutation (in mutation ID order)
     from the specified tree sequence. This must be the output of
@@ -93,8 +93,30 @@ def mutation_data(ts, inheritance_stats=True):
         cols["num_descendants"] = counter.mutations_num_descendants
         cols["num_inheritors"] = counter.mutations_num_inheritors
 
+    if parsimony_stats:
+        parent_node = np.zeros_like(cols["node"]) - 1
+        pos = cols["position"]
+        node = cols["node"]
+        for tree in ts.trees():
+            select = (tree.interval.left <= pos) & (pos < tree.interval.right)
+            parent_node[select] = tree.parent_array[node[select]]
+        cols["node_parent"] = parent_node
+
+        inherited_state = np.append(cols["inherited_state"], "N")
+        parent_mutation_node = np.append(cols["node"], -1)
+        parent_inherited_state = inherited_state[cols["parent"]]
+        parent_mutation_node = parent_mutation_node[cols["parent"]]
+        cols["parent_inherited_state"] = parent_inherited_state
+        cols["parent_mutation_node"] = parent_mutation_node
+        cols["is_immediate_reversion"] = np.logical_and(
+            cols["derived_state"] == cols["parent_inherited_state"],
+            cols["node_parent"] == cols["parent_mutation_node"])
+
     dtype = {k: "int" for k in cols if k != "date"}
-    dtype["inherited_state"] = pd.StringDtype()
-    dtype["derived_state"] = pd.StringDtype()
+    for k in dtype:
+        if k.endswith("_state"):
+            dtype[k] = pd.StringDtype()
+        if k.startswith("is_"):
+            dtype[k] = bool
 
     return pd.DataFrame(cols).astype(dtype)
