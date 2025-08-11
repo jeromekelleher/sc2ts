@@ -308,9 +308,9 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
     if samples is None:
         samples = ts.samples(time=0)
 
-    nodes = full_span_sibs(ts, samples)
-    logger.debug(f"Computing mutation descriptors for {len(nodes)}")
-    node_mutations = nodes_mutation_descriptors(ts, nodes, show_progress=show_progress)
+    samples = full_span_sibs(ts, samples)
+    logger.debug(f"Computing mutation descriptors for {len(samples)}")
+    node_mutations = nodes_mutation_descriptors(ts, samples, show_progress=show_progress)
 
     tree = ts.first()
 
@@ -564,9 +564,7 @@ def nodes_mutation_descriptors(ts, nodes, show_progress=False):
     present_nodes = np.intersect1d(nodes, dfm.index.unique())
     subset = dfm.loc[present_nodes]
     for node, row in tqdm.tqdm(
-        subset.iterrows(),
-        total=subset.shape[0],
-        disable=not show_progress,
+        subset.iterrows(), total=subset.shape[0], disable=not show_progress,
         desc="mutdesc",
     ):
         desc = MutationDescriptor(
