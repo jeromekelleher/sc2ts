@@ -2077,6 +2077,7 @@ def map_parsimony(ts, ds, sites=None, *, show_progress=False):
 
     return MapParsimonyResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
+
 @dataclasses.dataclass
 class ApplyNodeParsimonyHeuristicsResult:
     tree_sequence: tskit.TreeSequence
@@ -2098,6 +2099,8 @@ def apply_node_parsimony_heuristics(
             "min_edge_time": min_edge_time,
             "op": op,
         }
+
+    start_time = time.time()  # wall time
 
     data = [summary(ts)]
     logger.info(f"Start: {data[-1]}")
@@ -2135,6 +2138,11 @@ def apply_node_parsimony_heuristics(
             ts = tree_ops.push_up_reversions(ts, nodes, show_progress=show_progress)
             data.append(summary(ts, op="reversion_push"))
             logger.info(f"Completed: {data[-1]}")
+
+    tables = ts.dump_tables()
+    prov = get_provenance_dict("apply_node_parsimony_heuristics", {}, start_time)
+    tables.provenances.add_row(json.dumps(prov))
+    ts = tables.tree_sequence()
 
     return ApplyNodeParsimonyHeuristicsResult(ts, pd.DataFrame(data))
 
