@@ -309,7 +309,7 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
         samples = ts.samples(time=0)
 
     sibs = full_span_sibs(ts, samples)
-    logger.debug(f"Computing mutation descriptors for {len(sibs)}")
+    logger.debug(f"Computing mutation descriptors for {len(sibs)} sibs")
     node_mutations = nodes_mutation_descriptors(ts, sibs, show_progress=show_progress)
     # remove any nodes that are not in the sibs from our sib-groups
     samples = set(samples) & set(sibs)
@@ -472,7 +472,7 @@ def push_up_reversions(ts, samples, date="1999-01-01", show_progress=False):
     logger.debug(f"Found {len(sib_groups)} sib groups")
 
     tables = ts.dump_tables()
-    edges_to_delete = []
+    edges_to_delete = set()
     mutations_to_delete = []
     for parent, reversions in tqdm.tqdm(sib_groups.items(), disable=not show_progress):
         if len(reversions) == 0:
@@ -480,9 +480,14 @@ def push_up_reversions(ts, samples, date="1999-01-01", show_progress=False):
 
         sample = reversions[0].child_node
         assert all(x.child_node == sample for x in reversions)
-        sites = [x.site for x in reversions]
         # Remove the edges above the sample and its parent
-        edges_to_delete.extend([tree.edge(sample), tree.edge(parent)])
+        e = {tree.edge(sample), tree.edge(parent)}
+        if len(e & edges_to_delete) > 0:
+            # One of these edges has already been altered - skip!
+            continue
+        edges_to_delete.update(e)
+
+        sites = [x.site for x in reversions]
         # Create new node that is fractionally older than the current
         # parent that will be the parent of both nodes.
         grandparent = tree.parent(parent)
@@ -533,7 +538,7 @@ def push_up_reversions(ts, samples, date="1999-01-01", show_progress=False):
         f"Push reversions: delete {num_del_mutations} mutations; "
         f"add {num_new_nodes} new nodes"
     )
-    return update_tables(tables, edges_to_delete, mutations_to_delete)
+    return update_tables(tables, list(edges_to_delete), mutations_to_delete)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -566,7 +571,9 @@ def nodes_mutation_descriptors(ts, nodes, show_progress=False):
     present_nodes = np.intersect1d(nodes, dfm.index.unique())
     subset = dfm.loc[present_nodes]
     for node, row in tqdm.tqdm(
-        subset.iterrows(), total=subset.shape[0], disable=not show_progress,
+        subset.iterrows(),
+        total=subset.shape[0],
+        disable=not show_progress,
         desc="mutdesc",
     ):
         desc = MutationDescriptor(
