@@ -339,6 +339,34 @@ class TestPushUpReversions:
         ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
         ts2.tables.assert_equals(ts3.tables)
 
+    def test_multiple_reversions_same_node(self):
+        # 4.00┊   8       ┊
+        #     ┊ ┏━┻━┓     ┊
+        # 3.00┊ ┃   7     ┊
+        #     ┊ ┃ ┏━┻━┓   ┊
+        # 2.00┊ ┃ ┃   6   ┊
+        #     ┊ ┃ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃ ┃  5  ┊
+        #     ┊ ┃ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 4 ┊
+        #     0           1
+        ts = tskit.Tree.generate_comb(5).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=7, time=3, derived_state="T")
+        tables.mutations.add_row(site=0, node=6, time=2, derived_state="A")
+        tables.sites.add_row(0.5, "A")
+        tables.mutations.add_row(site=1, node=6, time=2, derived_state="T")
+        tables.mutations.add_row(site=1, node=5, time=1, derived_state="A")
+        ts = prepare(tables)
+        ts2 = sc2ts.push_up_reversions(ts, [5, 6])
+        assert_sequences_equal(ts, ts2)
+        assert ts2.num_mutations == ts.num_mutations - 1
+        assert ts2.num_nodes == ts.num_nodes + 1
+
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts2.tables.assert_equals(ts3.tables)
+
     def test_two_sites_reversion_and_shared(self):
         # 3.00┊   6     ┊
         #     ┊ ┏━┻━┓   ┊
