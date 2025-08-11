@@ -8,6 +8,31 @@ import numpy.testing as nt
 import sc2ts
 
 
+def all_trees_ts(n):
+    """
+    Generate a tree sequence that corresponds to the lexicographic listing
+    of all trees with n leaves (i.e. from tskit.all_trees(n)).
+
+    Copied from tskit's tsutil testing module
+
+    """
+    tables = tskit.TableCollection(0)
+    for _ in range(n):
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    for j in range(1, n):
+        tables.nodes.add_row(flags=0, time=j)
+
+    L = 0
+    for tree in tskit.all_trees(n):
+        for u in tree.preorder()[1:]:
+            tables.edges.add_row(L, L + 1, tree.parent(u), u)
+        L += 1
+    tables.sequence_length = L
+    tables.sort()
+    tables.simplify()
+    return tables.tree_sequence()
+
+
 def assert_variants_equal(vars1, vars2, allele_shuffle=False):
     assert vars1.num_sites == vars2.num_sites
     assert vars1.num_samples == vars2.num_samples
@@ -479,6 +504,55 @@ class TestTrimBranches:
         ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
         ts2 = sc2ts.trim_branches(ts1)
         assert_variants_equal(ts1, ts2)
+
+
+class TestFullSpanSibs:
+
+    @pytest.mark.parametrize(
+        ["nodes", "sibs"],
+        [
+            ([0], [0, 5]),
+            ([1], [1, 4]),
+            ([2], [2, 3]),
+            ([0, 1], [0, 1, 4, 5]),
+            ([6], []),
+        ],
+    )
+    def test_single_tree(self, nodes, sibs):
+        # 3.00┊   6     ┊
+        #     ┊ ┏━┻━┓   ┊
+        # 2.00┊ ┃   5   ┊
+        #     ┊ ┃ ┏━┻┓  ┊
+        # 1.00┊ ┃ ┃  4  ┊
+        #     ┊ ┃ ┃ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_comb(4, span=10).tree_sequence
+        result = sc2ts.full_span_sibs(ts, nodes)
+        nt.assert_array_equal(result, sibs)
+
+    @pytest.mark.parametrize(
+        "nodes",
+        [
+            [0],
+            [1],
+            [2],
+            [3],
+            [4],
+            [0, 1, 2],
+        ],
+    )
+    def test_all_trees_ts(self, nodes):
+        # 2.00┊       ┊   4   ┊   4   ┊   4   ┊
+        #     ┊       ┊ ┏━┻┓  ┊  ┏┻━┓ ┊  ┏┻━┓ ┊
+        # 1.00┊   3   ┊ ┃  3  ┊  3  ┃ ┊  3  ┃ ┊
+        #     ┊ ┏━╋━┓ ┊ ┃ ┏┻┓ ┊ ┏┻┓ ┃ ┊ ┏┻┓ ┃ ┊
+        # 0.00┊ 0 1 2 ┊ 0 1 2 ┊ 0 2 1 ┊ 0 1 2 ┊
+        #     0       1       2       3       4
+        # index   0       1       2       3
+        ts = all_trees_ts(3)
+        result = sc2ts.full_span_sibs(ts, nodes)
+        assert len(result) == 0
 
 
 class TestInferBinary:

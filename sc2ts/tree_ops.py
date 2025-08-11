@@ -277,15 +277,28 @@ def update_tables(tables, edges_to_delete, mutations_to_delete):
     return tables.tree_sequence()
 
 
+def full_span_sibs(ts, nodes):
+    """
+    Return the set of nodes that are sibs of the specified nodes over
+    the full span of the tree sequence (including the nodes themselves).
+    """
+    full_span = np.logical_and(ts.edges_left == 0, ts.edges_right == ts.sequence_length)
+    edges_parent = ts.edges_parent[full_span]
+    edges_child = ts.edges_child[full_span]
+    select = np.isin(edges_child, nodes)
+    parents = np.unique(edges_parent[select])
+    select = np.isin(edges_parent, parents)
+    return np.unique(edges_child[select])
+
+
 def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False):
     """
-    Examine all time-0 samples and their (full-sequence) sibs and create
-    new nodes to represent overlapping sets of mutations. The algorithm
-    is greedy and makes no guarantees about uniqueness or optimality.
-    Also note that we don't recurse and only reason about mutation sharing
-    at a single level in the tree.
+    Examine all time-0 samples (or specified nodes) and their (full-sequence)
+    sibs and create new nodes to represent overlapping sets of mutations. The
+    algorithm is greedy and makes no guarantees about uniqueness or optimality.
+    Also note that we don't recurse and only reason about mutation sharing at a
+    single level in the tree.
     """
-
     tables = ts.dump_tables()
     # Set the mutations time to the time of the node. We rely on this
     # for sorting and to make sure we don't violate constraints during
@@ -295,41 +308,18 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
     if samples is None:
         samples = ts.samples(time=0)
 
+    sibs = full_span_sibs(ts, samples)
+    logger.debug(f"Computing mutation descriptors for {len(sibs)}")
+    node_mutations = nodes_mutation_descriptors(ts, sibs, show_progress=show_progress)
+    # remove any nodes that are not in the sibs from our sib-groups
+    samples = set(samples) & set(sibs)
+
     tree = ts.first()
-
-    # Get the samples that span the whole sequence
-    keep_samples = []
-    for u in samples:
-        e = tree.edge(u)
-        assert e != -1
-        edge = ts.edge(e)
-        if edge.left == 0 and edge.right == ts.sequence_length:
-            keep_samples.append(u)
-    samples = keep_samples
-    logger.info(f"Coalescing mutations for {len(samples)} full-span samples")
-
-    # For each node in one of the sib groups, the set of mutations.
-    nodes = set()
-    # node_mutations = {}
-    for sample in samples:
-        u = tree.parent(sample)
-        for v in tree.children(u):
-            # Filter out non-tree like things. If the edge spans the whole genome
-            # then it must be present in the first tree.
-            edge = ts.edge(tree.edge(v))
-            assert edge.child == v and edge.parent == u
-            if edge.left == 0 and edge.right == ts.sequence_length:
-                nodes.add(v)
-
-    logger.debug(f"Computing mutation descriptors for {len(nodes)}")
-    node_mutations = nodes_mutation_descriptors(
-        ts, list(nodes), show_progress=show_progress
-    )
 
     # For each sample, what is the ("a" more accurately - this is greedy)
     # maximum mutation overlap with one of its sibs?
     max_sample_overlap = {}
-    for sample in tqdm.tqdm(samples, disable=not show_progress):
+    for sample in tqdm.tqdm(samples, disable=not show_progress, desc="MMO"):
         u = tree.parent(sample)
         max_overlap = set()
         for v in tree.children(u):
@@ -343,7 +333,7 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
     sib_groups = collections.defaultdict(set)
     # Make sure we don't use the same node in more than one sib-set
     used_nodes = set()
-    for sample in tqdm.tqdm(samples, disable=not show_progress):
+    for sample in tqdm.tqdm(samples, disable=not show_progress, desc="SGO"):
         u = tree.parent(sample)
         sample_overlap = frozenset(max_sample_overlap[sample])
         key = (u, sample_overlap)
@@ -368,7 +358,7 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
                 edges_to_delete.append(tree.edge(sib))
 
     for (parent, overlap), sibs in tqdm.tqdm(
-        sib_groups.items(), disable=not show_progress
+        sib_groups.items(), disable=not show_progress, desc="Add"
     ):
         group_parent = len(tables.nodes)
         tables.edges.add_row(0, ts.sequence_length, parent, group_parent)
@@ -576,7 +566,8 @@ def nodes_mutation_descriptors(ts, nodes, show_progress=False):
     present_nodes = np.intersect1d(nodes, dfm.index.unique())
     subset = dfm.loc[present_nodes]
     for node, row in tqdm.tqdm(
-        subset.iterrows(), total=subset.shape[0], disable=not show_progress
+        subset.iterrows(), total=subset.shape[0], disable=not show_progress,
+        desc="mutdesc",
     ):
         desc = MutationDescriptor(
             row["site_id"],
