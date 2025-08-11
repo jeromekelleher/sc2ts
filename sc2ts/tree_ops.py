@@ -309,7 +309,7 @@ def coalesce_mutations(ts, samples=None, date="1999-01-01", show_progress=False)
         samples = ts.samples(time=0)
 
     sibs = full_span_sibs(ts, samples)
-    logger.debug(f"Computing mutation descriptors for {len(sibs)}")
+    logger.debug(f"Computing mutation descriptors for {len(sibs)} sibs")
     node_mutations = nodes_mutation_descriptors(ts, sibs, show_progress=show_progress)
     # remove any nodes that are not in the sibs from our sib-groups
     samples = set(samples) & set(sibs)
