@@ -529,10 +529,9 @@ class TestApplyParsimonyHeuristics:
         )
         assert result.exit_code == 0
         out = tskit.load(out_ts_path)
-        print("FIXME")
-        # assert out.metadata == ts.metadata  # quick check, nothing systematic
-        # df = pd.read_csv(report_path)
-        # nt.assert_array_equal(df.site.values, [1547, 3951, 3952, 3953])
+        assert out.metadata == ts.metadata  # quick check, nothing systematic
+        df = pd.read_csv(report_path)
+        assert df.shape[0] == 1
 
 
 class TestValidate:

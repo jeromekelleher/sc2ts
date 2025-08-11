@@ -661,9 +661,10 @@ def apply_node_parsimony(
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
 
-    ts = sc2ts.apply_node_parsimony_heuristics(ts, show_progress=progress)
-
-    ts.dump(ts_out)
+    result = sc2ts.apply_node_parsimony_heuristics(ts, show_progress=progress)
+    if report is not None:
+        result.report.to_csv(report)
+    result.tree_sequence.dump(ts_out)
 
 
 def find_previous_date_path(date, path_pattern):

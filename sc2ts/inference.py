@@ -2077,12 +2077,17 @@ def map_parsimony(ts, ds, sites=None, *, show_progress=False):
 
     return MapParsimonyResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
+@dataclasses.dataclass
+class ApplyNodeParsimonyHeuristicsResult:
+    tree_sequence: tskit.TreeSequence
+    report: pd.DataFrame
+
 
 def apply_node_parsimony_heuristics(
     ts, show_progress=False, push_reversions=True, coalesce_mutations=True
 ):
 
-    def summary(ts, op="null"):
+    def summary(ts, op="noop"):
         return {
             "nodes": ts.num_nodes,
             "mutations": ts.num_mutations,
@@ -2091,6 +2096,7 @@ def apply_node_parsimony_heuristics(
         }
 
     data = [summary(ts)]
+    logger.info(f"Start: {data[-1]}")
     iteration = 0
     last_num_mutations = -1
     while push_reversions and ts.num_mutations != last_num_mutations:
@@ -2098,11 +2104,11 @@ def apply_node_parsimony_heuristics(
         logger.debug("Computed mutation data")
         df_imr = df[df["is_immediate_reversion"]]
         nodes = np.unique(df_imr["node"].values)
+        last_num_mutations = ts.num_mutations
         if len(nodes) > 0:
             ts = tree_ops.push_up_reversions(ts, nodes, show_progress=show_progress)
             data.append(summary(ts, op="reversion_push"))
             logger.info(f"Completed: {data[-1]}")
-        last_num_mutations = ts.num_mutations
 
     last_num_mutations = -1
     while coalesce_mutations and ts.num_mutations != last_num_mutations:
@@ -2116,13 +2122,13 @@ def apply_node_parsimony_heuristics(
         node_parent = np.unique(node_parent)
         select = np.isin(df["node_parent"].values, node_parent)
         nodes = np.unique(df[select]["node"])
+        last_num_mutations = ts.num_mutations
         if len(nodes) > 0:
             ts = tree_ops.coalesce_mutations(ts, nodes, show_progress=show_progress)
             data.append(summary(ts, op="reversion_push"))
             logger.info(f"Completed: {data[-1]}")
-        last_num_mutations = ts.num_mutations
 
-    return ts
+    return ApplyNodeParsimonyHeuristicsResult(ts, pd.DataFrame(data))
 
 
 def append_exact_matches(ts, match_db, show_progress=False):

@@ -99,7 +99,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 7
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     def test_two_mutation_groups_two_parents(self):
@@ -124,7 +124,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 9
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     def test_internal_sib(self):
@@ -147,7 +147,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 1
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     def test_nested_mutation(self):
@@ -170,7 +170,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     def test_conflicting_nested_mutations(self):
@@ -194,7 +194,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 4
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     def test_node_in_multiple_mutation_sets(self):
@@ -221,7 +221,7 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 4
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     # This test was broken as part of making the parsimony ops more scalable in #526
@@ -268,7 +268,9 @@ class TestCoalesceMutations:
         assert ts2.num_mutations == 6
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts, push_reversions=False)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(
+            ts, push_reversions=False
+        ).tree_sequence
         ts3.tables.assert_equals(ts2.tables)
 
     def test_time_bug(self):
@@ -287,7 +289,7 @@ class TestPushUpReversions:
         ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
         ts2 = sc2ts.push_up_reversions(ts1, [0, 1, 2, 3])
         ts1.tables.assert_equals(ts2.tables)
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts1)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts1).tree_sequence
         ts1.tables.assert_equals(ts3.tables)
 
     def test_one_site_simple_reversion(self):
@@ -311,7 +313,7 @@ class TestPushUpReversions:
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables)
 
     def test_one_site_simple_reversion_internal(self):
@@ -336,7 +338,7 @@ class TestPushUpReversions:
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables)
 
     def test_multiple_reversions_same_node(self):
@@ -364,7 +366,7 @@ class TestPushUpReversions:
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables)
 
     def test_two_sites_reversion_and_shared(self):
@@ -392,7 +394,7 @@ class TestPushUpReversions:
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts)
+        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables)
 
 
