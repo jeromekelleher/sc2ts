@@ -2090,8 +2090,8 @@ def apply_node_parsimony_heuristics(
 
     def summary(ts, op="noop"):
         min_edge_time = np.min(
-            ts.nodes_time[ts.edges_parent] -
-            ts.nodes_time[ts.edges_child])
+            ts.nodes_time[ts.edges_parent] - ts.nodes_time[ts.edges_child]
+        )
         return {
             "nodes": ts.num_nodes,
             "mutations": ts.num_mutations,

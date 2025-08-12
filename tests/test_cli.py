@@ -532,6 +532,7 @@ class TestApplyParsimonyHeuristics:
         assert out.metadata == ts.metadata  # quick check, nothing systematic
         df = pd.read_csv(report_path)
         assert df.shape[0] == 1
+        assert out.num_provenances == ts.num_provenances + 1
 
 
 class TestValidate:
