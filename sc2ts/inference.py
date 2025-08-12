@@ -2088,27 +2088,23 @@ def apply_node_parsimony_heuristics(
 ):
 
     def summary(ts, op="noop"):
+        min_edge_time = np.min(
+            ts.nodes_time[ts.edges_parent] -
+            ts.nodes_time[ts.edges_child])
         return {
             "nodes": ts.num_nodes,
             "mutations": ts.num_mutations,
             "edges": ts.num_edges,
+            "min_edge_time": min_edge_time,
             "op": op,
         }
 
     data = [summary(ts)]
     logger.info(f"Start: {data[-1]}")
-    iteration = 0
-    last_num_mutations = -1
-    while push_reversions and ts.num_mutations != last_num_mutations:
-        df = stats.mutation_data(ts, inheritance_stats=False, parsimony_stats=True)
-        logger.debug("Computed mutation data")
-        df_imr = df[df["is_immediate_reversion"]]
-        nodes = np.unique(df_imr["node"].values)
-        last_num_mutations = ts.num_mutations
-        if len(nodes) > 0:
-            ts = tree_ops.push_up_reversions(ts, nodes, show_progress=show_progress)
-            data.append(summary(ts, op="reversion_push"))
-            logger.info(f"Completed: {data[-1]}")
+
+    # We try and find sibs first and coalesce those to try and avoid having very
+    # long chains of reversion pushes, and eventually running out of double
+    # precision to represent the branch lengths.
 
     last_num_mutations = -1
     while coalesce_mutations and ts.num_mutations != last_num_mutations:
@@ -2125,6 +2121,18 @@ def apply_node_parsimony_heuristics(
         last_num_mutations = ts.num_mutations
         if len(nodes) > 0:
             ts = tree_ops.coalesce_mutations(ts, nodes, show_progress=show_progress)
+            data.append(summary(ts, op="coalesce_mutations"))
+            logger.info(f"Completed: {data[-1]}")
+
+    last_num_mutations = -1
+    while push_reversions and ts.num_mutations != last_num_mutations:
+        df = stats.mutation_data(ts, inheritance_stats=False, parsimony_stats=True)
+        df_imr = df[df["is_immediate_reversion"]]
+        logger.debug(f"Computed mutation data: {df_imr.shape[0]} immediate reversions")
+        nodes = np.unique(df_imr["node"].values)
+        last_num_mutations = ts.num_mutations
+        if len(nodes) > 0:
+            ts = tree_ops.push_up_reversions(ts, nodes, show_progress=show_progress)
             data.append(summary(ts, op="reversion_push"))
             logger.info(f"Completed: {data[-1]}")
 
