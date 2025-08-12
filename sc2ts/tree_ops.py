@@ -491,10 +491,11 @@ def push_up_reversions(ts, samples, date="1999-01-01", show_progress=False):
         # Create new node that is fractionally older than the current
         # parent that will be the parent of both nodes.
         grandparent = tree.parent(parent)
-        # Arbitrarily make it 1/8 of the branch_length. Probably should
-        # make it proportional to the number of mutations or something.
-        eps = tree.branch_length(parent) * 0.125
-        w_time = tree.time(parent) + eps
+        grandparent_time = ts.nodes_time[grandparent]
+        # This is unpleasant, but hopefully we'll be dating these nodes again afterwards
+        # and we do have some very tightly packed time intervals
+        # w_time = np.nextafter(grandparent_time, -np.inf)
+        w_time = ts.nodes_time[parent] + tree.branch_length(parent) / 2
         parent_summary = []
         for r in reversions:
             position = int(ts.sites_position[r.site])
@@ -513,6 +514,9 @@ def push_up_reversions(ts, samples, date="1999-01-01", show_progress=False):
                 }
             },
         )
+        assert w_time > ts.nodes_time[parent]
+        assert w_time > ts.nodes_time[sample]
+        assert w_time < ts.nodes_time[grandparent]
         # Add new edges to join the sample and parent to w, and then
         # w to the grandparent.
         tables.edges.add_row(0, ts.sequence_length, parent=w, child=parent)

@@ -514,6 +514,27 @@ class TestMapParsimony:
         nt.assert_array_equal(df.site.values, ts.sites_position.astype(int))
 
 
+class TestApplyParsimonyHeuristics:
+
+    def test_example(self, tmp_path, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        out_ts_path = tmp_path / "out.ts"
+        report_path = tmp_path / "report.csv"
+
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"apply-node-parsimony {ts.path} {out_ts_path} --report={report_path}",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        out = tskit.load(out_ts_path)
+        assert out.metadata == ts.metadata  # quick check, nothing systematic
+        df = pd.read_csv(report_path)
+        assert df.shape[0] == 1
+        assert out.num_provenances == ts.num_provenances + 1
+
+
 class TestValidate:
 
     @pytest.mark.parametrize("date", ["2020-01-01", "2020-02-11"])

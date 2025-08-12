@@ -2078,55 +2078,73 @@ def map_parsimony(ts, ds, sites=None, *, show_progress=False):
     return MapParsimonyResult(tables.tree_sequence(), pd.DataFrame(report_data))
 
 
-def get_inherited_state(ts, site, mutation):
-    inherited_state = site.ancestral_state
-    if mutation.parent != -1:
-        parent_mutation = ts.mutation(mutation.parent)
-        inherited_state = parent_mutation.derived_state
-    return inherited_state
+@dataclasses.dataclass
+class ApplyNodeParsimonyHeuristicsResult:
+    tree_sequence: tskit.TreeSequence
+    report: pd.DataFrame
 
 
-def apply_node_parsimony_heuristics(ts, show_progress=False):
+def apply_node_parsimony_heuristics(
+    ts, show_progress=False, push_reversions=True, coalesce_mutations=True
+):
 
-    # Find nodes with unparsimonious mutations
-    sibling_mutation_nodes = set()
-    immediate_reversion_nodes = set()
-    tree = ts.first()
-    for site in tqdm.tqdm(ts.sites(), total=ts.num_sites, disable=not show_progress):
-        tree.seek(site.position)
-        # Key by parent node and state transition
-        sib_map = collections.defaultdict(set)
-        for mut in site.mutations:
-            inherited_state = get_inherited_state(ts, site, mut)
-            if mut.parent != -1:
-                parent_inherited_state = get_inherited_state(
-                    ts, site, ts.mutation(mut.parent)
-                )
-                if parent_inherited_state == mut.derived_state:
-                    immediate_reversion_nodes.add(mut.node)
+    def summary(ts, op="noop"):
+        min_edge_time = np.min(
+            ts.nodes_time[ts.edges_parent] - ts.nodes_time[ts.edges_child]
+        )
+        return {
+            "nodes": ts.num_nodes,
+            "mutations": ts.num_mutations,
+            "edges": ts.num_edges,
+            "min_edge_time": min_edge_time,
+            "op": op,
+        }
 
-            parent_node = tree.parent(mut.node)
-            if parent_node != -1:
-                key = (parent_node, inherited_state, mut.derived_state)
-                sib_map[key].add(mut.node)
+    start_time = time.time()  # wall time
 
-        for key, sibs in sib_map.items():
-            if len(sibs) > 1:
-                sibling_mutation_nodes.update(sibs)
+    data = [summary(ts)]
+    logger.info(f"Start: {data[-1]}")
 
-    logger.info(
-        f"Found {len(sibling_mutation_nodes)} potential nodes to coalesce "
-        f"and  {len(immediate_reversion_nodes)} potential immediate reversions"
-    )
-    sibling_mutation_nodes = np.array(list(sibling_mutation_nodes))
-    immediate_reversion_nodes = np.array(list(immediate_reversion_nodes))
-    ts2 = tree_ops.coalesce_mutations(
-        ts, sibling_mutation_nodes, show_progress=show_progress
-    )
-    ts3 = tree_ops.push_up_reversions(
-        ts2, immediate_reversion_nodes, show_progress=show_progress
-    )
-    return ts3
+    # We try and find sibs first and coalesce those to try and avoid having very
+    # long chains of reversion pushes, and eventually running out of double
+    # precision to represent the branch lengths.
+
+    last_num_mutations = -1
+    while coalesce_mutations and ts.num_mutations != last_num_mutations:
+        df = stats.mutation_data(ts, inheritance_stats=False, parsimony_stats=True)
+        logger.debug("Computed mutation data")
+        sib_mut_counts = df.value_counts(
+            ["node_parent", "position", "inherited_state", "derived_state"]
+        )
+        sib_mut_counts = sib_mut_counts[sib_mut_counts > 1]
+        node_parent = sib_mut_counts.reset_index()["node_parent"].values
+        node_parent = np.unique(node_parent)
+        select = np.isin(df["node_parent"].values, node_parent)
+        nodes = np.unique(df[select]["node"])
+        last_num_mutations = ts.num_mutations
+        if len(nodes) > 0:
+            ts = tree_ops.coalesce_mutations(ts, nodes, show_progress=show_progress)
+            data.append(summary(ts, op="coalesce_mutations"))
+            logger.info(f"Completed: {data[-1]}")
+
+    last_num_mutations = -1
+    while push_reversions and ts.num_mutations != last_num_mutations:
+        df = stats.mutation_data(ts, inheritance_stats=False, parsimony_stats=True)
+        df_imr = df[df["is_immediate_reversion"]]
+        logger.debug(f"Computed mutation data: {df_imr.shape[0]} immediate reversions")
+        nodes = np.unique(df_imr["node"].values)
+        last_num_mutations = ts.num_mutations
+        if len(nodes) > 0:
+            ts = tree_ops.push_up_reversions(ts, nodes, show_progress=show_progress)
+            data.append(summary(ts, op="reversion_push"))
+            logger.info(f"Completed: {data[-1]}")
+
+    tables = ts.dump_tables()
+    prov = get_provenance_dict("apply_node_parsimony_heuristics", {}, start_time)
+    tables.provenances.add_row(json.dumps(prov))
+    ts = tables.tree_sequence()
+
+    return ApplyNodeParsimonyHeuristicsResult(ts, pd.DataFrame(data))
 
 
 def append_exact_matches(ts, match_db, show_progress=False):
