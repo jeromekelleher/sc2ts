@@ -1545,6 +1545,13 @@ class HmmMatch:
             "mutations": [x.asdict() for x in self.mutations],
         }
 
+    @staticmethod
+    def fromdict(d):
+        path = [PathSegment(**p) for p in d["path"]]
+        # site_id is missing from the json we store, so just work around it.
+        mutations = [MatchMutation(site_id=-1, **m) for m in d["mutations"]]
+        return HmmMatch(path, mutations)
+
     def summary(self):
         return (
             f"path={self.path_summary()} "
@@ -1929,6 +1936,74 @@ def run_hmm(
             )
         )
     return ret
+
+
+@dataclasses.dataclass
+class RematchRecombinantsResult:
+    original_match: HmmMatch
+    recomb_match: HmmMatch = None
+    no_recomb_match: HmmMatch = None
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+
+def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
+    # dataset, recomb_ts, match_db, strain, *, num_mismatches, deletions_as_missing=False):
+    # print("Rematch for", strain)
+    if recomb_ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
+        raise ValueError(f"node {node_id} is not a recombinant")
+
+    assert base_ts.num_sites == recomb_ts.num_sites
+
+    group_id = recomb_ts.node(node_id).metadata["sc2ts"]["group_id"]
+    # Find a causal sample to get the original match. This is just to get a rough bound
+    # on the path likelihood so it doesn't really matter which one.
+    tree = recomb_ts.first()
+    for u in tree.nodes(node_id, "timedesc"):
+        if u != node_id:
+            md = recomb_ts.node(u).metadata["sc2ts"]
+            if md["group_id"] == group_id:
+                hmm_match = md["hmm_match"]
+                break
+        # print(u, recomb_ts.node(u))
+
+    result = RematchRecombinantsResult(original_match=HmmMatch.fromdict(hmm_match))
+
+    # group_id = recomb_node.metadata[
+    # print(recomb_node.metadata)
+    path_len = len(hmm_match["path"])
+    assert path_len == 2
+    original_cost = num_mismatches * (path_len - 1) + len(hmm_match["mutations"])
+    # print("cost", original_cost)
+
+    haplotype = np.zeros(recomb_ts.num_sites, dtype=np.int8)
+    for var in recomb_ts.variants(
+        samples=[node_id], alleles=tuple(core.IUPAC_ALLELES), isolated_as_missing=False
+    ):
+        haplotype[var.site.id] = var.genotypes[0]
+    sample = Sample("tmp", haplotype=haplotype)
+    result.recomb_match = sample.hmm_match
+
+    # Run the original match again to make sure the match is clean and stable
+    # (i.e., that any additional mutations above the samples didn't affect
+    # the placement, and as a consistency check).
+    match_tsinfer(
+        samples=[sample],
+        ts=base_ts,
+        num_mismatches=num_mismatches,
+        mismatch_threshold=original_cost,
+    )
+    result.recomb_match = sample.hmm_match
+
+    match_tsinfer(
+        samples=[sample],
+        ts=base_ts,
+        num_mismatches=1000,
+        mismatch_threshold=2 * original_cost,
+    )
+    result.no_recomb_match = sample.hmm_match
+    return result
 
 
 def get_group_strains(ts):
