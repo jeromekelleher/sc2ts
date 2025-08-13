@@ -2000,11 +2000,12 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
                 hmm_match = md["hmm_match"]
                 break
 
-    print("found", hmm_match)
     sample.hmm_match = HmmMatch.fromdict(hmm_match)
 
     original_match = sample.hmm_match
-    original_match.cost = num_mismatches * (len(original_match.path) - 1) + len(original_match.mutations)
+    original_match.cost = num_mismatches * (len(original_match.path) - 1) + len(
+        original_match.mutations
+    )
 
     result = RematchRecombinantsResult(original_match)
 
@@ -2032,9 +2033,9 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     result.no_recomb_match = sample.hmm_match
 
     muts = get_mutations_to_mrca(base_ts, original_match)
-    # TODO - create a tree sequence with these mutations moved onto the
-    # left/right parent branches and rerun the HMM. If it's more parsimonious
-    # we store the details (a blueprint for the later rewiring)
+    # TODO - create a tree sequence with recurrent mutations moved onto the
+    # left/right parent branches and rerun the HMM. Store
+    # the details (a blueprint for the later rewiring) and the match
 
     return result
 

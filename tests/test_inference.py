@@ -1757,15 +1757,15 @@ class TestRematchRecombinants:
         assert result.no_recomb_match.parents == [31]
         assert len(result.no_recomb_match.mutations) == 3
 
-
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
         re_node = 15
 
-        previous = ts.simplify(np.arange(re_node), update_sample_flags=False, filter_sites=False)
+        previous = ts.simplify(
+            np.arange(re_node), update_sample_flags=False, filter_sites=False
+        )
         print(ts.draw_text())
         print(previous.draw_text())
         print(ts.node(0))
-
 
         result = sc2ts.rematch_recombinant(previous, ts, re_node, num_mismatches=4)
