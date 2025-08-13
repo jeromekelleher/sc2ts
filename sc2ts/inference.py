@@ -1947,7 +1947,6 @@ def get_mutations_to_mrca(ts, recombinant_match):
 
     tree = ts.first()
     left_path = jit.get_root_path(tree, left_parent)
-    left_ancestors = tree.ancestors(left_parent)
     tree.seek(path[0].right)
     right_path = jit.get_root_path(tree, right_parent)
     mrca = jit.get_path_mrca(left_path, right_path, ts.nodes_time)
@@ -1997,13 +1996,12 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     for u in tree.nodes(node_id, "timedesc"):
         if u != node_id:
             md = recomb_ts.node(u).metadata["sc2ts"]
-            if md["group_id"] == group_id and tree.is_sample(u):
+            if md.get("group_id", None) == group_id and tree.is_sample(u):
                 hmm_match = md["hmm_match"]
                 break
 
+    print("found", hmm_match)
     sample.hmm_match = HmmMatch.fromdict(hmm_match)
-    characterise_match_mutations(base_ts, [sample])
-    characterise_recombinants(base_ts, [sample])
 
     original_match = sample.hmm_match
     original_match.cost = num_mismatches * (len(original_match.path) - 1) + len(original_match.mutations)
@@ -2022,8 +2020,6 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         num_mismatches=num_mismatches,
         mismatch_threshold=original_cost + 1,
     )
-    characterise_match_mutations(base_ts, [sample])
-    characterise_recombinants(base_ts, [sample])
     result.recomb_match = sample.hmm_match
 
     # Run the match with forced no-recombination path.
@@ -2033,12 +2029,12 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         num_mismatches=1000,
         mismatch_threshold=2 * original_cost,
     )
-    characterise_match_mutations(base_ts, [sample])
-    characterise_recombinants(base_ts, [sample])
     result.no_recomb_match = sample.hmm_match
 
     muts = get_mutations_to_mrca(base_ts, original_match)
-    print(muts)
+    # TODO - create a tree sequence with these mutations moved onto the
+    # left/right parent branches and rerun the HMM. If it's more parsimonious
+    # we store the details (a blueprint for the later rewiring)
 
     return result
 
