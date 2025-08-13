@@ -1756,3 +1756,22 @@ class TestRematchRecombinants:
         assert len(result.recomb_match.mutations) == 0
         assert result.no_recomb_match.parents == [31]
         assert len(result.no_recomb_match.mutations) == 3
+
+
+    def test_ba2_recombinant(self):
+        ts = tskit.load("tests/data/ba2_recomb.ts")
+
+        remove =  [6, 7, 8, 9, 10]
+        nodes = np.setdiff1d(np.arange(ts.num_nodes), remove)
+        previous = ts.simplify(nodes, keep_unary=True, update_sample_flags=False, filter_nodes=False)
+        tables = previous.dump_tables()
+        flags = tables.nodes.flags
+        flags[remove] = 0
+        tables.nodes.flags = flags
+        right = tables.edges.right
+        right[:] = tables.sequence_length
+        tables.edges.right = right
+        previous = tables.tree_sequence()
+        print(previous)
+
+        result = sc2ts.rematch_recombinant(previous, ts, 7, num_mismatches=4)
