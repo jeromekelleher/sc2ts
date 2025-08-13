@@ -401,7 +401,7 @@ def fx_recombinant_example_1_info(tmp_path, fx_data_cache, fx_ts_map, fx_dataset
 
 @pytest.fixture
 def fx_recombinant_example_1(fx_recombinant_example_1_info):
-    return tskit.load(fx_recombinant_example_1_info.base_ts)
+    return tskit.load(fx_recombinant_example_1_info.recomb_ts)
 
 
 @pytest.fixture
