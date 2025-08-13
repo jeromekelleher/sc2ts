@@ -1954,6 +1954,9 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     if recomb_ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
         raise ValueError(f"node {node_id} is not a recombinant")
 
+    if node_id < base_ts.num_nodes:
+        raise ValueError(f"node {node_id} already present")
+
     assert base_ts.num_sites == recomb_ts.num_sites
 
     group_id = recomb_ts.node(node_id).metadata["sc2ts"]["group_id"]
@@ -1992,7 +1995,7 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         samples=[sample],
         ts=base_ts,
         num_mismatches=num_mismatches,
-        mismatch_threshold=original_cost,
+        mismatch_threshold=original_cost + 1,
     )
     result.recomb_match = sample.hmm_match
 

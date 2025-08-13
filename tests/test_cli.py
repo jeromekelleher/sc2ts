@@ -543,7 +543,7 @@ class TestRematchRecombinant:
         runner = ct.CliRunner()
         result = runner.invoke(
             cli.cli,
-            f"rematch-recombinant {info.base_ts} {info.recomb_ts} {info.recomb_node} "
+            f"rematch-recombinant {info.recomb_node} --base-ts={info.base_ts} --recomb-ts={info.recomb_ts} "
             f"--num-mismatches=2",
             catch_exceptions=False,
         )

@@ -668,13 +668,17 @@ def apply_node_parsimony(
 
 
 @click.command()
-@click.argument("base_ts", type=click.Path(exists=True, dir_okay=False))
-@click.argument("recomb_ts", type=click.Path(exists=True, dir_okay=False))
 @click.argument("node_id", type=int)
+@click.option("--path-pattern", default=None)
+@click.option("--date", default=None)
+@click.option("--base-ts", default=None)
+@click.option("--recomb-ts", default=None)
 @num_mismatches
 @click.option("-v", "--verbose", count=True)
 @click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
 def rematch_recombinant(
+    path_pattern,
+    date,
     base_ts,
     recomb_ts,
     node_id,
@@ -688,6 +692,10 @@ def rematch_recombinant(
     """
 
     setup_logging(verbose, log_file)
+    if path_pattern is not None:
+        recomb_ts = path_pattern.format(date=date)
+        base_ts = find_previous_date_path(date, path_pattern)
+
     base_ts = tszip.load(base_ts)
     recomb_ts = tszip.load(recomb_ts)
     result = sc2ts.rematch_recombinant(
