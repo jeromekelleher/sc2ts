@@ -1,3 +1,4 @@
+import dataclasses
 import pathlib
 import shutil
 import gzip
@@ -202,20 +203,21 @@ def recombinant_alignments(dataset):
     return alignments
 
 
-def recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_path):
+def make_recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, info):
     alignments = recombinant_alignments(fx_dataset)
 
     date = "2020-02-15"
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
-    base_ts = fx_ts_map["2020-02-13"]
+    ds = sc2ts.tmp_dataset(tmp_path / "dataset.zarr", alignments, date=date)
+    mdb = sc2ts.MatchDb.initialise(tmp_path / "match.db")
     ts = sc2ts.extend(
         dataset=ds.path,
-        base_ts=base_ts.path,
+        base_ts=info.base_ts,
         date=date,
         num_mismatches=2,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+        match_db=mdb.path,
     )
-    return ts
+    print(ts)
+    ts.dump(info.recomb_ts)
 
 
 def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
@@ -377,15 +379,29 @@ def recombinant_example_4(tmp_path, fx_recombinant_example_2):
     return tables.tree_sequence()
 
 
+@dataclasses.dataclass
+class RecombinantExampleInfo:
+    base_ts: str
+    recomb_ts: str
+    recomb_node: int
+
+
 @pytest.fixture
-def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
-    cache_path = fx_data_cache / "recombinant_ex1.ts"
-    if not cache_path.exists():
-        print(f"Generating {cache_path}")
-        ds_cache_path = fx_data_cache / "recombinant_ex1_dataset.zarr"
-        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
-        ts.dump(cache_path)
-    return tskit.load(cache_path)
+def fx_recombinant_example_1_info(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
+    info = RecombinantExampleInfo(
+        recomb_ts = fx_data_cache / "recombinant_ex1.ts",
+        base_ts = fx_ts_map["2020-02-13"].path,
+        recomb_node=55,
+    )
+    if not info.recomb_ts.exists():
+        print(f"Generating {info.recomb_ts}")
+        make_recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, info)
+    return info
+
+
+@pytest.fixture
+def fx_recombinant_example_1(fx_recombinant_example_1_info):
+    return tskit.load(fx_recombinant_example_1_info.recomb_ts)
 
 
 @pytest.fixture

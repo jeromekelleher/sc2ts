@@ -667,6 +667,43 @@ def apply_node_parsimony(
     result.tree_sequence.dump(ts_out)
 
 
+@click.command()
+@click.argument("node_id", type=int)
+@click.option("--path-pattern", default=None)
+@click.option("--date", default=None)
+@click.option("--base-ts", default=None)
+@click.option("--recomb-ts", default=None)
+@num_mismatches
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def rematch_recombinant(
+    path_pattern,
+    date,
+    base_ts,
+    recomb_ts,
+    node_id,
+    num_mismatches,
+    verbose,
+    log_file,
+):
+    """
+    Rerun recombinant matching for the specified recombinants and output necessary
+    information to validate.
+    """
+
+    setup_logging(verbose, log_file)
+    if path_pattern is not None:
+        recomb_ts = path_pattern.format(date=date)
+        base_ts = find_previous_date_path(date, path_pattern)
+
+    base_ts = tszip.load(base_ts)
+    recomb_ts = tszip.load(recomb_ts)
+    result = sc2ts.rematch_recombinant(
+        base_ts, recomb_ts, node_id, num_mismatches=num_mismatches
+    )
+    print(json.dumps(result.asdict()))
+
+
 def find_previous_date_path(date, path_pattern):
     """
     Find the path with the most-recent date to the specified one
@@ -705,4 +742,6 @@ cli.add_command(postprocess)
 cli.add_command(minimise_metadata)
 cli.add_command(map_parsimony)
 cli.add_command(apply_node_parsimony)
+cli.add_command(run_hmm)
+cli.add_command(rematch_recombinant)
 cli.add_command(run_hmm)

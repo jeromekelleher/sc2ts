@@ -535,6 +535,24 @@ class TestApplyParsimonyHeuristics:
         assert out.num_provenances == ts.num_provenances + 1
 
 
+class TestRematchRecombinant:
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+
+        runner = ct.CliRunner()
+        result = runner.invoke(
+            cli.cli,
+            f"rematch-recombinant {info.recomb_node} --base-ts={info.base_ts} --recomb-ts={info.recomb_ts} "
+            f"--num-mismatches=2",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert len(result.stdout) > 0
+        d = json.loads(result.stdout)
+        assert "original_match" in d
+
+
 class TestValidate:
 
     @pytest.mark.parametrize("date", ["2020-01-01", "2020-02-11"])

@@ -1734,3 +1734,25 @@ class TestInsertVestigialRootEdge:
         ts = msprime.sim_ancestry(2)
         with pytest.raises(ValueError, match="Oldest edge"):
             sc2ts.insert_vestigial_root_edge(ts)
+
+
+class TestRematchRecombinants:
+    def test_bad_node(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+        base_ts = tskit.load(info.base_ts)
+        recomb_ts = tskit.load(info.recomb_ts)
+        with pytest.raises(ValueError, match="not a recombinant"):
+            sc2ts.rematch_recombinant(base_ts, recomb_ts, 0, num_mismatches=2)
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+        base_ts = tskit.load(info.base_ts)
+        recomb_ts = tskit.load(info.recomb_ts)
+
+        result = sc2ts.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
+        assert result.original_match.parents == [31, 46]
+        assert len(result.original_match.mutations) == 1
+        assert result.recomb_match.parents == [31, 46]
+        assert len(result.recomb_match.mutations) == 0
+        assert result.no_recomb_match.parents == [31]
+        assert len(result.no_recomb_match.mutations) == 3
