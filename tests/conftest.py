@@ -1,3 +1,4 @@
+import dataclasses
 import pathlib
 import shutil
 import gzip
@@ -202,20 +203,21 @@ def recombinant_alignments(dataset):
     return alignments
 
 
-def recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_path):
+def make_recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, paths):
     alignments = recombinant_alignments(fx_dataset)
 
     date = "2020-02-15"
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    ds = sc2ts.tmp_dataset(paths.dataset, alignments, date=date)
+    mdb = sc2ts.MatchDb.initialise(paths.match_db)
     base_ts = fx_ts_map["2020-02-13"]
     ts = sc2ts.extend(
         dataset=ds.path,
         base_ts=base_ts.path,
         date=date,
         num_mismatches=2,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+        match_db=paths.match_db,
     )
-    return ts
+    ts.dump(paths.ts)
 
 
 def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
@@ -377,15 +379,29 @@ def recombinant_example_4(tmp_path, fx_recombinant_example_2):
     return tables.tree_sequence()
 
 
+@dataclasses.dataclass
+class RecombinantExamplePaths:
+    dataset: str
+    match_db: str
+    ts: str
+
+
 @pytest.fixture
-def fx_recombinant_example_1(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
-    cache_path = fx_data_cache / "recombinant_ex1.ts"
-    if not cache_path.exists():
-        print(f"Generating {cache_path}")
-        ds_cache_path = fx_data_cache / "recombinant_ex1_dataset.zarr"
-        ts = recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, ds_cache_path)
-        ts.dump(cache_path)
-    return tskit.load(cache_path)
+def fx_recombinant_example_1_paths(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
+    paths = RecombinantExamplePaths(
+        fx_data_cache / "recombinant_ex1_dataset.zarr",
+        fx_data_cache / "recombinant_ex1_match.db",
+        fx_data_cache / "recombinant_ex1.ts",
+    )
+    if not paths.ts.exists():
+        print(f"Generating {paths.ts}")
+        make_recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, paths)
+    return paths
+
+
+@pytest.fixture
+def fx_recombinant_example_1(fx_recombinant_example_1_paths):
+    return tskit.load(fx_recombinant_example_1_paths.ts)
 
 
 @pytest.fixture
