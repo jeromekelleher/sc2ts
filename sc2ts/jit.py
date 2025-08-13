@@ -61,6 +61,8 @@ def _get_root_path(parent, node):
 
 
 def get_root_path(tree, node):
+    if node >= len(tree.parent_array):
+        raise ValueError("node {node} out of bounds")
     return _get_root_path(tree.parent_array, node)
 
 
