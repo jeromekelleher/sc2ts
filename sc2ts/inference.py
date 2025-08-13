@@ -28,6 +28,7 @@ import humanize
 import pandas as pd
 
 from . import core
+from . import jit
 from . import stats
 from . import tree_ops
 from . import dataset as _dataset
@@ -1938,6 +1939,29 @@ def run_hmm(
     return ret
 
 
+def get_mutations_to_mrca(ts, recombinant_match):
+    path = recombinant_match.path
+    assert len(path) == 2
+    left_parent = path[0].parent
+    right_parent = path[1].parent
+
+    tree = ts.first()
+    left_path = jit.get_root_path(tree, left_parent)
+    left_ancestors = tree.ancestors(left_parent)
+    tree.seek(path[0].right)
+    right_path = jit.get_root_path(tree, right_parent)
+    mrca = jit.get_path_mrca(left_path, right_path, ts.nodes_time)
+    all_nodes = []
+    for path in [left_path, right_path]:
+        for u in path:
+            if u == mrca:
+                break
+            all_nodes.append(u)
+
+    dfm = stats.mutation_data(ts, inheritance_stats=False)
+    return dfm[np.isin(dfm.node, all_nodes)]
+
+
 @dataclasses.dataclass
 class RematchRecombinantsResult:
     original_match: HmmMatch
@@ -1959,6 +1983,13 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
 
     assert base_ts.num_sites == recomb_ts.num_sites
 
+    haplotype = np.zeros(recomb_ts.num_sites, dtype=np.int8)
+    for var in recomb_ts.variants(
+        samples=[node_id], alleles=tuple(core.IUPAC_ALLELES), isolated_as_missing=False
+    ):
+        haplotype[var.site.id] = var.genotypes[0]
+    sample = Sample("tmp", haplotype=haplotype)
+
     group_id = recomb_ts.node(node_id).metadata["sc2ts"]["group_id"]
     # Find a causal sample to get the original match. This is just to get a rough bound
     # on the path likelihood so it doesn't really matter which one.
@@ -1966,27 +1997,21 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     for u in tree.nodes(node_id, "timedesc"):
         if u != node_id:
             md = recomb_ts.node(u).metadata["sc2ts"]
-            if md["group_id"] == group_id:
+            if md["group_id"] == group_id and tree.is_sample(u):
                 hmm_match = md["hmm_match"]
                 break
-        # print(u, recomb_ts.node(u))
 
-    result = RematchRecombinantsResult(original_match=HmmMatch.fromdict(hmm_match))
+    sample.hmm_match = HmmMatch.fromdict(hmm_match)
+    characterise_match_mutations(base_ts, [sample])
+    characterise_recombinants(base_ts, [sample])
 
-    # group_id = recomb_node.metadata[
-    # print(recomb_node.metadata)
-    path_len = len(hmm_match["path"])
-    assert path_len == 2
-    original_cost = num_mismatches * (path_len - 1) + len(hmm_match["mutations"])
-    # print("cost", original_cost)
+    original_match = sample.hmm_match
+    original_match.cost = num_mismatches * (len(original_match.path) - 1) + len(original_match.mutations)
 
-    haplotype = np.zeros(recomb_ts.num_sites, dtype=np.int8)
-    for var in recomb_ts.variants(
-        samples=[node_id], alleles=tuple(core.IUPAC_ALLELES), isolated_as_missing=False
-    ):
-        haplotype[var.site.id] = var.genotypes[0]
-    sample = Sample("tmp", haplotype=haplotype)
-    result.recomb_match = sample.hmm_match
+    result = RematchRecombinantsResult(original_match)
+
+    assert len(original_match.path) == 2
+    original_cost = original_match.cost
 
     # Run the original match again to make sure the match is clean and stable
     # (i.e., that any additional mutations above the samples didn't affect
@@ -1997,15 +2022,24 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         num_mismatches=num_mismatches,
         mismatch_threshold=original_cost + 1,
     )
+    characterise_match_mutations(base_ts, [sample])
+    characterise_recombinants(base_ts, [sample])
     result.recomb_match = sample.hmm_match
 
+    # Run the match with forced no-recombination path.
     match_tsinfer(
         samples=[sample],
         ts=base_ts,
         num_mismatches=1000,
         mismatch_threshold=2 * original_cost,
     )
+    characterise_match_mutations(base_ts, [sample])
+    characterise_recombinants(base_ts, [sample])
     result.no_recomb_match = sample.hmm_match
+
+    muts = get_mutations_to_mrca(base_ts, original_match)
+    print(muts)
+
     return result
 
 
