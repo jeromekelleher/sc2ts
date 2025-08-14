@@ -1759,13 +1759,22 @@ class TestRematchRecombinants:
 
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
-        re_node = 15
+        re_nodes = np.where(ts.nodes_flags == sc2ts.NODE_IS_RECOMBINANT)[0]
+        assert len(re_nodes) == 1
+        re_node = re_nodes[0]
 
         previous = ts.simplify(
-            np.arange(re_node), update_sample_flags=False, filter_sites=False
+            np.arange(re_node), keep_unary=True, update_sample_flags=False, filter_sites=False
         )
-        print(ts.draw_text())
-        print(previous.draw_text())
-        print(ts.node(0))
 
-        result = sc2ts.rematch_recombinant(previous, ts, re_node, num_mismatches=4)
+        result = sc2ts.rematch_recombinant(
+            previous, ts, re_node, num_mismatches=4
+        )
+        assert len(result.original_match.path) == 2
+        assert len(result.recomb_match.path) == 2
+        assert len(result.no_recomb_match.path) == 1
+
+
+        result = sc2ts.rematch_recombinant_with_intermediate_node(
+            previous, ts, re_node, num_mismatches=4)
+        assert len(result.recomb_match.path) == 1

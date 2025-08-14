@@ -1938,27 +1938,39 @@ def run_hmm(
         )
     return ret
 
+NodeMutations = collections.namedtuple("NodeMutations", ["side", "positions"])
 
 def get_mutations_to_mrca(ts, recombinant_match):
+    """
+    Find ancestral nodes on the left and right path from the recombinant
+    and return a dict mapping those nodes to the path side and the positions
+    of the mutations associated with each node
+    """
     path = recombinant_match.path
     assert len(path) == 2
     left_parent = path[0].parent
     right_parent = path[1].parent
 
     tree = ts.first()
+    print(left_parent)
     left_path = jit.get_root_path(tree, left_parent)
     tree.seek(path[0].right)
     right_path = jit.get_root_path(tree, right_parent)
     mrca = jit.get_path_mrca(left_path, right_path, ts.nodes_time)
-    all_nodes = []
-    for path in [left_path, right_path]:
+    nodes = {'lft': [], 'rgt': []}
+    for path, nodelist in zip([left_path, right_path], nodes.values()):
         for u in path:
             if u == mrca:
                 break
-            all_nodes.append(u)
+            nodelist.append(u)
 
     dfm = stats.mutation_data(ts, inheritance_stats=False)
-    return dfm[np.isin(dfm.node, all_nodes)]
+    ret = {}
+    for side, nodelist in nodes.items():
+        for u in nodelist:
+            positions = {row.position for row in dfm[dfm.node == u].itertuples()}
+            ret[u] = NodeMutations(side, positions)
+    return ret
 
 
 @dataclasses.dataclass
@@ -1971,23 +1983,26 @@ class RematchRecombinantsResult:
         return dataclasses.asdict(self)
 
 
+def create_sample(ts, node_id):
+    haplotype = np.zeros(ts.num_sites, dtype=np.int8)
+    for var in ts.variants(
+        samples=[node_id], alleles=tuple(core.IUPAC_ALLELES), isolated_as_missing=False
+    ):
+        haplotype[var.site.id] = var.genotypes[0]
+    return Sample("tmp", haplotype=haplotype)
+
 def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     # dataset, recomb_ts, match_db, strain, *, num_mismatches, deletions_as_missing=False):
     # print("Rematch for", strain)
     if recomb_ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
         raise ValueError(f"node {node_id} is not a recombinant")
 
-    if node_id < base_ts.num_nodes:
-        raise ValueError(f"node {node_id} already present")
+    #if node_id < base_ts.num_nodes:
+    #    raise ValueError(f"node {node_id} already present")
 
     assert base_ts.num_sites == recomb_ts.num_sites
 
-    haplotype = np.zeros(recomb_ts.num_sites, dtype=np.int8)
-    for var in recomb_ts.variants(
-        samples=[node_id], alleles=tuple(core.IUPAC_ALLELES), isolated_as_missing=False
-    ):
-        haplotype[var.site.id] = var.genotypes[0]
-    sample = Sample("tmp", haplotype=haplotype)
+    sample = create_sample(recomb_ts, node_id)
 
     group_id = recomb_ts.node(node_id).metadata["sc2ts"]["group_id"]
     # Find a causal sample to get the original match. This is just to get a rough bound
@@ -2009,7 +2024,6 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
 
     result = RematchRecombinantsResult(original_match)
 
-    assert len(original_match.path) == 2
     original_cost = original_match.cost
 
     # Run the original match again to make sure the match is clean and stable
@@ -2032,12 +2046,107 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     )
     result.no_recomb_match = sample.hmm_match
 
-    muts = get_mutations_to_mrca(base_ts, original_match)
-    # TODO - create a tree sequence with recurrent mutations moved onto the
+    return result
+
+def rematch_recombinant_with_intermediate_node(base_ts, recomb_ts, node_id, num_mismatches):
+    """
+    Like rematch_recombinant, but also identifies a place where an additional node
+    could be added to the base tree sequence for greater parsimony, and adds the
+    HMM match against the tree sequence with the additional node.
+    """
+    result = rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches)
+
+    node_mutations = get_mutations_to_mrca(base_ts, result.original_match)
+    hmm_positions = {m.site_position for m in result.original_match.mutations}
+    # Find the node with the most associated mutations at the orig_match_site_positions
+    recurrent_site_pos = {
+        u: len(ndinfo.positions & hmm_positions) for u, ndinfo in node_mutations.items()
+    }
+    target_nodes = sorted(recurrent_site_pos, key=recurrent_site_pos.get, reverse=True)
+    if recurrent_site_pos[target_nodes[0]] == recurrent_site_pos[target_nodes[1]]:
+        logger.warning("Warning: multiple equally reasonable target nodes")
+
+    target_node = target_nodes[0]
+    side = node_mutations[target_node].side
+    assert len(node_mutations[target_node]) > 0
+
+    # Create a tree sequence with recurrent mutations moved onto the
     # left/right parent branches and rerun the HMM. Store
     # the details (a blueprint for the later rewiring) and the match
+    breakpnt = result.original_match.path[0].right
+    assert result.original_match.path[0].right == result.original_match.path[1].left
+    extra_ts, extra_node = ts_with_intermediate_node(
+        base_ts, target_node, result.original_match.mutations, side, breakpnt)
 
+    assert extra_ts.num_nodes == base_ts.num_nodes + 1
+    
+    sample = create_sample(recomb_ts, node_id)
+    match_tsinfer(
+        samples=[sample],
+        ts=extra_ts,
+        num_mismatches=num_mismatches,
+        mismatch_threshold=result.original_match.cost + 1,  # Not sure of this...
+    )
+    result.recomb_match = sample.hmm_match
+
+    # TODO: return details allowing the tree sequence to be rewired
     return result
+
+
+
+States = collections.namedtuple("States", "inherited, derived", defaults=(None, None))
+
+def ts_with_intermediate_node(ts, child_node_id, hmm_mutations, side, breakpt):
+    """
+    Edit an existing tree sequence to add an intermediate node above the child_node_id
+    and move mutations associated with that node such that it forms a good attachment.
+    """
+    # check all HMM mutations are at a different position
+    assert np.all(np.diff(sorted([m.site_position for m in hmm_mutations])) > 0)
+    hmm_mutations = {m.site_position: States(m.inherited_state, m.derived_state) for m in hmm_mutations}
+    tables = ts.dump_tables()
+    tables.mutations.time = np.full_like(ts.mutations_time, tskit.UNKNOWN_TIME)
+    parent_time = ts.nodes_time[ts.edges_parent[ts.edges_child==child_node_id]].mean()
+    
+    child = ts.node(child_node_id)
+    new_time = (child.time + parent_time)/2
+    new_node = tables.nodes.add_row(time=new_time)
+    tables.edges.clear()
+    for e in ts.edges():
+        if e.child == child.id:
+            tables.edges.append(e.replace(child=new_node))
+            tables.edges.append(e.replace(parent=new_node))
+        else:
+            tables.edges.append(e)
+            
+    mutations_node = tables.mutations.node
+    moved_muts = []
+    n_unmoved = 0
+    for m in np.where(ts.mutations_node==child_node_id)[0]:
+        mut = ts.mutation(m)
+        pos = int(ts.site(mut.site).position)
+        if side == 'rgt' and pos < breakpt or side == 'lft' and pos >= breakpt:
+            if hmm_mutations.get(pos, States()).derived == mut.derived_state:
+                moved_muts.append(mut)
+                mutations_node[mut.id] = new_node
+            else:
+                n_unmoved += 1
+        else:
+            if hmm_mutations.get(pos, States()).inherited == mut.derived_state:
+                n_unmoved += 1
+            else:
+                moved_muts.append(mut)
+                mutations_node[mut.id] = new_node
+    tables.mutations.node = mutations_node
+    tables.sort()
+    logger.info(
+        f"Added intermediate node {new_node} @ t={new_time} above node {child_node_id}",
+        f"with {len(moved_muts)}/{len(moved_muts) + n_unmoved} muts above it"
+    )
+    logger.debug(
+        f"Moved mutation positions: {[ts.site(m.site).position for m in moved_muts]}")
+    logger.debug(f"Moved mutations: {moved_muts}")
+    return tables.tree_sequence(), new_node
 
 
 def get_group_strains(ts):
