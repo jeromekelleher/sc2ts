@@ -1759,13 +1759,49 @@ class TestRematchRecombinants:
 
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
-        re_node = 15
 
-        previous = ts.simplify(
-            np.arange(re_node), update_sample_flags=False, filter_sites=False
+        re_nodes = np.where(ts.nodes_flags == sc2ts.NODE_IS_RECOMBINANT)[0]
+        assert len(re_nodes) == 1
+        re_node = re_nodes[0]
+
+        ts = sc2ts.move_mutations_above_recombinant(ts, re_node)
+
+        truncated_ts = ts.simplify(
+            np.arange(re_node),
+            keep_unary=True,
+            update_sample_flags=False,
+            filter_sites=False,
         )
-        print(ts.draw_text())
-        print(previous.draw_text())
-        print(ts.node(0))
 
-        result = sc2ts.rematch_recombinant(previous, ts, re_node, num_mismatches=4)
+        result = sc2ts.rematch_recombinant(
+            truncated_ts, ts, re_node, num_mismatches=4
+        )
+        assert len(result.original_match.path) == 2
+        assert len(result.recomb_match.path) == 2
+        assert len(result.no_recomb_match.path) == 1
+
+
+        result, inserted, base = sc2ts.rematch_recombinant_with_extra_node(
+            truncated_ts, ts, re_node, result.recomb_match, num_mismatches=4,
+        )
+        assert len(result.recomb_match.path) == 1
+        assert result.recomb_match.path[0].parent == inserted.node.id
+        
+        # Using the truncated ts we established that we can get a nonrecombinant match
+        # Now we have to rewire the *original* tree, by inserting an extra node in the
+        # same place and moving the same mutations above that new node
+        to_move = []
+        all_muts = np.where(ts.mutations_node == base.node.id)[0]
+        for pos, m in zip(ts.sites_position[ts.mutations_site[all_muts]], all_muts):
+            if inserted.mutations.get(pos) == ts.mutation(m).derived_state:
+                to_move.append(m)
+        extra_node_ts, u = sc2ts.ts_with_intermediate_node(ts, base.node.id, to_move)
+
+        rewired_ts = sc2ts.rewire_recombinant(extra_node_ts, re_node, u)
+        # Check haplotypes remain unchanged
+        for v1, v2 in zip(ts.variants(), rewired_ts.variants()):
+            assert np.all(v1.states() == v2.states())
+
+        assert ts.num_mutations > rewired_ts.num_mutations
+        #print("Reduced num mutations by", ts.num_mutations - new_ts.num_mutations)
+        
