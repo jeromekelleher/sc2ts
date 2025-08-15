@@ -2100,7 +2100,10 @@ def rematch_recombinant_with_extra_node(
     }
     target_nodes = sorted(recurrent_site_pos, key=recurrent_site_pos.get, reverse=True)
     if recurrent_site_pos[target_nodes[0]] == recurrent_site_pos[target_nodes[1]]:
-        logger.warning("Warning: multiple equally reasonable target nodes")
+        logger.warning(
+            "Warning: multiple equally reasonable target nodes, choosing one randomly" +
+            f" (num deletable muts = {recurrent_site_pos[target_nodes[0]]})"
+        )
 
     base_node = target_nodes[0]
     side = node_mutations[base_node].side
