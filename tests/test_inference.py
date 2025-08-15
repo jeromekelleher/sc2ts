@@ -1766,12 +1766,15 @@ class TestRematchRecombinants:
 
         ts = sc2ts.push_up_unary_recombinant_mutations(ts)
 
-        truncated_ts = ts.simplify(
-            np.arange(re_node),
+        oldest_re_descendant = min(ts.first().nodes(re_node))  # probably re_node - 1
+        truncated_ts, node_map = ts.simplify(
+            np.arange(oldest_re_descendant),
             keep_unary=True,
             update_sample_flags=False,
             filter_sites=False,
+            map_nodes=True,
         )
+        assert node_map[re_node] == tskit.NULL
 
         result = sc2ts.rematch_recombinant(
             truncated_ts, ts, re_node, num_mismatches=4
