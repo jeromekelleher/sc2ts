@@ -2005,32 +2005,6 @@ def create_sample(ts, node_id):
 
     return sample
 
-def move_mutations_above_recombinant(ts, re_node):
-    """
-    Move mutations from below a recombinant node up to the node itself.
-    """
-    mutations_to_move = []
-    unary_child = re_node
-    while True:
-        child = np.unique(ts.edges_child[ts.edges_parent == unary_child])
-        if len(child) != 1:
-            break
-        unary_child = child[0]
-        mutations_to_move += list(np.where(ts.mutations_node == unary_child)[0])
-    tables = ts.dump_tables()
-    mutations_node = tables.mutations.node
-    mutations_time = tables.mutations.time
-    mutations_node[mutations_to_move] = re_node
-    for m in mutations_to_move:
-        if not tskit.is_unknown_time(ts.mutation(m).time):
-            # If the mutation has a time, we need to update it to the
-            # time of the recombination node.
-            mutations_time[m] = ts.node(re_node).time
-    tables.mutations.node = mutations_node
-    tables.mutations.time = mutations_time
-    tables.sort()
-    return tables.tree_sequence()
-
 def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches, show_progress=False):
     """
     Take a recombinant node from the recomb_ts and rematch it against

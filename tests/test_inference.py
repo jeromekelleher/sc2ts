@@ -1764,7 +1764,7 @@ class TestRematchRecombinants:
         assert len(re_nodes) == 1
         re_node = re_nodes[0]
 
-        ts = sc2ts.move_mutations_above_recombinant(ts, re_node)
+        ts = sc2ts.push_up_unary_recombinant_mutations(ts)
 
         truncated_ts = ts.simplify(
             np.arange(re_node),
