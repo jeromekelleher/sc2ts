@@ -2031,7 +2031,7 @@ def move_mutations_above_recombinant(ts, re_node):
     tables.sort()
     return tables.tree_sequence()
 
-def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
+def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches, show_progress=False):
     """
     Take a recombinant node from the recomb_ts and rematch it against
     the base_ts, both with and without recombination. Ensure beforehand
@@ -2063,6 +2063,7 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         ts=base_ts,
         num_mismatches=num_mismatches,
         mismatch_threshold=original_cost + 1,
+        show_progress=show_progress,
     )
     result.recomb_match = sample.hmm_match
 
@@ -2072,6 +2073,7 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         ts=base_ts,
         num_mismatches=1000,
         mismatch_threshold=2 * original_cost,
+        show_progress=show_progress,
     )
     result.no_recomb_match = sample.hmm_match
 
@@ -2096,7 +2098,7 @@ def get_node_mutations(ts, node_id):
     return MutationsForNode(ts.node(node_id), mutations)
 
 def rematch_recombinant_with_extra_node(
-    base_ts, recomb_ts, node_id, recomb_match, num_mismatches
+    base_ts, recomb_ts, node_id, recomb_match, num_mismatches, show_progress=False
 ):
     """
     Like rematch_recombinant, but also identifies a place where an additional node
@@ -2160,7 +2162,8 @@ def rematch_recombinant_with_extra_node(
         samples=[sample],
         ts=new_ts,
         num_mismatches=num_mismatches,
-        mismatch_threshold= result.original_match.cost + 1,  # Not sure of this value...
+        mismatch_threshold=result.original_match.cost + 1,  # Not sure of this value...
+        show_progress=show_progress,
     )
     result.recomb_match = sample.hmm_match
 
