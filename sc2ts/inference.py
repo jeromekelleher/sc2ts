@@ -2190,8 +2190,13 @@ def rewire_recombinant(ts, re_node, new_parent):
     And remove the existing mutations above the RE node and add new ones
     to ensure that the RE node has the same haplotype as before
     """
-    nodes_time = ts.nodes_time.copy()
     tables = ts.dump_tables()
+    tables.compute_mutation_times()  # Needed to get the mutation sorting order right
+    ts = tables.tree_sequence()
+    nodes_time = ts.nodes_time
+    # NB, we can't just dump mutations in any order and sort, because of a bug in
+    # sorting, so we clear and re-insert in the right order until
+    # https://github.com/tskit-dev/tskit/issues/3253 is fixed
     tables.mutations.clear()
     for v in ts.variants(samples=[new_parent, re_node], isolated_as_missing=False):
         muts_to_add = [m for m in v.site.mutations if m.node != re_node]
@@ -2214,6 +2219,7 @@ def rewire_recombinant(ts, re_node, new_parent):
     tables.nodes[re_node] = tables.nodes[re_node].replace(flags=0)
     tables.edges.parent = edges_parent
     tables.mutations.time = np.full_like(tables.mutations.time, tskit.UNKNOWN_TIME)
+    tables.mutations.parent = np.full_like(tables.mutations.parent, tskit.NULL)
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
