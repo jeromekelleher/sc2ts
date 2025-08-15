@@ -1938,8 +1938,14 @@ def run_hmm(
         )
     return ret
 
+NodeMutations = collections.namedtuple("NodeMutations", ["side", "positions"])
 
 def get_mutations_to_mrca(ts, recombinant_match):
+    """
+    Find ancestral nodes on the left and right path from the recombinant
+    and return a dict mapping those nodes to the path side and the positions
+    of the mutations associated with each node
+    """
     path = recombinant_match.path
     assert len(path) == 2
     left_parent = path[0].parent
@@ -1950,15 +1956,20 @@ def get_mutations_to_mrca(ts, recombinant_match):
     tree.seek(path[0].right)
     right_path = jit.get_root_path(tree, right_parent)
     mrca = jit.get_path_mrca(left_path, right_path, ts.nodes_time)
-    all_nodes = []
-    for path in [left_path, right_path]:
+    nodes = {'lft': [], 'rgt': []}
+    for path, nodelist in zip([left_path, right_path], nodes.values()):
         for u in path:
             if u == mrca:
                 break
-            all_nodes.append(u)
+            nodelist.append(u)
 
     dfm = stats.mutation_data(ts, inheritance_stats=False)
-    return dfm[np.isin(dfm.node, all_nodes)]
+    ret = {}
+    for side, nodelist in nodes.items():
+        for u in nodelist:
+            positions = {row.position for row in dfm[dfm.node == u].itertuples()}
+            ret[u] = NodeMutations(side, positions)
+    return ret
 
 
 @dataclasses.dataclass
@@ -1971,36 +1982,43 @@ class RematchRecombinantsResult:
         return dataclasses.asdict(self)
 
 
-def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
-    # dataset, recomb_ts, match_db, strain, *, num_mismatches, deletions_as_missing=False):
-    # print("Rematch for", strain)
-    if recomb_ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
-        raise ValueError(f"node {node_id} is not a recombinant")
-
-    if node_id < base_ts.num_nodes:
-        raise ValueError(f"node {node_id} already present")
-
-    assert base_ts.num_sites == recomb_ts.num_sites
-
-    haplotype = np.zeros(recomb_ts.num_sites, dtype=np.int8)
-    for var in recomb_ts.variants(
+def create_sample(ts, node_id):
+    haplotype = np.zeros(ts.num_sites, dtype=np.int8)
+    for var in ts.variants(
         samples=[node_id], alleles=tuple(core.IUPAC_ALLELES), isolated_as_missing=False
     ):
         haplotype[var.site.id] = var.genotypes[0]
-    sample = Sample("tmp", haplotype=haplotype)
 
-    group_id = recomb_ts.node(node_id).metadata["sc2ts"]["group_id"]
+    sample = Sample("tmp", haplotype=haplotype)
+    group_id = ts.node(node_id).metadata["sc2ts"]["group_id"]
     # Find a causal sample to get the original match. This is just to get a rough bound
     # on the path likelihood so it doesn't really matter which one.
-    tree = recomb_ts.first()
+    tree = ts.first()
     for u in tree.nodes(node_id, "timedesc"):
         if u != node_id:
-            md = recomb_ts.node(u).metadata["sc2ts"]
+            md = ts.node(u).metadata["sc2ts"]
             if md.get("group_id", None) == group_id and tree.is_sample(u):
                 hmm_match = md["hmm_match"]
                 break
 
     sample.hmm_match = HmmMatch.fromdict(hmm_match)
+
+    return sample
+
+def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches, show_progress=False):
+    """
+    Take a recombinant node from the recomb_ts and rematch it against
+    the base_ts, both with and without recombination. Ensure beforehand
+    that the recombination node in the base_ts has all the relevant mutations above it.
+    """
+    # dataset, recomb_ts, match_db, strain, *, num_mismatches, deletions_as_missing=False):
+    # print("Rematch for", strain)
+    if recomb_ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
+        raise ValueError(f"node {node_id} is not a recombinant")
+
+    assert base_ts.num_sites == recomb_ts.num_sites
+
+    sample = create_sample(recomb_ts, node_id)
 
     original_match = sample.hmm_match
     original_match.cost = num_mismatches * (len(original_match.path) - 1) + len(
@@ -2009,7 +2027,6 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
 
     result = RematchRecombinantsResult(original_match)
 
-    assert len(original_match.path) == 2
     original_cost = original_match.cost
 
     # Run the original match again to make sure the match is clean and stable
@@ -2020,6 +2037,7 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         ts=base_ts,
         num_mismatches=num_mismatches,
         mismatch_threshold=original_cost + 1,
+        show_progress=show_progress,
     )
     result.recomb_match = sample.hmm_match
 
@@ -2029,15 +2047,179 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
         ts=base_ts,
         num_mismatches=1000,
         mismatch_threshold=2 * original_cost,
+        show_progress=show_progress,
     )
     result.no_recomb_match = sample.hmm_match
 
-    muts = get_mutations_to_mrca(base_ts, original_match)
-    # TODO - create a tree sequence with recurrent mutations moved onto the
-    # left/right parent branches and rerun the HMM. Store
-    # the details (a blueprint for the later rewiring) and the match
-
     return result
+
+MutationsForNode = collections.namedtuple("MutationsForNode", ["node", "mutations"])
+
+def get_node_mutations(ts, node_id):
+    """
+    Get the mutations associated with a node in a form that can be used
+    to rewire the tree sequence.
+    """
+    mutations = {}
+    for m in np.where(ts.mutations_node == node_id)[0]:
+        mut = ts.mutation(m)
+        site = ts.site(mut.site)
+        if site.position in mutations:
+            raise ValueError(
+                f"Multiple mutations at site {site.position} for node {node_id}"
+            )
+        mutations[site.position] = mut.derived_state
+    return MutationsForNode(ts.node(node_id), mutations)
+
+def rematch_recombinant_with_extra_node(
+    base_ts, recomb_ts, node_id, recomb_match, num_mismatches, show_progress=False
+):
+    """
+    Like rematch_recombinant, but also identifies a place where an additional node
+    could be added to the base tree sequence for greater parsimony, and adds the
+    HMM match against the tree sequence with the additional node. This requires
+    knowing the mutations from an HMM match, which are obtained from the recomb_match
+    parameter: usually the results of a previous call to rematch_recombinant().
+    """
+    sample = create_sample(recomb_ts, node_id)
+    if len(recomb_match.path) != 2:
+        raise ValueError(f"Expected 2 paths in recomb_match, got {recomb_match.path}")
+    breakpt = recomb_match.path[0].right
+    assert recomb_match.path[0].right == recomb_match.path[1].left
+    recomb_match.cost = num_mismatches * (len(recomb_match.path) - 1) + len(
+        recomb_match.mutations
+    )
+
+    result = RematchRecombinantsResult(recomb_match)
+
+    node_mutations = get_mutations_to_mrca(base_ts, recomb_match)
+    hmm_positions = {m.site_position for m in recomb_match.mutations}
+    # Find the node with the most associated mutations at the orig_match_site_positions
+    recurrent_site_pos = {
+        u: len(ndinfo.positions & hmm_positions) for u, ndinfo in node_mutations.items()
+    }
+    target_nodes = sorted(recurrent_site_pos, key=recurrent_site_pos.get, reverse=True)
+    if recurrent_site_pos[target_nodes[0]] == recurrent_site_pos[target_nodes[1]]:
+        logger.warning("Warning: multiple equally reasonable target nodes")
+
+    base_node = target_nodes[0]
+    side = node_mutations[base_node].side
+    assert len(node_mutations[base_node]) > 0
+
+    # Create a tree sequence with recurrent mutations moved onto the
+    # left/right parent branches and rerun the HMM. 
+
+    # check all HMM mutations are at a different position
+    assert all(np.diff(sorted([m.site_position for m in recomb_match.mutations])) > 0)
+    hmm_mutations = {
+        m.site_position: States(m.inherited_state, m.derived_state)
+        for m in recomb_match.mutations
+    }
+    
+    all_muts = np.where(base_ts.mutations_node==base_node)[0]
+    to_move = []
+    for m, pos in zip(all_muts, base_ts.sites_position[base_ts.mutations_site[all_muts]]):
+        derived_state = base_ts.mutation(m).derived_state
+        if side == 'rgt' and pos < breakpt or side == 'lft' and pos >= breakpt:
+            if hmm_mutations.get(pos, States()).derived == derived_state:
+                to_move.append(m)
+        else:
+            if hmm_mutations.get(pos, States()).inherited != derived_state:
+                to_move.append(m)
+
+    new_ts, new_node = ts_with_intermediate_node(base_ts, base_node, to_move)
+
+    assert new_ts.num_nodes == base_ts.num_nodes + 1
+    assert new_ts.num_mutations == base_ts.num_mutations
+    
+    match_tsinfer(
+        samples=[sample],
+        ts=new_ts,
+        num_mismatches=num_mismatches,
+        mismatch_threshold=result.original_match.cost + 1,  # Not sure of this value...
+        show_progress=show_progress,
+    )
+    result.recomb_match = sample.hmm_match
+
+    # Return details allowing the tree sequence to be rewired
+    # The base_node should be the same as in the input sequence
+    assert base_ts.node(base_node) == new_ts.node(base_node)
+    return (
+        result,
+        get_node_mutations(new_ts, new_node),
+        get_node_mutations(new_ts, base_node),
+    )
+
+States = collections.namedtuple("States", "inherited, derived", defaults=(None, None))
+
+def ts_with_intermediate_node(ts, child_node_id, mutations_to_move):
+    """
+    Edit an existing tree sequence to add an intermediate node above the child_node_id
+    and move mutations associated with that node such that it forms a good attachment.
+    """
+    tables = ts.dump_tables()
+    tables.mutations.time = np.full_like(ts.mutations_time, tskit.UNKNOWN_TIME)
+    parent_time = ts.nodes_time[ts.edges_parent[ts.edges_child==child_node_id]].mean()
+    
+    child = ts.node(child_node_id)
+    new_time = (child.time + parent_time)/2
+    new_node = tables.nodes.add_row(time=new_time)
+    tables.edges.clear()
+    for e in ts.edges():
+        if e.child == child.id:
+            tables.edges.append(e.replace(child=new_node))
+            tables.edges.append(e.replace(parent=new_node))
+        else:
+            tables.edges.append(e)
+    
+    mutations_node = tables.mutations.node
+    mutations_node[mutations_to_move] = new_node
+    tables.mutations.node = mutations_node
+    tables.sort()
+    logger.info(
+        f"Added intermediate node {new_node} @ t={new_time} above node {child_node_id}",
+        f"with {len(mutations_to_move)} muts above it"
+    )
+    logger.debug(
+        f"Moved muts @ pos: {ts.sites_position[ts.mutations_site[mutations_to_move]]}")
+    return tables.tree_sequence(), new_node
+
+def rewire_recombinant(ts, re_node, new_parent):
+    """
+    Rewire the ts so that the specified RE node has a single new_parent
+    And remove the existing mutations above the RE node and add new ones
+    to ensure that the RE node has the same haplotype as before
+    """
+    nodes_time = ts.nodes_time.copy()
+    tables = ts.dump_tables()
+    tables.mutations.clear()
+    for v in ts.variants(samples=[new_parent, re_node], isolated_as_missing=False):
+        muts_to_add = [m for m in v.site.mutations if m.node != re_node]
+        parent_state, focal_state = v.states()
+        if parent_state != focal_state:
+            muts_to_add.append(tskit.Mutation(
+                node=re_node,
+                site=v.site.id,
+                derived_state=focal_state,
+                time=nodes_time[re_node],
+                metadata=None,
+            ))
+        for m in sorted(muts_to_add, key=lambda x: -x.time):
+            tables.mutations.append(m)
+    
+    # Rewire the RE node edges
+    edges_parent = tables.edges.parent
+    edges_parent[ts.edges_child == re_node] = new_parent
+    # No longer a recombinant (and not a sample)
+    tables.nodes[re_node] = tables.nodes[re_node].replace(flags=0)
+    tables.edges.parent = edges_parent
+    tables.mutations.time = np.full_like(tables.mutations.time, tskit.UNKNOWN_TIME)
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    tables.edges.squash()
+    tables.sort() # Need to sort again because of squashing
+    return tables.tree_sequence()
 
 
 def get_group_strains(ts):
