@@ -2005,11 +2005,16 @@ def create_sample(ts, node_id):
 
     return sample
 
-def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches, show_progress=False):
+def rematch_recombinant(
+    base_ts, recomb_ts, node_id, num_mismatches, skip_no_recomb=False, show_progress=None
+):
     """
     Take a recombinant node from the recomb_ts and rematch it against
     the base_ts, both with and without recombination. Ensure beforehand
     that the recombination node in the base_ts has all the relevant mutations above it.
+
+    If skip_no_recomb is True, then we skip the no-recombination match
+    which can be quite slow.
     """
     # dataset, recomb_ts, match_db, strain, *, num_mismatches, deletions_as_missing=False):
     # print("Rematch for", strain)
@@ -2038,18 +2043,23 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches, show_progre
         num_mismatches=num_mismatches,
         mismatch_threshold=original_cost + 1,
         show_progress=show_progress,
+        progress_phase=f"k={num_mismatches}",
+        progress_title="HMM-rematch",
     )
     result.recomb_match = sample.hmm_match
 
     # Run the match with forced no-recombination path.
-    match_tsinfer(
-        samples=[sample],
-        ts=base_ts,
-        num_mismatches=1000,
-        mismatch_threshold=2 * original_cost,
-        show_progress=show_progress,
-    )
-    result.no_recomb_match = sample.hmm_match
+    if not skip_no_recomb:
+        match_tsinfer(
+            samples=[sample],
+            ts=base_ts,
+            num_mismatches=1000,
+            mismatch_threshold=2 * original_cost,
+            show_progress=show_progress,
+            progress_phase="no recomb",
+            progress_title="HMM-rematch",
+        )
+        result.no_recomb_match = sample.hmm_match
 
     return result
 
@@ -2141,6 +2151,8 @@ def rematch_recombinant_with_extra_node(
         num_mismatches=num_mismatches,
         mismatch_threshold=result.original_match.cost + 1,  # Not sure of this value...
         show_progress=show_progress,
+        progress_phase="",
+        progress_title="HMM with extra node",
     )
     result.recomb_match = sample.hmm_match
 
