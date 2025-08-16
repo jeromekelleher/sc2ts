@@ -70,6 +70,119 @@ def prepare(tables):
     return tables.tree_sequence()
 
 
+class TestSplitBranch:
+
+    def test_root(self):
+        # 2.00┊    6    ┊
+        #     ┊  ┏━┻━┓  ┊
+        # 1.00┊  4   5  ┊
+        #     ┊ ┏┻┓ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
+        with pytest.raises(ValueError, match="root"):
+            sc2ts.split_branch(ts1, 6, [])
+
+    def test_wrong_mutations(self):
+        # 2.00┊    6    ┊
+        #     ┊  ┏━┻━┓  ┊
+        # 1.00┊  4   5  ┊
+        #     ┊ ┏┻┓ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
+        tables = ts.dump_tables()
+        tables.sites.add_row(0, "A")
+        tables.mutations.add_row(site=0, node=1, time=0, derived_state="T")
+        ts = prepare(tables)
+        with pytest.raises(ValueError, match="must be associated with"):
+            sc2ts.split_branch(ts, 0, [0])
+
+    def test_no_mutations(self):
+        # 2.00┊    6    ┊
+        #     ┊  ┏━┻━┓  ┊
+        # 1.00┊  4   5  ┊
+        #     ┊ ┏┻┓ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
+        ts2 = sc2ts.split_branch(prepare(ts1.tables), 0, [])
+        assert ts2.num_nodes == 8
+        assert ts2.nodes_time[7] == 0.5
+        assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
+
+    def test_two_mutations(self):
+        # 2.00┊    6    ┊
+        #     ┊  ┏━┻━┓  ┊
+        # 1.00┊  4   5  ┊
+        #     ┊ ┏┻┓ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts1 = tskit.Tree.generate_balanced(4, arity=2, span=100).tree_sequence
+        tables = ts1.dump_tables()
+        for j in range(2):
+            tables.sites.add_row(j, "A")
+            tables.mutations.add_row(site=j, node=0, time=0, derived_state="T")
+        ts = prepare(tables)
+
+        ts2 = sc2ts.split_branch(ts, 0, [0])
+        assert ts2.num_nodes == 8
+        assert ts2.nodes_time[7] == 0.5
+        assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
+        assert ts2.mutations_time[0] == 0.5
+        assert ts2.mutations_node[0] == 7
+        assert ts2.mutations_time[1] == 0
+        assert ts2.mutations_node[1] == 0
+
+    @pytest.mark.parametrize("n", range(5))
+    def test_all_mutations(self, n):
+        # 2.00┊    6    ┊
+        #     ┊  ┏━┻━┓  ┊
+        # 1.00┊  4   5  ┊
+        #     ┊ ┏┻┓ ┏┻┓ ┊
+        # 0.00┊ 0 1 2 3 ┊
+        #     0         1
+        ts1 = tskit.Tree.generate_balanced(4, arity=2, span=100).tree_sequence
+        tables = ts1.dump_tables()
+        for j in range(n):
+            tables.sites.add_row(j, "A")
+            tables.mutations.add_row(site=j, node=0, time=0, derived_state="T")
+        ts = prepare(tables)
+
+        ts2 = sc2ts.split_branch(ts, 0, range(n))
+        assert ts2.num_nodes == 8
+        assert ts2.nodes_time[7] == 0.5
+        assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
+        assert np.all(ts2.mutations_time == 0.5)
+        assert np.all(ts2.mutations_node == 7)
+
+    def test_all_trees_ts(self):
+        # 2.00┊       ┊   4   ┊   4   ┊   4   ┊
+        #     ┊       ┊ ┏━┻┓  ┊  ┏┻━┓ ┊  ┏┻━┓ ┊
+        # 1.00┊   3   ┊ ┃  3  ┊  3  ┃ ┊  3  ┃ ┊
+        #     ┊ ┏━╋━┓ ┊ ┃ ┏┻┓ ┊ ┏┻┓ ┃ ┊ ┏┻┓ ┃ ┊
+        # 0.00┊ 0 1 2 ┊ 0 1 2 ┊ 0 2 1 ┊ 0 1 2 ┊
+        #     0       1       2       3       4
+        # index   0       1       2       3
+        tables = all_trees_ts(3).dump_tables()
+        tables.sites.add_row(0, "A")
+        for j in range(3):
+            tables.mutations.add_row(site=0, node=j, time=0, derived_state="T")
+        ts1 = prepare(tables)
+        ts2 = sc2ts.split_branch(ts1, 0, [0])
+
+        assert ts2.num_nodes == 6
+        assert ts2.nodes_time[5] == 0.5
+        assert ts2.at_index(0).parent_dict == {0: 5, 5: 3, 1: 3, 2: 3}
+        assert ts2.at_index(1).parent_dict == {0: 5, 5: 4, 3: 4, 1: 3, 2: 3}
+        assert ts2.at_index(2).parent_dict == {0: 5, 5: 3, 3: 4, 1: 4, 2: 3}
+        assert ts2.at_index(3).parent_dict == {0: 5, 5: 3, 3: 4, 1: 3, 2: 4}
+        assert ts1.num_mutations == ts2.num_mutations
+        # This is a case where we only need one edge joining 0->5 along the
+        # full sequence.
+        assert ts2.num_edges == ts1.num_edges + 1
+
+
 class TestCoalesceMutations:
     def test_no_mutations(self):
         # 1.00┊    4    ┊
