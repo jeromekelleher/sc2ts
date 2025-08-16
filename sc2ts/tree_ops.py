@@ -588,3 +588,50 @@ def nodes_mutation_descriptors(ts, nodes, show_progress=False):
         )
         ret[node][desc] = row["mutation_id"]
     return ret
+
+
+def split_branch(ts, node, mutations):
+    """
+    Insert a new node into the specified tree sequence immediately
+    ancestral to the specified node, moving the specified set of
+    mutations (currently associated with node) to the newly inserted
+    node.
+    """
+    if np.any(ts.mutations_node[mutations] != node):
+        raise ValueError("Mutations must be associated with input node")
+    child_edges = np.where(ts.edges_child == node)[0]
+    if len(child_edges) == 0:
+        raise ValueError("Node cannot be a root")
+
+    parent_time = np.min(ts.nodes_time[ts.edges_parent[child_edges]])
+    child_time = ts.nodes_time[node]
+    new_node_time = child_time + (parent_time - child_time) / 2
+
+    tables = ts.dump_tables()
+
+    new_node = tables.nodes.add_row(
+        flags=0,  # FIXME - this should probably have a flag
+        time=new_node_time,
+        metadata={"sc2ts": {}},
+    )
+
+    mutations_time = tables.mutations.time
+    mutations_time[mutations] = new_node_time
+    tables.mutations.time = mutations_time
+    mutations_node = tables.mutations.node
+    mutations_node[mutations] = new_node
+    tables.mutations.node = mutations_node
+
+    for e in child_edges:
+        old_row = tables.edges[e]
+        tables.edges[e] = old_row.replace(child=new_node)
+        tables.edges.append(old_row.replace(parent=new_node))
+
+    # The only table we've changed really is the edge table. We
+    # can have situations where we end up inserting adjacent
+    # identical edges - the simplest thing to do is just go ahead
+    # and squash these later.
+    tables.edges.squash()
+    tables.sort()
+    tables.build_index()
+    return tables.tree_sequence()
