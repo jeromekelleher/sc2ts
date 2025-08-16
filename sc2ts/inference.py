@@ -2019,12 +2019,13 @@ def rematch_recombinant(
     the base_ts, both with and without recombination. Ensure beforehand
     that the recombination node in the base_ts has all the relevant mutations above it.
     """
-    # dataset, recomb_ts, match_db, strain, *, num_mismatches, deletions_as_missing=False):
-    # print("Rematch for", strain)
     if recomb_ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
         raise ValueError(f"node {node_id} is not a recombinant")
 
     assert base_ts.num_sites == recomb_ts.num_sites
+    # Important! Make sure that the sample we are matching has all the required
+    # mutations.
+    recomb_ts = push_up_unary_recombinant_mutations(recomb_ts)
 
     sample = create_sample_from_ts_node(recomb_ts, node_id)
 
