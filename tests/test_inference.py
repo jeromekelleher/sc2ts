@@ -1750,12 +1750,19 @@ class TestRematchRecombinants:
         recomb_ts = tskit.load(info.recomb_ts)
 
         result = sc2ts.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
+        assert result.recombinant == 55
         assert result.original_match.parents == [31, 46]
         assert len(result.original_match.mutations) == 1
         assert result.recomb_match.parents == [31, 46]
         assert len(result.recomb_match.mutations) == 0
         assert result.no_recomb_match.parents == [31]
         assert len(result.no_recomb_match.mutations) == 3
+
+        lbs = result.long_branch_split
+        assert lbs.target_node == 31
+        assert lbs.new_node == base_ts.num_nodes
+        assert [mut.site_position for mut in lbs.moved_mutations] == [871, 3027, 3787]
+        assert lbs.asdict() == result.asdict()["long_branch_split"]
 
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
@@ -1770,6 +1777,7 @@ class TestRematchRecombinants:
         )
 
         result = sc2ts.rematch_recombinant(base_ts, ts, re_node, num_mismatches=4)
+        assert result.recombinant == re_node
         assert result.original_match.parents == [8, 14]
         assert len(result.original_match.mutations) == 31
         assert result.recomb_match.parents == [8, 14]
@@ -1779,10 +1787,13 @@ class TestRematchRecombinants:
         assert result.no_recomb_match.parents == [11]
         assert len(result.no_recomb_match.mutations) == 36
 
-        assert result.long_branch_split_match.parents == [15]
-        assert len(result.long_branch_split_match.mutations) == 25
-        assert result.long_branch_split_node == 15
-        assert result.long_branch_split_mutations == [
+        lbs = result.long_branch_split
+        assert lbs.hmm_match.parents == [15]
+        assert len(lbs.hmm_match.mutations) == 25
+        lbs_node = 9
+        assert lbs.new_node == 15
+        assert lbs.target_node == lbs_node
+        mutations = [
             8,
             9,
             13,
@@ -1808,9 +1819,19 @@ class TestRematchRecombinants:
             47,
             48,
         ]
+        assert len(lbs.moved_mutations) == len(mutations)
+        dfm = sc2ts.mutation_data(base_ts, inheritance_stats=False).set_index(
+            "mutation_id"
+        )
+        for (_, row), mut in zip(dfm.loc[mutations].iterrows(), lbs.moved_mutations):
+            assert row["site_id"] == mut.site_id
+            assert row["position"] == mut.site_position
+            assert row["derived_state"] == mut.derived_state
+            assert row["node"] == lbs_node
 
 
-#         # Using the truncated ts we established that we can get a nonrecombinant match
+        rewired_ts = sc2ts.rewire_long_branch_splits(ts, [result])
+
 #         # Now we have to rewire the *original* tree, by inserting an extra node in the
 #         # same place and moving the same mutations above that new node
 #         to_move = []
