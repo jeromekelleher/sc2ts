@@ -1975,13 +1975,23 @@ def get_mutations_to_mrca(ts, recombinant_match):
 
 
 @dataclasses.dataclass
+class LongBranchSplit:
+    target_node: int
+    new_node: int
+    hmm_match: HmmMatch
+    moved_mutations: List[MatchMutation] = None
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+
+@dataclasses.dataclass
 class RematchRecombinantsResult:
+    recombinant: int
     original_match: HmmMatch
     recomb_match: HmmMatch = None
     no_recomb_match: HmmMatch = None
-    long_branch_split_match: HmmMatch = None
-    long_branch_split_node: int = None
-    long_branch_split_mutations: List[int] = None
+    long_branch_split: LongBranchSplit = None
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -2034,7 +2044,7 @@ def rematch_recombinant(
         original_match.mutations
     )
 
-    result = RematchRecombinantsResult(original_match)
+    result = RematchRecombinantsResult(node_id, original_match)
 
     original_cost = original_match.cost
 
@@ -2119,30 +2129,45 @@ def rematch_recombinant(
         mismatch_threshold=result.original_match.cost,
         show_progress=show_progress,
     )
-    result.long_branch_split_match = sample.hmm_match
-    result.long_branch_split_node = int(new_node)
-    result.long_branch_split_mutations = sorted(list(map(int, to_move)))
 
+    mutations = []
+    # Can't just store the mutation IDs as they aren't persistent
+    for mut_id in sorted(list(map(int, to_move))):
+        mutation = base_ts.mutation(mut_id)
+        mutations.append(
+            MatchMutation(
+                site_id=mutation.site,
+                site_position=int(base_ts.sites_position[mutation.site]),
+                inherited_state=None,  # Can't be bothered computing
+                derived_state=mutation.derived_state,
+            )
+        )
+
+    result.long_branch_split = LongBranchSplit(
+        target_node=base_node,
+        new_node=new_node,
+        hmm_match=sample.hmm_match,
+        moved_mutations=mutations,
+    )
     return result
 
 
-def get_node_mutations(ts, node_id):
-    """
-    Get the mutations associated with a node in a form that can be used
-    to rewire the tree sequence.
-    """
-    MutationsForNode = collections.namedtuple("MutationsForNode", ["node", "mutations"])
+def rewire_long_branch_splits(ts, rematch_results):
+    edges_to_delete = []
+    for rematch in rematch_results:
+        # Integrity checks - these should really be ValueErrors
+        assert (ts.nodes_flags[rematch.recombinant] & core.NODE_IS_RECOMBINANT) > 0
+        for seg in rematch.original_match.path:
+            e = np.where(
+                (ts.edges_child == rematch.recombinant)
+                & (ts.edges_parent == seg.parent)
+            )[0]
+            assert ts.edges_left[e] == seg.left
+            assert ts.edges_right[e] == seg.right
+            edges_to_delete.append(e)
+    # WIP
 
-    mutations = {}
-    for m in np.where(ts.mutations_node == node_id)[0]:
-        mut = ts.mutation(m)
-        site = ts.site(mut.site)
-        if site.position in mutations:
-            raise ValueError(
-                f"Multiple mutations at site {site.position} for node {node_id}"
-            )
-        mutations[site.position] = mut.derived_state
-    return MutationsForNode(ts.node(node_id), mutations)
+    return ts
 
 
 def rewire_recombinant(ts, re_node, new_parent):
