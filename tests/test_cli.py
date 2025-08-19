@@ -571,6 +571,28 @@ class TestRematchRecombinantLbs:
         assert "long_branch_split" in d
 
 
+class TestRewireLbs:
+    def test_ba2_example(self, tmp_path):
+        ts_path = "tests/data/ba2_recomb.ts"
+        ts = tskit.load(ts_path)
+        re_node = 15
+        result = sc2ts.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
+        json_path = tmp_path / "data.json"
+        out_path = tmp_path / "out.trees"
+        with open(json_path, "w") as f:
+            json.dump([result.asdict()], f)
+
+        runner = ct.CliRunner()
+        cmd = f"rewire-lbs {ts_path} {json_path} {out_path}"
+        result = runner.invoke(cli.cli, cmd, catch_exceptions=False)
+        assert result.exit_code == 0
+        assert len(result.stdout) == 0
+        ts_out = tskit.load(out_path)
+        assert ts_out.num_nodes == ts.num_nodes + 1
+        assert ts_out.num_mutations < ts.num_mutations
+        assert ts_out.num_trees == 1
+
+
 class TestValidate:
 
     @pytest.mark.parametrize("date", ["2020-01-01", "2020-02-11"])
