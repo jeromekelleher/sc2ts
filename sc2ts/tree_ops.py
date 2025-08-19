@@ -589,13 +589,9 @@ def nodes_mutation_descriptors(ts, nodes, show_progress=False):
         ret[node][desc] = row["mutation_id"]
     return ret
 
-
-def split_branch(ts, node, mutations):
+def split_branch_tables(ts, tables, node, mutations):
     """
-    Insert a new node into the specified tree sequence immediately
-    ancestral to the specified node, moving the specified set of
-    mutations (currently associated with node) to the newly inserted
-    node.
+    Same as split_branch but we don't resort the tables.
     """
     if np.any(ts.mutations_node[mutations] != node):
         raise ValueError("Mutations must be associated with input node")
@@ -606,8 +602,6 @@ def split_branch(ts, node, mutations):
     parent_time = np.min(ts.nodes_time[ts.edges_parent[child_edges]])
     child_time = ts.nodes_time[node]
     new_node_time = child_time + (parent_time - child_time) / 2
-
-    tables = ts.dump_tables()
 
     new_node = tables.nodes.add_row(
         flags=0,  # FIXME - this should probably have a flag
@@ -626,6 +620,18 @@ def split_branch(ts, node, mutations):
         old_row = tables.edges[e]
         tables.edges[e] = old_row.replace(child=new_node)
         tables.edges.append(old_row.replace(parent=new_node))
+    return new_node
+
+
+def split_branch(ts, node, mutations):
+    """
+    Insert a new node into the specified tree sequence immediately
+    ancestral to the specified node, moving the specified set of
+    mutations (currently associated with node) to the newly inserted
+    node.
+    """
+    tables = ts.dump_tables()
+    split_branch_tables(ts, tables, node, mutations)
 
     # The only table we've changed really is the edge table. We
     # can have situations where we end up inserting adjacent

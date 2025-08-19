@@ -1511,9 +1511,9 @@ class PathSegment:
 
 @dataclasses.dataclass
 class MatchMutation:
-    site_id: int
     derived_state: str
     inherited_state: str
+    site_id: int = -1
     site_position: int = None
     is_reversion: bool = None
     is_immediate_reversion: bool = None
@@ -1528,6 +1528,10 @@ class MatchMutation:
             "inherited_state": self.inherited_state,
         }
 
+    @staticmethod
+    def fromdict(d):
+        return MatchMutation(**d)
+
 
 def path_summary(path):
     return ", ".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
@@ -1537,8 +1541,8 @@ def path_summary(path):
 class HmmMatch:
     path: List[PathSegment]
     mutations: List[MatchMutation]
-    likelihood: float = None
-    cost: float = None
+    likelihood: float = dataclasses.field(default=None, compare=False)
+    cost: float = dataclasses.field(default=None, compare=False)
 
     def asdict(self):
         return {
@@ -1550,7 +1554,7 @@ class HmmMatch:
     def fromdict(d):
         path = [PathSegment(**p) for p in d["path"]]
         # site_id is missing from the json we store, so just work around it.
-        mutations = [MatchMutation(site_id=-1, **m) for m in d["mutations"]]
+        mutations = [MatchMutation.fromdict(m) for m in d["mutations"]]
         return HmmMatch(path, mutations)
 
     def summary(self):
@@ -1984,6 +1988,13 @@ class LongBranchSplit:
     def asdict(self):
         return dataclasses.asdict(self)
 
+    @staticmethod
+    def fromdict(d):
+        ret = LongBranchSplit(**d)
+        ret.hmm_match = HmmMatch.fromdict(ret.hmm_match)
+        ret.moved_mutations = [MatchMutation.fromdict(m) for m in ret.moved_mutations]
+        return ret
+
 
 @dataclasses.dataclass
 class RematchRecombinantsResult:
@@ -1995,6 +2006,16 @@ class RematchRecombinantsResult:
 
     def asdict(self):
         return dataclasses.asdict(self)
+
+    @staticmethod
+    def fromdict(d):
+        return RematchRecombinantsResult(
+            recombinant=d["recombinant"],
+            original_match=HmmMatch.fromdict(d["original_match"]),
+            recomb_match=HmmMatch.fromdict(d["recomb_match"]),
+            no_recomb_match=HmmMatch.fromdict(d["no_recomb_match"]),
+            long_branch_split=LongBranchSplit.fromdict(d["long_branch_split"]),
+        )
 
 
 def create_sample_from_ts_node(ts, node_id):
@@ -2153,11 +2174,25 @@ def rematch_recombinant(
 
 
 def rewire_long_branch_splits(ts, rematch_results):
+    dfm = stats.mutation_data(ts, inheritance_stats=False)
+
     edges_to_delete = []
+    mutations_to_delete = []
+    tables = ts.dump_tables()
+
+    # We do a bunch of integrity checks via asserts - some of these should really
+    # be ValueErrors, but others are just making sure that assumptions like
+    # not having multiple mutations per site on a given node are true.
+    lbs_nodes = set(r.long_branch_split.target_node for r in rematch_results)
+    assert len(lbs_nodes) == len(rematch_results)
+    assert len(set(r.recombinant for r in rematch_results)) == len(rematch_results)
+
     for rematch in rematch_results:
-        # Integrity checks - these should really be ValueErrors
         assert (ts.nodes_flags[rematch.recombinant] & core.NODE_IS_RECOMBINANT) > 0
-        for seg in rematch.original_match.path:
+        assert len(rematch.recomb_match.path) == 2
+        assert rematch.recomb_match.path == rematch.original_match.path
+        logger.info(f"Rewiring for {rematch.recombinant}")
+        for seg in rematch.recomb_match.path:
             e = np.where(
                 (ts.edges_child == rematch.recombinant)
                 & (ts.edges_parent == seg.parent)
@@ -2165,55 +2200,62 @@ def rewire_long_branch_splits(ts, rematch_results):
             assert ts.edges_left[e] == seg.left
             assert ts.edges_right[e] == seg.right
             edges_to_delete.append(e)
-    # WIP
 
-    return ts
+        dfm_re = dfm[dfm.node == rematch.recombinant]
+        assert np.all(dfm_re["position"].value_counts() == 1)
+        assert len(dfm_re) == len(rematch.recomb_match.mutations)
+        recomb_match_muts = set(
+            mut.site_position for mut in rematch.recomb_match.mutations
+        )
+        assert set(dfm_re["position"]) == recomb_match_muts
 
+        # The existing mutations on the RE node will be deleted and replaced
+        # by the mutations on the lbs match
+        mutations_to_delete.extend(dfm_re["mutation_id"].values)
 
-def rewire_recombinant(ts, re_node, new_parent):
-    """
-    Rewire the ts so that the specified RE node has a single new_parent
-    And remove the existing mutations above the RE node and add new ones
-    to ensure that the RE node has the same haplotype as before
-    """
-    tables = ts.dump_tables()
-    tables.compute_mutation_times()  # Needed to get the mutation sorting order right
-    ts = tables.tree_sequence()
-    nodes_time = ts.nodes_time
-    # NB, we can't just dump mutations in any order and sort, because of a bug in
-    # sorting, so we clear and re-insert in the right order until
-    # https://github.com/tskit-dev/tskit/issues/3253 is fixed
-    tables.mutations.clear()
-    for v in ts.variants(samples=[new_parent, re_node], isolated_as_missing=False):
-        muts_to_add = [m for m in v.site.mutations if m.node != re_node]
-        parent_state, focal_state = v.states()
-        if parent_state != focal_state:
-            muts_to_add.append(
-                tskit.Mutation(
-                    node=re_node,
-                    site=v.site.id,
-                    derived_state=focal_state,
-                    time=nodes_time[re_node],
-                    metadata=None,
-                )
+        # Implement the long branch split, so that we insert a new node
+        # above target node and move the specified set of mutations.
+        lbs = rematch.long_branch_split
+        dfm_target = dfm[dfm.node == lbs.target_node]
+        assert np.all(dfm_target["position"].value_counts() == 1)
+        dfm_target = dfm_target.set_index("position")
+        moved_mutations = [
+            dfm_target.loc[mut.site_position].mutation_id for mut in lbs.moved_mutations
+        ]
+        # This operation is non-destructive, only altering the affected rows
+        # in the mutation table and adding a single new node.
+        new_node = tree_ops.split_branch_tables(
+            ts, tables, lbs.target_node, moved_mutations
+        )
+
+        # Implement the rematch operation. Here, we take the hmm match
+        # for the long branch split operation and add an edge such that
+        # the existing recombinant node inherits from the new long branch
+        # split node.
+        if len(lbs.hmm_match.path) > 1:
+            raise ValueError("long branch split match is recombinant")
+        seg = lbs.hmm_match.path[0]
+        assert seg.left == 0 and seg.right == ts.sequence_length
+        assert seg.parent == lbs.new_node
+
+        # Rewire the recombinant to point at the new split-branch node
+        tables.edges.add_row(0, ts.sequence_length, new_node, rematch.recombinant)
+        # Add in the new mutations over the recombinant node
+        for mut in lbs.hmm_match.mutations:
+            assert ts.sites_position[mut.site_id] == mut.site_position
+            tables.mutations.add_row(
+                mut.site_id,
+                node=rematch.recombinant,
+                time=ts.nodes_time[rematch.recombinant],
+                derived_state=mut.derived_state,
+                metadata={"sc2ts": {"type": "rewire-move"}},
             )
-        for m in sorted(muts_to_add, key=lambda x: -x.time):
-            tables.mutations.append(m)
+        # Update the RE node details
+        row = tables.nodes[rematch.recombinant]
+        # TODO should have a different flag for these nodes probably
+        tables.nodes[rematch.recombinant] = row.replace(flags=0)
 
-    # Rewire the RE node edges
-    edges_parent = tables.edges.parent
-    edges_parent[ts.edges_child == re_node] = new_parent
-    # No longer a recombinant (and not a sample)
-    tables.nodes[re_node] = tables.nodes[re_node].replace(flags=0)
-    tables.edges.parent = edges_parent
-    tables.mutations.time = np.full_like(tables.mutations.time, tskit.UNKNOWN_TIME)
-    tables.mutations.parent = np.full_like(tables.mutations.parent, tskit.NULL)
-    tables.sort()
-    tables.build_index()
-    tables.compute_mutation_parents()
-    tables.edges.squash()
-    tables.sort()  # Need to sort again because of squashing
-    return tables.tree_sequence()
+    return tree_ops.update_tables(tables, edges_to_delete, mutations_to_delete)
 
 
 def get_group_strains(ts):
