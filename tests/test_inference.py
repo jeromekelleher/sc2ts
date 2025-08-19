@@ -1779,6 +1779,30 @@ class TestRematchRecombinantJsonRoundTrip:
         self.assert_round_trip(result)
 
 
+class TestRematchRecombinantLbsJsonRoundTrip:
+    def assert_round_trip(self, result):
+        assert isinstance(result, sc2ts.RematchRecombinantsLbsResult)
+        d = result.asdict()
+        rt = sc2ts.RematchRecombinantsLbsResult.fromdict(d)
+        assert rt == result
+        d2 = json.loads(json.dumps(d))
+        rt = sc2ts.RematchRecombinantsLbsResult.fromdict(d2)
+        assert rt == result
+
+    def test_ba2_recombinant(self):
+        ts = tskit.load("tests/data/ba2_recomb.ts")
+        re_node = 15
+        result = sc2ts.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
+        self.assert_round_trip(result)
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+        recomb_ts = tskit.load(info.recomb_ts)
+
+        result = sc2ts.rematch_recombinant_lbs(recomb_ts, 55, num_mismatches=2)
+        self.assert_round_trip(result)
+
+
 class TestRematchRecombinants:
     def test_bad_node(self, fx_recombinant_example_1_info):
         info = fx_recombinant_example_1_info
@@ -1800,15 +1824,6 @@ class TestRematchRecombinants:
         assert len(result.recomb_match.mutations) == 0
         assert result.no_recomb_match.parents == [31]
         assert len(result.no_recomb_match.mutations) == 3
-
-        lbs = result.long_branch_split
-        assert lbs.target_node == 31
-        assert lbs.new_node == base_ts.num_nodes
-        assert [mut.site_position for mut in lbs.moved_mutations] == [871, 3027, 3787]
-        assert lbs.asdict() == result.asdict()["long_branch_split"]
-
-        with pytest.raises(ValueError, match="long branch split match is recomb"):
-            sc2ts.rewire_long_branch_splits(recomb_ts, [result])
 
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
@@ -1835,47 +1850,53 @@ class TestRematchRecombinants:
         assert result.no_recomb_match.parents == [11]
         assert len(result.no_recomb_match.mutations) == 36
 
+
+class TestRematchRecombinantsLbs:
+
+    def test_bad_node(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+        base_ts = tskit.load(info.base_ts)
+        recomb_ts = tskit.load(info.recomb_ts)
+        with pytest.raises(ValueError, match="not a recombinant"):
+            sc2ts.rematch_recombinant_lbs(recomb_ts, 0, num_mismatches=2)
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+        base_ts = tskit.load(info.base_ts)
+        recomb_ts = tskit.load(info.recomb_ts)
+
+        result = sc2ts.rematch_recombinant_lbs(recomb_ts, 55, num_mismatches=2)
+        assert result.recombinant == 55
+        assert result.original_match.parents == [31, 46]
+        assert len(result.original_match.mutations) == 1
+
         lbs = result.long_branch_split
-        assert lbs.hmm_match.parents == [15]
+        assert lbs.target_node == 31
+        assert lbs.new_node == recomb_ts.num_nodes
+        assert [mut.site_position for mut in lbs.moved_mutations] == [871, 3027, 3787]
+        assert lbs.asdict() == result.asdict()["long_branch_split"]
+
+        with pytest.raises(ValueError, match="long branch split match is recomb"):
+            sc2ts.rewire_long_branch_splits(recomb_ts, [result])
+
+    def test_ba2_recombinant(self):
+        ts = tskit.load("tests/data/ba2_recomb.ts")
+
+        re_node = 15
+
+        result = sc2ts.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
+        assert result.recombinant == re_node
+        assert result.original_match.parents == [8, 14]
+        assert len(result.original_match.mutations) == 31
+        assert result.original_match.parents == [8, 14]
+        assert len(result.original_match.mutations) == 31
+
+        lbs = result.long_branch_split
+        assert lbs.hmm_match.parents == [ts.num_nodes]
         assert len(lbs.hmm_match.mutations) == 25
         lbs_node = 9
-        assert lbs.new_node == 15
+        assert lbs.new_node == ts.num_nodes
         assert lbs.target_node == lbs_node
-        mutations = [
-            8,
-            9,
-            13,
-            16,
-            18,
-            19,
-            20,
-            23,
-            24,
-            25,
-            27,
-            28,
-            29,
-            32,
-            34,
-            36,
-            37,
-            39,
-            40,
-            43,
-            45,
-            46,
-            47,
-            48,
-        ]
-        assert len(lbs.moved_mutations) == len(mutations)
-        dfm = sc2ts.mutation_data(base_ts, inheritance_stats=False).set_index(
-            "mutation_id"
-        )
-        for (_, row), mut in zip(dfm.loc[mutations].iterrows(), lbs.moved_mutations):
-            assert row["site_id"] == mut.site_id
-            assert row["position"] == mut.site_position
-            assert row["derived_state"] == mut.derived_state
-            assert row["node"] == lbs_node
 
         rewired_ts = sc2ts.rewire_long_branch_splits(ts, [result])
         assert rewired_ts.num_mutations == ts.num_mutations - 5
