@@ -1564,6 +1564,9 @@ class HmmMatch:
             f"={self.mutation_summary()}"
         )
 
+    def compute_cost(self, num_mismatches):
+        self.cost = num_mismatches * (len(self.path) - 1) + len(self.mutations)
+
     @property
     def breakpoints(self):
         breakpoints = [seg.left for seg in self.path]
@@ -1997,12 +2000,29 @@ class LongBranchSplit:
 
 
 @dataclasses.dataclass
+class RematchRecombinantsLbsResult:
+    recombinant: int
+    original_match: HmmMatch
+    long_branch_split: LongBranchSplit = None
+
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    @staticmethod
+    def fromdict(d):
+        return RematchRecombinantsLbsResult(
+            recombinant=d["recombinant"],
+            original_match=HmmMatch.fromdict(d["original_match"]),
+            long_branch_split=LongBranchSplit.fromdict(d["long_branch_split"]),
+        )
+
+
+@dataclasses.dataclass
 class RematchRecombinantsResult:
     recombinant: int
     original_match: HmmMatch
     recomb_match: HmmMatch = None
     no_recomb_match: HmmMatch = None
-    long_branch_split: LongBranchSplit = None
 
     def asdict(self):
         return dataclasses.asdict(self)
@@ -2014,7 +2034,6 @@ class RematchRecombinantsResult:
             original_match=HmmMatch.fromdict(d["original_match"]),
             recomb_match=HmmMatch.fromdict(d["recomb_match"]),
             no_recomb_match=HmmMatch.fromdict(d["no_recomb_match"]),
-            long_branch_split=LongBranchSplit.fromdict(d["long_branch_split"]),
         )
 
 
@@ -2042,9 +2061,7 @@ def create_sample_from_ts_node(ts, node_id):
     return sample
 
 
-def rematch_recombinant(
-    base_ts, recomb_ts, node_id, num_mismatches, show_progress=False
-):
+def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     """
     Take a recombinant node from the recomb_ts and rematch it against
     the base_ts, both with and without recombination. Ensure beforehand
@@ -2059,11 +2076,10 @@ def rematch_recombinant(
     recomb_ts = push_up_unary_recombinant_mutations(recomb_ts)
 
     sample = create_sample_from_ts_node(recomb_ts, node_id)
+    del recomb_ts
 
     original_match = sample.hmm_match
-    original_match.cost = num_mismatches * (len(original_match.path) - 1) + len(
-        original_match.mutations
-    )
+    original_match.compute_cost(num_mismatches)
 
     result = RematchRecombinantsResult(node_id, original_match)
 
@@ -2077,7 +2093,6 @@ def rematch_recombinant(
         ts=base_ts,
         num_mismatches=num_mismatches,
         mismatch_threshold=original_cost + 1,
-        show_progress=show_progress,
     )
     result.recomb_match = sample.hmm_match
 
@@ -2087,12 +2102,36 @@ def rematch_recombinant(
         ts=base_ts,
         num_mismatches=1000,
         mismatch_threshold=2 * original_cost,
-        show_progress=show_progress,
     )
     result.no_recomb_match = sample.hmm_match
 
+    return result
+
+
+def rematch_recombinant_lbs(ts, node_id, num_mismatches):
+    if ts.nodes_flags[node_id] & core.NODE_IS_RECOMBINANT == 0:
+        raise ValueError(f"node {node_id} is not a recombinant")
+
+    # Make sure we're working with with version where unary mutations
+    # have been pushed up to recombinants.
+
+    recomb_ts = push_up_unary_recombinant_mutations(ts)
+
+    base_ts = recomb_ts.simplify(
+        np.where(ts.nodes_time > ts.nodes_time[node_id])[0],
+        filter_sites=False,
+        filter_nodes=False,
+        keep_unary=True,
+    )
+
+    sample = create_sample_from_ts_node(recomb_ts, node_id)
+    del recomb_ts
+
+    recomb_match = sample.hmm_match
+    recomb_match.compute_cost(num_mismatches)
+    result = RematchRecombinantsLbsResult(node_id, recomb_match)
+
     # TODO Abstract some of the long branch split logic below into functions
-    recomb_match = result.recomb_match
     breakpt = recomb_match.path[0].right
 
     # Run the long-branch split match
@@ -2147,8 +2186,7 @@ def rematch_recombinant(
         samples=[sample],
         ts=new_ts,
         num_mismatches=num_mismatches,
-        mismatch_threshold=result.original_match.cost,
-        show_progress=show_progress,
+        mismatch_threshold=recomb_match.cost,
     )
 
     mutations = []
@@ -2170,6 +2208,7 @@ def rematch_recombinant(
         hmm_match=sample.hmm_match,
         moved_mutations=mutations,
     )
+
     return result
 
 
@@ -2189,10 +2228,10 @@ def rewire_long_branch_splits(ts, rematch_results):
 
     for rematch in rematch_results:
         assert (ts.nodes_flags[rematch.recombinant] & core.NODE_IS_RECOMBINANT) > 0
-        assert len(rematch.recomb_match.path) == 2
-        assert rematch.recomb_match.path == rematch.original_match.path
+        assert len(rematch.original_match.path) == 2
+        assert rematch.original_match.path == rematch.original_match.path
         logger.info(f"Rewiring for {rematch.recombinant}")
-        for seg in rematch.recomb_match.path:
+        for seg in rematch.original_match.path:
             e = np.where(
                 (ts.edges_child == rematch.recombinant)
                 & (ts.edges_parent == seg.parent)
@@ -2203,11 +2242,11 @@ def rewire_long_branch_splits(ts, rematch_results):
 
         dfm_re = dfm[dfm.node == rematch.recombinant]
         assert np.all(dfm_re["position"].value_counts() == 1)
-        assert len(dfm_re) == len(rematch.recomb_match.mutations)
-        recomb_match_muts = set(
-            mut.site_position for mut in rematch.recomb_match.mutations
+        assert len(dfm_re) <= len(rematch.original_match.mutations)
+        original_match_muts = set(
+            mut.site_position for mut in rematch.original_match.mutations
         )
-        assert set(dfm_re["position"]) == recomb_match_muts
+        assert set(dfm_re["position"]) < original_match_muts
 
         # The existing mutations on the RE node will be deleted and replaced
         # by the mutations on the lbs match

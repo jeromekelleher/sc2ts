@@ -704,6 +704,24 @@ def rematch_recombinant(
     print(json.dumps(result.asdict()))
 
 
+@click.command()
+@click.argument("ts")
+@click.argument("node_id", type=int)
+@num_mismatches
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def rematch_recombinant_lbs(ts, node_id, num_mismatches, verbose, log_file):
+    """
+    Runs the lbs recombinant rematch on the specified tree sequence
+    and return the result as JSON.
+    """
+    setup_logging(verbose, log_file)
+
+    ts = tszip.load(ts)
+    result = sc2ts.rematch_recombinant_lbs(ts, node_id, num_mismatches=num_mismatches)
+    print(json.dumps(result.asdict()))
+
+
 def find_previous_date_path(date, path_pattern):
     """
     Find the path with the most-recent date to the specified one
@@ -744,4 +762,5 @@ cli.add_command(map_parsimony)
 cli.add_command(apply_node_parsimony)
 cli.add_command(run_hmm)
 cli.add_command(rematch_recombinant)
+cli.add_command(rematch_recombinant_lbs)
 cli.add_command(run_hmm)
