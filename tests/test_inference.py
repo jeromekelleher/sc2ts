@@ -22,6 +22,18 @@ def fx_ts_min_2020_02_15(fx_ts_map):
     return sc2ts.minimise_metadata(ts)
 
 
+def assert_sequences_equal(ts1, ts2):
+    """
+    Check that the variation data for the specifed tree sequences
+    is identical.
+    """
+    ts1.tables.sites.assert_equals(ts2.tables.sites)
+    for var1, var2 in zip(ts1.variants(), ts2.variants()):
+        states1 = np.array(var1.alleles)[var1.genotypes]
+        states2 = np.array(var2.alleles)[var2.genotypes]
+        np.testing.assert_array_equal(states1, states2)
+
+
 def run_extend(dataset, base_ts, date, match_db, **kwargs):
     return sc2ts.extend(
         dataset=dataset.path,
@@ -1764,11 +1776,16 @@ class TestRematchRecombinants:
         assert [mut.site_position for mut in lbs.moved_mutations] == [871, 3027, 3787]
         assert lbs.asdict() == result.asdict()["long_branch_split"]
 
+        with pytest.raises(ValueError, match="long branch split match is recomb"):
+            sc2ts.rewire_long_branch_splits(recomb_ts, [result])
+
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
 
         re_node = 15
 
+        # Nodes are arranged in increasing time order so to get the base
+        # we just chop off nodes with ID >= re_node
         base_ts = ts.simplify(
             range(re_node),
             keep_unary=True,
@@ -1829,23 +1846,9 @@ class TestRematchRecombinants:
             assert row["derived_state"] == mut.derived_state
             assert row["node"] == lbs_node
 
-
         rewired_ts = sc2ts.rewire_long_branch_splits(ts, [result])
-
-#         # Now we have to rewire the *original* tree, by inserting an extra node in the
-#         # same place and moving the same mutations above that new node
-#         to_move = []
-#         base_node = np.where(node_map == base.node.id)[0][0]
-#         all_muts = np.where(ts.mutations_node == base_node)[0]
-#         for pos, m in zip(ts.sites_position[ts.mutations_site[all_muts]], all_muts):
-#             if inserted.mutations.get(pos) == ts.mutation(m).derived_state:
-#                 to_move.append(m)
-#         extra_node_ts, u = sc2ts.ts_with_intermediate_node(ts, base_node, to_move)
-
-#         rewired_ts = sc2ts.rewire_recombinant(extra_node_ts, re_node, u)
-#         # Check haplotypes remain unchanged
-#         for v1, v2 in zip(ts.variants(), rewired_ts.variants()):
-#             assert np.all(v1.states() == v2.states())
-
-#         assert ts.num_mutations > rewired_ts.num_mutations
-#         #print("Reduced num mutations by", ts.num_mutations - rewired_ts.num_mutations)
+        assert rewired_ts.num_mutations == ts.num_mutations - 5
+        assert rewired_ts.num_nodes == ts.num_nodes + 1
+        assert rewired_ts.num_trees == 1
+        assert rewired_ts.nodes_flags[re_node] == 0
+        assert_sequences_equal(ts, rewired_ts)
