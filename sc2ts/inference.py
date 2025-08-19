@@ -1998,11 +1998,20 @@ class LongBranchSplit:
         ret.moved_mutations = [MatchMutation.fromdict(m) for m in ret.moved_mutations]
         return ret
 
+    def __str__(self):
+        return (
+            f"Split: target_node={self.target_node} new_node={self.new_node}"
+            f"moved_mutations: {len(self.moved_mutations)} "
+            f"match_parent: {self.hmm_match.path[0].parent} "
+            f"match_mutations: {len(self.hmm_match.mutations)}"
+        )
+
 
 @dataclasses.dataclass
 class RematchRecombinantsLbsResult:
     recombinant: int
     original_match: HmmMatch
+    recomb_match: HmmMatch = None
     long_branch_split: LongBranchSplit = None
 
     def asdict(self):
@@ -2010,18 +2019,21 @@ class RematchRecombinantsLbsResult:
 
     @staticmethod
     def fromdict(d):
-        return RematchRecombinantsLbsResult(
+        ret = RematchRecombinantsLbsResult(
             recombinant=d["recombinant"],
             original_match=HmmMatch.fromdict(d["original_match"]),
-            long_branch_split=LongBranchSplit.fromdict(d["long_branch_split"]),
+            recomb_match=HmmMatch.fromdict(d["recomb_match"]),
         )
+        lbs = d.get("long_branch_split", None)
+        if lbs is not None:
+            ret.long_branch_split = LongBranchSplit.fromdict(lbs)
+        return ret
 
 
 @dataclasses.dataclass
 class RematchRecombinantsResult:
     recombinant: int
     original_match: HmmMatch
-    recomb_match: HmmMatch = None
     no_recomb_match: HmmMatch = None
 
     def asdict(self):
@@ -2032,7 +2044,6 @@ class RematchRecombinantsResult:
         return RematchRecombinantsResult(
             recombinant=d["recombinant"],
             original_match=HmmMatch.fromdict(d["original_match"]),
-            recomb_match=HmmMatch.fromdict(d["recomb_match"]),
             no_recomb_match=HmmMatch.fromdict(d["no_recomb_match"]),
         )
 
@@ -2082,19 +2093,7 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     original_match.compute_cost(num_mismatches)
 
     result = RematchRecombinantsResult(node_id, original_match)
-
     original_cost = original_match.cost
-
-    # Run the original match again to make sure the match is clean and stable
-    # (i.e., that any additional mutations above the samples didn't affect
-    # the placement, and as a consistency check).
-    match_tsinfer(
-        samples=[sample],
-        ts=base_ts,
-        num_mismatches=num_mismatches,
-        mismatch_threshold=original_cost + 1,
-    )
-    result.recomb_match = sample.hmm_match
 
     # Run the match with forced no-recombination path.
     match_tsinfer(
@@ -2127,16 +2126,32 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches):
     sample = create_sample_from_ts_node(recomb_ts, node_id)
     del recomb_ts
 
-    recomb_match = sample.hmm_match
-    recomb_match.compute_cost(num_mismatches)
-    result = RematchRecombinantsLbsResult(node_id, recomb_match)
+    original_match = sample.hmm_match
+    original_match.compute_cost(num_mismatches)
+    result = RematchRecombinantsLbsResult(node_id, original_match)
+
+    # Run the original match again because sometimes we find non-recombinant
+    # matches just on the nodes that were subsequently created by parsimony ops.
+    match_tsinfer(
+        samples=[sample],
+        ts=base_ts,
+        num_mismatches=num_mismatches,
+        mismatch_threshold=original_match.cost,
+    )
+    result.recomb_match = sample.hmm_match
+
+    if len(result.recomb_match.path) == 1:
+        # We've already found a non-recombinant match, so we don't
+        # bother doing any more.
+        return result
 
     # TODO Abstract some of the long branch split logic below into functions
-    breakpt = recomb_match.path[0].right
+    # TODO stop using the match here for details about the ARG
+    breakpt = original_match.path[0].right
 
     # Run the long-branch split match
-    node_mutations = get_mutations_to_mrca(base_ts, recomb_match)
-    hmm_positions = {m.site_position for m in recomb_match.mutations}
+    node_mutations = get_mutations_to_mrca(base_ts, original_match)
+    hmm_positions = {m.site_position for m in original_match.mutations}
     recurrent_site_pos = {
         u: len(ndinfo.positions & hmm_positions) for u, ndinfo in node_mutations.items()
     }
@@ -2157,10 +2172,10 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches):
     )
 
     # check all HMM mutations are at a different position
-    assert all(np.diff(sorted([m.site_position for m in recomb_match.mutations])) > 0)
+    assert all(np.diff(sorted([m.site_position for m in original_match.mutations])) > 0)
     hmm_mutations = {
         m.site_position: States(m.inherited_state, m.derived_state)
-        for m in recomb_match.mutations
+        for m in original_match.mutations
     }
 
     to_move = []
@@ -2186,7 +2201,7 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches):
         samples=[sample],
         ts=new_ts,
         num_mismatches=num_mismatches,
-        mismatch_threshold=recomb_match.cost,
+        mismatch_threshold=original_match.cost,
     )
 
     mutations = []
@@ -2214,6 +2229,7 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches):
 
 def rewire_long_branch_splits(ts, rematch_results):
     dfm = stats.mutation_data(ts, inheritance_stats=False)
+    logger.info(f"Rewiring {len(rematch_results)} recombinants")
 
     edges_to_delete = []
     mutations_to_delete = []
@@ -2222,8 +2238,7 @@ def rewire_long_branch_splits(ts, rematch_results):
     # We do a bunch of integrity checks via asserts - some of these should really
     # be ValueErrors, but others are just making sure that assumptions like
     # not having multiple mutations per site on a given node are true.
-    lbs_nodes = set(r.long_branch_split.target_node for r in rematch_results)
-    assert len(lbs_nodes) == len(rematch_results)
+    lbs_target_nodes = set()
     assert len(set(r.recombinant for r in rematch_results)) == len(rematch_results)
 
     for rematch in rematch_results:
@@ -2246,53 +2261,75 @@ def rewire_long_branch_splits(ts, rematch_results):
         original_match_muts = set(
             mut.site_position for mut in rematch.original_match.mutations
         )
-        assert set(dfm_re["position"]) < original_match_muts
+        assert set(dfm_re["position"]) <= original_match_muts
 
         # The existing mutations on the RE node will be deleted and replaced
-        # by the mutations on the lbs match
+        # by the mutations on the new non recombinant match
         mutations_to_delete.extend(dfm_re["mutation_id"].values)
 
         # Implement the long branch split, so that we insert a new node
         # above target node and move the specified set of mutations.
         lbs = rematch.long_branch_split
-        dfm_target = dfm[dfm.node == lbs.target_node]
-        assert np.all(dfm_target["position"].value_counts() == 1)
-        dfm_target = dfm_target.set_index("position")
-        moved_mutations = [
-            dfm_target.loc[mut.site_position].mutation_id for mut in lbs.moved_mutations
-        ]
-        # This operation is non-destructive, only altering the affected rows
-        # in the mutation table and adding a single new node.
-        new_node = tree_ops.split_branch_tables(
-            ts, tables, lbs.target_node, moved_mutations
-        )
+        if lbs is not None:
+            if lbs.target_node in lbs_target_nodes:
+                raise ValueError(
+                    f"Duplicate long branch split target node {lbs.target_node}"
+                )
+            lbs_target_nodes.add(lbs.target_node)
+            dfm_target = dfm[dfm.node == lbs.target_node]
+            assert np.all(dfm_target["position"].value_counts() == 1)
+            dfm_target = dfm_target.set_index("position")
+            moved_mutations = [
+                dfm_target.loc[mut.site_position].mutation_id
+                for mut in lbs.moved_mutations
+            ]
+            # This operation is non-destructive, only altering the affected rows
+            # in the mutation table and adding a single new node.
+            new_node = tree_ops.split_branch_tables(
+                ts, tables, lbs.target_node, moved_mutations
+            )
+            hmm_match = lbs.hmm_match
+            assert hmm_match.path[0].parent == lbs.new_node
+            re_parent = new_node
+            logger.debug(f"Rewiring to split branch parent {re_parent}")
+        else:
+            hmm_match = rematch.recomb_match
+            re_parent = hmm_match.path[0].parent
+            logger.debug(f"Rewiring to existing parent {re_parent}")
+
+        if len(hmm_match.path) > 1:
+            raise ValueError("Proposed rewire path is recombinant")
 
         # Implement the rematch operation. Here, we take the hmm match
-        # for the long branch split operation and add an edge such that
+        # for the long branch split operation or match to a prexisting
+        # node that was added *after* the recombinant, and make the
+        # recombinant node inherit from this node.
         # the existing recombinant node inherits from the new long branch
         # split node.
-        if len(lbs.hmm_match.path) > 1:
-            raise ValueError("long branch split match is recombinant")
-        seg = lbs.hmm_match.path[0]
+        seg = hmm_match.path[0]
         assert seg.left == 0 and seg.right == ts.sequence_length
-        assert seg.parent == lbs.new_node
 
-        # Rewire the recombinant to point at the new split-branch node
-        tables.edges.add_row(0, ts.sequence_length, new_node, rematch.recombinant)
+        # Rewire the recombinant to point at the chosen parent
+        tables.edges.add_row(0, ts.sequence_length, re_parent, rematch.recombinant)
         # Add in the new mutations over the recombinant node
-        for mut in lbs.hmm_match.mutations:
+        for mut in hmm_match.mutations:
             assert ts.sites_position[mut.site_id] == mut.site_position
             tables.mutations.add_row(
                 mut.site_id,
                 node=rematch.recombinant,
                 time=ts.nodes_time[rematch.recombinant],
                 derived_state=mut.derived_state,
-                metadata={"sc2ts": {"type": "rewire-move"}},
+                metadata={"sc2ts": {"type": "rewire-recomb"}},
             )
         # Update the RE node details
         row = tables.nodes[rematch.recombinant]
         # TODO should have a different flag for these nodes probably
         tables.nodes[rematch.recombinant] = row.replace(flags=0)
+
+    logger.info(
+        f"Deleting {len(edges_to_delete)} edges and "
+        f"{len(mutations_to_delete)} mutations"
+    )
 
     return tree_ops.update_tables(tables, edges_to_delete, mutations_to_delete)
 

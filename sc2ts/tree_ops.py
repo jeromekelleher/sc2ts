@@ -589,6 +589,7 @@ def nodes_mutation_descriptors(ts, nodes, show_progress=False):
         ret[node][desc] = row["mutation_id"]
     return ret
 
+
 def split_branch_tables(ts, tables, node, mutations):
     """
     Same as split_branch but we don't resort the tables.

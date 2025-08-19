@@ -110,7 +110,8 @@ def mutation_data(ts, inheritance_stats=True, parsimony_stats=False):
         cols["parent_mutation_node"] = parent_mutation_node
         cols["is_immediate_reversion"] = np.logical_and(
             cols["derived_state"] == cols["parent_inherited_state"],
-            cols["node_parent"] == cols["parent_mutation_node"])
+            cols["node_parent"] == cols["parent_mutation_node"],
+        )
 
     dtype = {k: "int" for k in cols if k != "date"}
     for k in dtype:

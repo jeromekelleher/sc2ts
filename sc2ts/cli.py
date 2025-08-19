@@ -722,6 +722,49 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches, verbose, log_file):
     print(json.dumps(result.asdict()))
 
 
+@click.command()
+@click.argument("ts_in")
+@click.argument("rematch_data")
+@click.argument("ts_out")
+@click.option("-v", "--verbose", count=True)
+@click.option("-l", "--log-file", default=None, type=click.Path(dir_okay=False))
+def rewire_lbs(ts_in, rematch_data, ts_out, verbose, log_file):
+    """
+    Rewires the specified tree sequence using information from the specified
+    JSON datafile of runs from rematch_recombinant_lbs.
+    """
+    setup_logging(verbose, log_file)
+
+    ts = tszip.load(ts_in)
+
+    records = []
+    with open(rematch_data) as f:
+        for d in json.load(f):
+            records.append(sc2ts.RematchRecombinantsLbsResult.fromdict(d))
+
+    recombs_to_rewire = []
+    rewire_existing = 0
+    rewire_lbs = 0
+    for r in records:
+        lbs = r.long_branch_split
+        if lbs is None:
+            assert len(r.recomb_match.path) == 1
+            rewire_existing += 1
+            recombs_to_rewire.append(r)
+        elif len(lbs.hmm_match.path) == 1:
+            rewire_lbs += 1
+            recombs_to_rewire.append(r)
+
+    logger.info(
+        f"Rewire {len(recombs_to_rewire)}/{len(records)} recombinants "
+        f"(existing={rewire_existing} lbs={rewire_lbs})"
+    )
+
+    ts = sc2ts.push_up_unary_recombinant_mutations(ts)
+    ts = sc2ts.rewire_long_branch_splits(ts, recombs_to_rewire)
+    ts.dump(ts_out)
+
+
 def find_previous_date_path(date, path_pattern):
     """
     Find the path with the most-recent date to the specified one
@@ -763,4 +806,5 @@ cli.add_command(apply_node_parsimony)
 cli.add_command(run_hmm)
 cli.add_command(rematch_recombinant)
 cli.add_command(rematch_recombinant_lbs)
+cli.add_command(rewire_lbs)
 cli.add_command(run_hmm)

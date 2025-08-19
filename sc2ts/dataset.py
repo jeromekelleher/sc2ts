@@ -240,7 +240,6 @@ class Dataset(collections.abc.Mapping):
             chunk_cache_size=chunk_cache_size,
         )
 
-
     def __getitem__(self, key):
         return self.root[key]
 

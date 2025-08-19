@@ -335,10 +335,10 @@ class TestDatasetVariants:
         ],
     )
     def test_sample_slice(self, fx_dataset, start, stop):
-        samples = fx_dataset["sample_id"][start: stop]
+        samples = fx_dataset["sample_id"][start:stop]
         G = fx_dataset["call_genotype"][:, start:stop].squeeze()
         pos = fx_dataset["variant_position"][:]
-        alleles =fx_dataset["variant_allele"][:]
+        alleles = fx_dataset["variant_allele"][:]
         j = 0
         for var in fx_dataset.variants(sample_id=samples):
             nt.assert_array_equal(var.genotypes, G[j])
