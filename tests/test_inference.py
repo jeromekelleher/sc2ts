@@ -1820,8 +1820,6 @@ class TestRematchRecombinants:
         assert result.recombinant == 55
         assert result.original_match.parents == [31, 46]
         assert len(result.original_match.mutations) == 1
-        assert result.recomb_match.parents == [31, 46]
-        assert len(result.recomb_match.mutations) == 0
         assert result.no_recomb_match.parents == [31]
         assert len(result.no_recomb_match.mutations) == 3
 
@@ -1843,9 +1841,6 @@ class TestRematchRecombinants:
         assert result.recombinant == re_node
         assert result.original_match.parents == [8, 14]
         assert len(result.original_match.mutations) == 31
-        assert result.recomb_match.parents == [8, 14]
-        # One of the mutations isn't on the recombinant
-        assert len(result.recomb_match.mutations) == 30
         # Rematching the recombinant matches to an ancestor of the right parent.
         assert result.no_recomb_match.parents == [11]
         assert len(result.no_recomb_match.mutations) == 36
@@ -1870,13 +1865,16 @@ class TestRematchRecombinantsLbs:
         assert result.original_match.parents == [31, 46]
         assert len(result.original_match.mutations) == 1
 
+        assert result.recomb_match.parents == [31, 46]
+        assert len(result.recomb_match.mutations) == 0
+
         lbs = result.long_branch_split
         assert lbs.target_node == 31
         assert lbs.new_node == recomb_ts.num_nodes
         assert [mut.site_position for mut in lbs.moved_mutations] == [871, 3027, 3787]
         assert lbs.asdict() == result.asdict()["long_branch_split"]
 
-        with pytest.raises(ValueError, match="long branch split match is recomb"):
+        with pytest.raises(ValueError, match="Proposed rewire path is recomb"):
             sc2ts.rewire_long_branch_splits(recomb_ts, [result])
 
     def test_ba2_recombinant(self):
@@ -1890,6 +1888,9 @@ class TestRematchRecombinantsLbs:
         assert len(result.original_match.mutations) == 31
         assert result.original_match.parents == [8, 14]
         assert len(result.original_match.mutations) == 31
+        assert result.recomb_match.parents == [8, 14]
+        # One of the mutations isn't on the recombinant
+        assert len(result.recomb_match.mutations) == 30
 
         lbs = result.long_branch_split
         assert lbs.hmm_match.parents == [ts.num_nodes]

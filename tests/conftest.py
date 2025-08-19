@@ -389,8 +389,8 @@ class RecombinantExampleInfo:
 @pytest.fixture
 def fx_recombinant_example_1_info(tmp_path, fx_data_cache, fx_ts_map, fx_dataset):
     info = RecombinantExampleInfo(
-        recomb_ts = fx_data_cache / "recombinant_ex1.ts",
-        base_ts = fx_ts_map["2020-02-13"].path,
+        recomb_ts=fx_data_cache / "recombinant_ex1.ts",
+        base_ts=fx_ts_map["2020-02-13"].path,
         recomb_node=55,
     )
     if not info.recomb_ts.exists():

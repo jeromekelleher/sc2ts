@@ -743,11 +743,22 @@ def rewire_lbs(ts_in, rematch_data, ts_out, verbose, log_file):
             records.append(sc2ts.RematchRecombinantsLbsResult.fromdict(d))
 
     recombs_to_rewire = []
+    rewire_existing = 0
+    rewire_lbs = 0
     for r in records:
-        if len(r.long_branch_split.hmm_match.path) == 1:
+        lbs = r.long_branch_split
+        if lbs is None:
+            assert len(r.recomb_match.path) == 1
+            rewire_existing += 1
             recombs_to_rewire.append(r)
-            assert len(r.long_branch_split.moved_mutations) > 0
-            logger.debug(f"Adding split {r.recombinant}")
+        elif len(lbs.hmm_match.path) == 1:
+            rewire_lbs += 1
+            recombs_to_rewire.append(r)
+
+    logger.info(
+        f"Rewire {len(recombs_to_rewire)}/{len(records)} recombinants "
+        f"(existing={rewire_existing} lbs={rewire_lbs})"
+    )
 
     ts = sc2ts.push_up_unary_recombinant_mutations(ts)
     ts = sc2ts.rewire_long_branch_splits(ts, recombs_to_rewire)
