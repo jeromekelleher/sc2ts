@@ -2076,6 +2076,7 @@ def rematch_recombinant(base_ts, recomb_ts, node_id, num_mismatches):
     recomb_ts = push_up_unary_recombinant_mutations(recomb_ts)
 
     sample = create_sample_from_ts_node(recomb_ts, node_id)
+    del recomb_ts
 
     original_match = sample.hmm_match
     original_match.compute_cost(num_mismatches)
@@ -2113,6 +2114,7 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches):
 
     # Make sure we're working with with version where unary mutations
     # have been pushed up to recombinants.
+
     recomb_ts = push_up_unary_recombinant_mutations(ts)
 
     base_ts = recomb_ts.simplify(
@@ -2123,6 +2125,7 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches):
     )
 
     sample = create_sample_from_ts_node(recomb_ts, node_id)
+    del recomb_ts
 
     recomb_match = sample.hmm_match
     recomb_match.compute_cost(num_mismatches)
