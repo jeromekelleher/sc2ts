@@ -1748,6 +1748,37 @@ class TestInsertVestigialRootEdge:
             sc2ts.insert_vestigial_root_edge(ts)
 
 
+class TestRematchRecombinantJsonRoundTrip:
+    def assert_round_trip(self, result):
+        assert isinstance(result, sc2ts.RematchRecombinantsResult)
+        d = result.asdict()
+        rt = sc2ts.RematchRecombinantsResult.fromdict(d)
+        assert rt == result
+        d2 = json.loads(json.dumps(d))
+        rt = sc2ts.RematchRecombinantsResult.fromdict(d2)
+        assert rt == result
+
+    def test_ba2_recombinant(self):
+        ts = tskit.load("tests/data/ba2_recomb.ts")
+        re_node = 15
+        base_ts = ts.simplify(
+            range(re_node),
+            keep_unary=True,
+            update_sample_flags=False,
+            filter_sites=False,
+        )
+        result = sc2ts.rematch_recombinant(base_ts, ts, re_node, num_mismatches=4)
+        self.assert_round_trip(result)
+
+    def test_recombinant_example_1(self, fx_recombinant_example_1_info):
+        info = fx_recombinant_example_1_info
+        base_ts = tskit.load(info.base_ts)
+        recomb_ts = tskit.load(info.recomb_ts)
+
+        result = sc2ts.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
+        self.assert_round_trip(result)
+
+
 class TestRematchRecombinants:
     def test_bad_node(self, fx_recombinant_example_1_info):
         info = fx_recombinant_example_1_info

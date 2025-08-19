@@ -1511,9 +1511,9 @@ class PathSegment:
 
 @dataclasses.dataclass
 class MatchMutation:
-    site_id: int
     derived_state: str
     inherited_state: str
+    site_id: int = -1
     site_position: int = None
     is_reversion: bool = None
     is_immediate_reversion: bool = None
@@ -1528,6 +1528,10 @@ class MatchMutation:
             "inherited_state": self.inherited_state,
         }
 
+    @staticmethod
+    def fromdict(d):
+        return MatchMutation(**d)
+
 
 def path_summary(path):
     return ", ".join(f"({seg.left}:{seg.right}, {seg.parent})" for seg in path)
@@ -1537,8 +1541,8 @@ def path_summary(path):
 class HmmMatch:
     path: List[PathSegment]
     mutations: List[MatchMutation]
-    likelihood: float = None
-    cost: float = None
+    likelihood: float = dataclasses.field(default=None, compare=False)
+    cost: float = dataclasses.field(default=None, compare=False)
 
     def asdict(self):
         return {
@@ -1550,7 +1554,7 @@ class HmmMatch:
     def fromdict(d):
         path = [PathSegment(**p) for p in d["path"]]
         # site_id is missing from the json we store, so just work around it.
-        mutations = [MatchMutation(site_id=-1, **m) for m in d["mutations"]]
+        mutations = [MatchMutation.fromdict(m) for m in d["mutations"]]
         return HmmMatch(path, mutations)
 
     def summary(self):
@@ -1984,6 +1988,13 @@ class LongBranchSplit:
     def asdict(self):
         return dataclasses.asdict(self)
 
+    @staticmethod
+    def fromdict(d):
+        ret = LongBranchSplit(**d)
+        ret.hmm_match = HmmMatch.fromdict(ret.hmm_match)
+        ret.moved_mutations = [MatchMutation.fromdict(m) for m in ret.moved_mutations]
+        return ret
+
 
 @dataclasses.dataclass
 class RematchRecombinantsResult:
@@ -1995,6 +2006,16 @@ class RematchRecombinantsResult:
 
     def asdict(self):
         return dataclasses.asdict(self)
+
+    @staticmethod
+    def fromdict(d):
+        return RematchRecombinantsResult(
+            recombinant=d["recombinant"],
+            original_match=HmmMatch.fromdict(d["original_match"]),
+            recomb_match=HmmMatch.fromdict(d["recomb_match"]),
+            no_recomb_match=HmmMatch.fromdict(d["no_recomb_match"]),
+            long_branch_split=LongBranchSplit.fromdict(d["long_branch_split"]),
+        )
 
 
 def create_sample_from_ts_node(ts, node_id):
