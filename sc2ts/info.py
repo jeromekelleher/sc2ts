@@ -1026,6 +1026,10 @@ class TreeInfo:
             parent_left = hmm_match["path"][0]["parent"]
             parent_right = hmm_match["path"][1]["parent"]
 
+            children = self.ts.edges_child[self.ts.edges_parent == u]
+            oldest = np.argmax(self.ts.nodes_time[children])
+            oldest_child = children[oldest]
+
             edges_right = self.ts.edges_right[self.ts.edges_child == u]
             interval_right = int(edges_right.min())
             if interval_right != interval[0][1]:
@@ -1033,13 +1037,19 @@ class TreeInfo:
                     f"RE: {u} interval right shifted from {interval[0][1]} "
                     f"to {interval_right}"
                 )
-
+            interval_left = interval[0][0]
+            if interval_left >= interval_right:
+                logger.warning(
+                    f"RE: {u} interval_right >= interval_left; moving from {interval_left}"
+                    f"to {interval_right - 1}"
+                )
+                interval_left = interval_right - 1
             datum = {
                 "sample_id": self.nodes_metadata[v]["strain"],
                 "num_descendant_samples": self.nodes_max_descendant_samples[u],
                 "num_samples": len(samples),
                 "distinct_sample_pango": len(set(causal_lineages.values())),
-                "interval_left": interval[0][0],
+                "interval_left": interval_left,
                 "interval_right": interval_right,
                 "num_mutations": len(hmm_match["mutations"]),
                 "Viridian_amplicon_scheme": self.nodes_metadata[v].get(
@@ -1056,6 +1066,7 @@ class TreeInfo:
                 (v, "sample"),
                 (parent_left, "parent_left"),
                 (parent_right, "parent_right"),
+                (oldest_child, "oldest_child"),
             ]:
                 datum = {**datum, **node_info(node, label)}
 
