@@ -189,11 +189,13 @@ class TestTreeInfo:
         assert row.parent_left_pango == "B"
         assert row.parent_right == 46
         assert row.parent_right_pango == "Unknown"
+        assert row.oldest_child == 53
+        assert row.oldest_child_time == 0
+        assert str(row.oldest_child_date).split()[0] == "2020-02-15"
         assert row.num_mutations == 0
         assert row.parent_mrca == 1
         assert row.parent_mrca_time == 51
         assert "diffs" not in df
-
         df2 = fx_ti_recombinant_example_1.recombinants_summary(
             characterise_copying=True, show_progress=False
         )
@@ -231,7 +233,7 @@ class TestTreeInfo:
         row = tables.nodes[sample]
         md = row.metadata
         # Shift the bp one base right
-        md["sc2ts"]["breakpoint_intervals"] = [[114, 29826]]
+        md["sc2ts"]["breakpoint_intervals"] = [[114, 29825]]
         tables.nodes[sample] = row.replace(metadata=md)
         ts = tables.tree_sequence()
         ti = info.TreeInfo(ts, show_progress=False)
@@ -239,6 +241,21 @@ class TestTreeInfo:
         ti = info.TreeInfo(fx_recombinant_example_2, show_progress=False)
         df2 = ti.recombinants_summary(characterise_copying=True, show_progress=False)
         pd.testing.assert_frame_equal(df1, df2)
+
+    def test_recombinants_summary_example_2_bp_shift_past_left(
+        self, fx_recombinant_example_2
+    ):
+        tables = fx_recombinant_example_2.dump_tables()
+        sample = 55
+        row = tables.nodes[sample]
+        md = row.metadata
+        md["sc2ts"]["breakpoint_intervals"] = [[29827, 29825]]
+        tables.nodes[sample] = row.replace(metadata=md)
+        ts = tables.tree_sequence()
+        ti = info.TreeInfo(ts, show_progress=False)
+        df1 = ti.recombinants_summary(show_progress=False)
+        nt.assert_array_equal(df1.interval_left.values, [29824])
+        nt.assert_array_equal(df1.interval_right.values, [29825])
 
 
 class TestSampleGroupInfo:
