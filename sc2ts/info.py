@@ -273,6 +273,7 @@ class CopyingTable:
         child_label="C",
         colours=None,
         exclude_stylesheet=None,
+        font_family=None,
     ):
         """
         Create a styled HTML table indicating bases that differ between the parents of
@@ -312,6 +313,8 @@ class CopyingTable:
             simply to save space if you want to include the copying table in a larger HTML
             document (e.g. a Jupyter notebook) that already has one copying table shown with
             the standard stylesheet. If False or None (default), include the default stylesheet.
+        :param font_family str:
+            The font family to use for the table. Default: None.
         """
 
         def row_lab(txt):
@@ -407,7 +410,12 @@ class CopyingTable:
                 "background-image:-webkit-linear-gradient(left, {0} 50%, {1} 50%);"  # for imgkit/wkhtmltopdf
             )
             html += "<style>"
+            if font_family is not None:
+                html += f".copying-table {{font-family: '{font_family}'}}"
+            html += ".copying-table .position {text-align: center; font-size: 7px}"
             html += ".copying-table .pattern td {border:0px solid black; text-align: center; width:1em}"
+            html += ".copying-table .mut {text-align: center; font-size: 7px}"
+            html += ".copying-table .ref {text-align: center; font-size: 9px}"
             html += ".copying-table {border-spacing: 0px; border-collapse: collapse}"
             html += ".copying-table .runlengths {font-size:3px; height:3px;}"
             html += ".copying-table .runlengths td {border-style: solid; background: white; border-width:0px 1px; border-color: black}"
@@ -423,8 +431,8 @@ class CopyingTable:
         html += '<table class="copying-table">'
         if not hide_extra_rows:
             pos = [f"<td><span{vrl}>{p}</span></td>" for p in positions]
-            html += f'<tr style="font-size: 70%">{row_lab("pos")}{"".join(pos)}</tr>'
-            html += f'<tr>{row_lab("ref")}{"".join(ref)}</tr>'
+            html += f'<tr class="position">{row_lab("pos")}{"".join(pos)}</tr>'
+            html += f'<tr class="ref">{row_lab("ref")}{"".join(ref)}</tr>'
         rowstyle = "font-size: 10px; border: 0px; height: 14px"
         row_template = '<tr class="pattern" style="' + rowstyle + '">{label}{data}</tr>'
         html += row_template.format(label=row_lab("P0"), data="".join(parents.pop(0)))
@@ -436,10 +444,10 @@ class CopyingTable:
             runs = [
                 self.line_cell(p[i + 1], p[i], p[i + 2]) for i in range(len(positions))
             ]
-            html += "<tr style='font-size: 3px; height: 3px'></tr>"
-            html += "<tr class='runlengths'>" + row_lab("") + "".join(runs) + "</tr>"
+            html += '<tr class="spacer" style="font-size: 3px; height: 3px"></tr>'
+            html += '<tr class="runlengths">' + row_lab("") + "".join(runs) + "</tr>"
         if not hide_extra_rows:
-            html += f'<tr style="font-size: 75%">{row_lab("mut")}{"".join(muts)}</tr>'
+            html += f'<tr class="mut">{row_lab("mut")}{"".join(muts)}</tr>'
         return html + "</table>"
 
 
