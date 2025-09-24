@@ -320,17 +320,13 @@ def plot_subgraph(
                 edge = ts.edge(m.edge)
                 pos = int(ts.site(m.site).position)
                 includemut = False
-                if m.parent == tskit.NULL:
-                    inherited_state = ts.site(m.site).ancestral_state
-                else:
-                    inherited_state = ts.mutation(m.parent).derived_state
 
                 if ti.mutations_is_reversion[m.id]:
-                    mutstr = f"$\\bf{{{inherited_state.lower()}{pos}{m.derived_state.lower()}}}$"
+                    mutstr = f"$\\bf{{{m.inherited_state.lower()}{pos}{m.derived_state.lower()}}}$"
                 elif ts.mutations_parent[m.id] != tskit.NULL:
-                    mutstr = f"$\\bf{{{inherited_state.upper()}{pos}{m.derived_state.upper()}}}$"
+                    mutstr = f"$\\bf{{{m.inherited_state.upper()}{pos}{m.derived_state.upper()}}}$"
                 else:
-                    mutstr = f"{inherited_state.upper()}{pos}{m.derived_state.upper()}"
+                    mutstr = f"{m.inherited_state.upper()}{pos}{m.derived_state.upper()}"
                 if show_mutation_positions is None or pos in show_mutation_positions:
                     includemut = True
                 if includemut:

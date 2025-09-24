@@ -15,26 +15,6 @@ def convert_date(ts, time_array):
     return time_zero_date - time_array.astype("timedelta64[D]")
 
 
-def compute_mutation_states(ts):
-    tables = ts.tables
-    assert np.all(
-        tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
-    )
-    derived_state = tables.mutations.derived_state.view("S1").astype(str)
-    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-    del tables
-
-    inherited_state = ancestral_state[ts.mutations_site]
-    mutations_with_parent = ts.mutations_parent != -1
-
-    parent = ts.mutations_parent[mutations_with_parent]
-    assert np.all(parent >= 0)
-    inherited_state[mutations_with_parent] = derived_state[parent]
-
-    return inherited_state, derived_state
-
-
 def node_data(ts, inheritance_stats=True):
     """
     Return a pandas dataframe with one row for each node (in node ID order)
@@ -77,7 +57,8 @@ def mutation_data(ts, inheritance_stats=True, parsimony_stats=False):
     ``sc2ts.minimise_metadata``, and will not work on the raw output of sc2ts.
     """
     cols = {}
-    inherited_state, derived_state = compute_mutation_states(ts)
+    inherited_state = ts.mutations_inherited_state
+    derived_state = ts.mutations_derived_state
 
     cols["mutation_id"] = np.arange(ts.num_mutations)
     cols["site_id"] = ts.mutations_site

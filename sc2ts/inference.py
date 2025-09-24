@@ -1242,18 +1242,9 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
     # real reason. Could inline here if we want.
     ts = insert_vestigial_root_edge(ts)
 
-    tables = ts.tables
-    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    ancestral_state = core.encode_alignment(
-        tables.sites.ancestral_state.view("S1").astype(str)
-    )
-    assert np.all(
-        tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
-    )
-    derived_state = core.encode_alignment(
-        tables.mutations.derived_state.view("S1").astype(str)
-    )
-    del tables
+    # Convert arrays for numba compatibility
+    ancestral_state = core.encode_alignment(np.asarray(ts.sites_ancestral_state, dtype='U1'))
+    derived_state = core.encode_alignment(np.asarray(ts.mutations_derived_state, dtype='U1'))
 
     tsb = _tsinfer.TreeSequenceBuilder(
         num_alleles=np.full(ts.num_sites, num_alleles, dtype=np.uint64),
@@ -1670,12 +1661,7 @@ def characterise_match_mutations(ts, samples):
             mutation.is_reversion = False
             mutation.is_immediate_reversion = False
             if closest_mutation is not None:
-                inherited_state = closest_mutation.derived_state
-                parent_inherited_state = ancestral_state
-                if closest_mutation.parent != -1:
-                    grandparent_mutation = ts.mutation(closest_mutation.parent)
-                    parent_inherited_state = grandparent_mutation.derived_state
-                mutation.is_reversion = parent_inherited_state == mutation.derived_state
+                mutation.is_reversion = closest_mutation.inherited_state == mutation.derived_state
                 if mutation.is_reversion:
                     mutation.is_immediate_reversion = (
                         closest_mutation.node == seg.parent
@@ -2676,23 +2662,14 @@ def find_reversions(ts):
     inherited_state of the parent is equal to the derived_state of the
     child.
     """
-    tables = ts.tables
-    assert np.all(
-        tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
-    )
-    derived_state = tables.mutations.derived_state.view("S1").astype(str)
-    assert np.all(tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1))
-    ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-    del tables
-    inherited_state = ancestral_state[ts.mutations_site]
-    mutations_with_parent = ts.mutations_parent != -1
-    parent = ts.mutations_parent[mutations_with_parent]
-    assert np.all(parent >= 0)
-    inherited_state[mutations_with_parent] = derived_state[parent]
+    inherited_state = ts.mutations_inherited_state
+    derived_state = ts.mutations_derived_state
 
     assert np.all(inherited_state != derived_state)
 
     is_reversion = np.zeros(ts.num_mutations, dtype=bool)
+    mutations_with_parent = ts.mutations_parent != -1
+    parent = ts.mutations_parent[mutations_with_parent]
     is_reversion[mutations_with_parent] = (
         derived_state[mutations_with_parent] == inherited_state[parent]
     )
