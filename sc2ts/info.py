@@ -233,11 +233,7 @@ class CopyingTable:
                 raise ValueError(
                     "Multiple mutations above the same node at the same site"
                 )
-            state0 = site.ancestral_state
-            if mut.parent != tskit.NULL:
-                state0 = self.ts.mutation(mut.parent).derived_state
-            state1 = mut.derived_state
-            muts[site.position] = f"{state0}>{state1}"
+            muts[site.position] = f"{mut.inherited_state}>{mut.derived_state}"
         return muts
 
     def __init__(
@@ -602,29 +598,9 @@ class TreeInfo:
 
     def _preprocess_mutations(self, show_progress):
         ts = self.ts
-
-        # Mutation states
-        # https://github.com/tskit-dev/tskit/issues/2631
-        tables = self.ts.tables
-        assert np.all(
-            tables.mutations.derived_state_offset == np.arange(ts.num_mutations + 1)
-        )
-        derived_state = tables.mutations.derived_state.view("S1").astype(str)
-        assert np.all(
-            tables.sites.ancestral_state_offset == np.arange(ts.num_sites + 1)
-        )
-        ancestral_state = tables.sites.ancestral_state.view("S1").astype(str)
-        del tables
-        inherited_state = ancestral_state[ts.mutations_site]
-        mutations_with_parent = ts.mutations_parent != -1
-
-        parent = ts.mutations_parent[mutations_with_parent]
-        assert np.all(parent >= 0)
-        inherited_state[mutations_with_parent] = derived_state[parent]
-        self.mutations_derived_state = derived_state
-        self.mutations_inherited_state = inherited_state
-
-        self.sites_ancestral_state = ancestral_state
+        self.mutations_derived_state = ts.mutations_derived_state
+        self.mutations_inherited_state = ts.mutations_inherited_state
+        self.sites_ancestral_state = ts.sites_ancestral_state
         assert np.all(self.mutations_inherited_state != self.mutations_derived_state)
         self.mutations_position = self.ts.sites_position[self.ts.mutations_site].astype(
             int
@@ -674,7 +650,7 @@ class TreeInfo:
             parent = ts.mutations_parent[mut_id]
             if parent != -1:
                 mutations_num_inheritors[parent] -= descendants
-                is_reversion[mut_id] = inherited_state[parent] == derived_state[mut_id]
+                is_reversion[mut_id] = self.mutations_inherited_state[parent] == self.mutations_derived_state[mut_id]
                 if is_reversion[mut_id] and ts.mutations_node[parent] == tree.parent(
                     mutation_node
                 ):
@@ -686,7 +662,7 @@ class TreeInfo:
                 parent = ts.mutations_parent[parent]
             mutations_num_parents[mut_id] = num_parents
             # Ts/Tvs
-            key = (inherited_state[mut_id], derived_state[mut_id])
+            key = (self.mutations_inherited_state[mut_id], self.mutations_derived_state[mut_id])
             mutations_is_transition[mut_id] = key in transitions
             mutations_is_transversion[mut_id] = key in transversions
             site = ts.mutations_site[mut_id]
@@ -1929,14 +1905,9 @@ class TreeInfo:
             site = ts.site(mut.site)
             if np.sum(sites == site.id) > 1:
                 multiple_mutations.append(mut.id)
-            inherited_state = site.ancestral_state
+            inherited_state = mut.inherited_state
             if mut.parent >= 0:
-                parent = ts.mutation(mut.parent)
-                inherited_state = parent.derived_state
-                parent_inherited_state = site.ancestral_state
-                if parent.parent >= 0:
-                    parent_inherited_state = ts.mutation(parent.parent).derived_state
-                if parent_inherited_state == mut.derived_state:
+                if ts.mutation(mut.parent).inherited_state == mut.derived_state:
                     reverted_mutations.append(mut.id)
             pos = int(site.position)
             recurrent_mutations[(pos, mut.derived_state)].append(mut.id)
@@ -2184,16 +2155,9 @@ class SampleGroupInfo:
                         universal_mutations.append(mut.id)
                     if len(site.mutations) > 1:
                         multiple_mutations.append(mut.id)
-                    inherited_state = site.ancestral_state
+                    inherited_state = mut.inherited_state
                     if mut.parent >= 0:
-                        parent = ts.mutation(mut.parent)
-                        inherited_state = parent.derived_state
-                        parent_inherited_state = site.ancestral_state
-                        if parent.parent >= 0:
-                            parent_inherited_state = ts.mutation(
-                                parent.parent
-                            ).derived_state
-                        if parent_inherited_state == mut.derived_state:
+                        if ts.mutation(mut.parent).inherited_state == mut.derived_state:
                             reverted_mutations.append(mut.id)
                     # Reverse map label name to mutation id, so we can count duplicates
                     label = f"{inherited_state}{int(site.position)}{mut.derived_state}"
