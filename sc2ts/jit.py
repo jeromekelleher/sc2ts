@@ -4,6 +4,10 @@ import logging
 
 import numpy as np
 import numba
+import tskit.jit.numba as tskit_numba
+import tskit
+
+NODE_IS_SAMPLE = tskit.NODE_IS_SAMPLE
 
 logger = logging.getLogger(__name__)
 
@@ -90,82 +94,6 @@ def get_path_mrca(path1, path2, node_time):
     )
 
 
-spec = [
-    ("num_edges", numba.int64),
-    ("sequence_length", numba.float64),
-    ("edges_left", numba.float64[:]),
-    ("edges_right", numba.float64[:]),
-    ("edge_insertion_order", numba.int32[:]),
-    ("edge_removal_order", numba.int32[:]),
-    ("edge_insertion_index", numba.int64),
-    ("edge_removal_index", numba.int64),
-    ("interval", numba.float64[:]),
-    ("in_range", numba.int64[:]),
-    ("out_range", numba.int64[:]),
-]
-
-
-@numba.experimental.jitclass(spec)
-class TreePosition:
-    def __init__(
-        self,
-        num_edges,
-        sequence_length,
-        edges_left,
-        edges_right,
-        edge_insertion_order,
-        edge_removal_order,
-    ):
-        self.num_edges = num_edges
-        self.sequence_length = sequence_length
-        self.edges_left = edges_left
-        self.edges_right = edges_right
-        self.edge_insertion_order = edge_insertion_order
-        self.edge_removal_order = edge_removal_order
-        self.edge_insertion_index = 0
-        self.edge_removal_index = 0
-        self.interval = np.zeros(2)
-        self.in_range = np.zeros(2, dtype=np.int64)
-        self.out_range = np.zeros(2, dtype=np.int64)
-
-    def next(self):  # noqa
-        left = self.interval[1]
-        j = self.in_range[1]
-        k = self.out_range[1]
-        self.in_range[0] = j
-        self.out_range[0] = k
-        M = self.num_edges
-        edges_left = self.edges_left
-        edges_right = self.edges_right
-        out_order = self.edge_removal_order
-        in_order = self.edge_insertion_order
-
-        while k < M and edges_right[out_order[k]] == left:
-            k += 1
-        while j < M and edges_left[in_order[j]] == left:
-            j += 1
-        self.out_range[1] = k
-        self.in_range[1] = j
-
-        right = self.sequence_length
-        if j < M:
-            right = min(right, edges_left[in_order[j]])
-        if k < M:
-            right = min(right, edges_right[out_order[k]])
-        self.interval[:] = [left, right]
-        return j < M or left < self.sequence_length
-
-
-# Helper function to make it easier to communicate with the numba class
-def alloc_tree_position(ts):
-    return TreePosition(
-        num_edges=ts.num_edges,
-        sequence_length=ts.sequence_length,
-        edges_left=ts.edges_left,
-        edges_right=ts.edges_right,
-        edge_insertion_order=ts.indexes_edge_insertion_order,
-        edge_removal_order=ts.indexes_edge_removal_order,
-    )
 
 
 @dataclasses.dataclass
@@ -191,29 +119,35 @@ def _compute_mutations_num_parents(mutations_parent):
 
 @numba.njit()
 def _compute_inheritance_counts(
-    tree_pos,
-    num_nodes,
-    num_mutations,
-    edges_parent,
-    edges_child,
-    samples,
-    mutations_position,
-    mutations_node,
-    mutations_parent,
+    numba_ts,
 ):
+    num_nodes = numba_ts.num_nodes
+    num_mutations = numba_ts.num_mutations
+    edges_parent = numba_ts.edges_parent
+    edges_child = numba_ts.edges_child
+    mutations_node = numba_ts.mutations_node
+    mutations_parent = numba_ts.mutations_parent
+    mutations_position = numba_ts.sites_position[numba_ts.mutations_site].astype(np.int32)
+    nodes_flags = numba_ts.nodes_flags
+
     parent = np.zeros(num_nodes, dtype=np.int32) - 1
     num_samples = np.zeros(num_nodes, dtype=np.int32)
-    num_samples[samples] = 1
     nodes_max_descendant_samples = np.zeros(num_nodes, dtype=np.int32)
-    nodes_max_descendant_samples[samples] = 1
+
+    for node in range(num_nodes):
+        if (nodes_flags[node] & NODE_IS_SAMPLE) != 0:
+            num_samples[node] = 1
+            nodes_max_descendant_samples[node] = 1
     mutations_num_descendants = np.zeros(num_mutations, dtype=np.int32)
     mutations_num_inheritors = np.zeros(num_mutations, dtype=np.int32)
 
     mut_id = 0
+    tree_index = numba_ts.tree_index()
 
-    while tree_pos.next():
-        for j in range(tree_pos.out_range[0], tree_pos.out_range[1]):
-            e = tree_pos.edge_removal_order[j]
+    while tree_index.next():
+        out_range = tree_index.out_range
+        for j in range(out_range.start, out_range.stop):
+            e = out_range.order[j]
             c = edges_child[e]
             p = edges_parent[e]
             parent[c] = -1
@@ -222,8 +156,9 @@ def _compute_inheritance_counts(
                 num_samples[u] -= num_samples[c]
                 u = parent[u]
 
-        for j in range(tree_pos.in_range[0], tree_pos.in_range[1]):
-            e = tree_pos.edge_insertion_order[j]
+        in_range = tree_index.in_range
+        for j in range(in_range.start, in_range.stop):
+            e = in_range.order[j]
             p = edges_parent[e]
             c = edges_child[e]
             parent[c] = p
@@ -235,7 +170,7 @@ def _compute_inheritance_counts(
                 )
                 u = parent[u]
 
-        left, right = tree_pos.interval
+        left, right = tree_index.interval
         while mut_id < num_mutations and mutations_position[mut_id] < right:
             assert mutations_position[mut_id] >= left
             mutation_node = mutations_node[mut_id]
@@ -259,18 +194,9 @@ def _compute_inheritance_counts(
 
 def count(ts):
     logger.info("Computing inheritance counts")
-    tree_pos = alloc_tree_position(ts)
-    mutations_position = ts.sites_position[ts.mutations_site].astype(int)
+    numba_ts = tskit_numba.jitwrap(ts)
     return ArgCounts(
         *_compute_inheritance_counts(
-            tree_pos,
-            ts.num_nodes,
-            ts.num_mutations,
-            ts.edges_parent,
-            ts.edges_child,
-            ts.samples(),
-            mutations_position,
-            ts.mutations_node,
-            ts.mutations_parent,
+            numba_ts,
         )
     )
