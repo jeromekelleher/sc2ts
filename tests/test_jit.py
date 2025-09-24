@@ -140,8 +140,8 @@ class TestCountMutations:
         ts = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         tables = ts.dump_tables()
         tables.sites.add_row(0, "A")
-        tables.mutations.add_row(site=0, node=0, derived_state="A")
         tables.mutations.add_row(site=0, node=4, derived_state="T")
+        tables.mutations.add_row(site=0, node=0, derived_state="A", parent=0)
         ts = tables.tree_sequence()
         expected = np.zeros(ts.num_nodes, dtype=np.int32)
         expected[0] = 2
