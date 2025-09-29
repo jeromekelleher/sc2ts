@@ -426,6 +426,7 @@ class CopyingTable:
             html += ".copying-table .ref {text-align: center; font-size: 9px}"
             html += ".copying-table {border-spacing: 0px; border-collapse: collapse}"
             html += ".copying-table .runlengths {font-size:3px; height:3px;}"
+            html += ".copying-table .child-rgt {text-align: left;}"
             html += ".copying-table .runlengths td {border-style: solid; background: white; border-width:0px 1px; border-color: black}"
             for left in range(len(runlength_cols)):
                 for right in range(len(runlength_cols)):
@@ -450,7 +451,7 @@ class CopyingTable:
             label=row_lab(parent_labels.get(0, "P0")), data="".join(parents.pop(0))
         )
         if child_rgt_label is not None:
-            child.append(f'<td style="text-align:left"><b>{child_rgt_label}</b></td>')
+            child.append(f'<td class="child-rgt">{child_rgt_label}</td>')
         html += row_template.format(label=row_lab(child_label), data="".join(child))
         for i, parent in enumerate(parents):
             html += row_template.format(
