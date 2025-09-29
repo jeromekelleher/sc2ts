@@ -267,9 +267,12 @@ class CopyingTable:
         hide_extra_rows=None,
         hide_labels=None,
         child_label="C",
+        parent_labels=None,
         colours=None,
         exclude_stylesheet=None,
         font_family=None,
+        css_class=None,
+        child_rgt_label=None,
     ):
         """
         Create a styled HTML table indicating bases that differ between the parents of
@@ -299,6 +302,9 @@ class CopyingTable:
             these row labels.
         :param child_label str:
             The label to use for the child node. If None (default), use "C".
+        :param parent_labels list(str):
+            The labels to use for the parent nodes. If None (default), or if
+            more parents than in the provided list, use "P0", "P1", "P2", etc.
         :param colours list:
             A list of at least 2 hex colours to use. ``colours[0]`` is used for a base in
             the child that is not present in any parent, ``colours[1]`` for a base that
@@ -311,6 +317,11 @@ class CopyingTable:
             the standard stylesheet. If False or None (default), include the default stylesheet.
         :param font_family str:
             The font family to use for the table. Default: None.
+        :param css_class str:
+            An extra CSS class to apply to the table (note that the table will
+            always have a class of ``copying-table``). Default: None.
+        :param child_rgt_label str:
+            The label to use for the child node, placed on the right.
         """
 
         def row_lab(txt):
@@ -327,6 +338,7 @@ class CopyingTable:
             colours = self.default_colours
 
         parent_colours = list(colours)
+        parent_labels = {k: v for k, v in enumerate(parent_labels or [])}
         parent_colours[0] = "#FFF"  # white for non-matching
 
         vrl = ' style="writing-mode: vertical-rl; transform: rotate(180deg)"'
@@ -424,17 +436,26 @@ class CopyingTable:
                         + "}"
                     )
             html += "</style>"
-        html += '<table class="copying-table">'
+        classes = ["copying-table"]
+        if css_class is not None:
+            classes.append(css_class)
+        html += f'<table class="{" ".join(classes)}">'
         if not hide_extra_rows:
             pos = [f"<td><span{vrl}>{p}</span></td>" for p in positions]
             html += f'<tr class="position">{row_lab("pos")}{"".join(pos)}</tr>'
             html += f'<tr class="ref">{row_lab("ref")}{"".join(ref)}</tr>'
         rowstyle = "font-size: 10px; border: 0px; height: 14px"
         row_template = '<tr class="pattern" style="' + rowstyle + '">{label}{data}</tr>'
-        html += row_template.format(label=row_lab("P0"), data="".join(parents.pop(0)))
+        html += row_template.format(
+            label=row_lab(parent_labels.get(0, "P0")), data="".join(parents.pop(0))
+        )
+        if child_rgt_label is not None:
+            child.append(f'<td style="text-align:left"><b>{child_rgt_label}</b></td>')
         html += row_template.format(label=row_lab(child_label), data="".join(child))
         for i, parent in enumerate(parents):
-            html += row_template.format(label=row_lab(f"P{i+1}"), data="".join(parent))
+            html += row_template.format(
+                label=row_lab(parent_labels.get(i + 1, f"P{i+1}")), data="".join(parent)
+            )
         if not hide_runlengths:
             p = np.concatenate(([-np.inf], positions, [np.inf]))
             runs = [
