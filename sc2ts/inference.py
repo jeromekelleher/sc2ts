@@ -1330,6 +1330,7 @@ class MatchingManager:
             recombination=np.full(num_sites, work.rho),
             mismatch=np.full(num_sites, work.mu),
             likelihood_threshold=work.likelihood_threshold,
+            weight_by_n=False
         )
         with self.matchers_lock:
             assert self.matchers[thread_index] is None
