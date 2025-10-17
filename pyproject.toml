@@ -8,9 +8,7 @@ authors = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-  # "tsinfer==0.3.3", # https://github.com/jeromekelleher/sc2ts/issues/201
-  # FIXME
-  "tsinfer @ git+https://github.com/tskit-dev/tsinfer.git@f25a008771ec306e146345ef70b306ea1420e171",
+  "tsinfer>=0.4.2",
   "tskit==1.0.0b2",
   "pyfaidx",
   "tszip",
