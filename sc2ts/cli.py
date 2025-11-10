@@ -23,7 +23,6 @@ import pandas as pd
 
 import sc2ts
 from . import core
-from . import utils
 from . import info
 
 logger = logging.getLogger(__name__)
