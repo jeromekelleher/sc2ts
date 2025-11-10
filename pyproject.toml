@@ -8,8 +8,8 @@ authors = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-  "tsinfer>=0.4.2",
-  "tskit==1.0.0b2",
+  "tsinfer>=0.5",
+  "tskit==1.0.0b3",
   "pyfaidx",
   "tszip",
   "pandas",

@@ -106,7 +106,7 @@ class TestSplitBranch:
         # 0.00┊ 0 1 2 3 ┊
         #     0         1
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
-        ts2 = sc2ts.split_branch(prepare(ts1.tables), 0, [])
+        ts2 = sc2ts.split_branch(prepare(ts1.dump_tables()), 0, [])
         assert ts2.num_nodes == 8
         assert ts2.nodes_time[7] == 0.5
         assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
