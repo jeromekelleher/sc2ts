@@ -18,7 +18,6 @@ from IPython.display import Markdown, HTML
 
 from . import jit
 from . import core
-from . import utils
 from . import inference
 
 logger = logging.getLogger(__name__)
