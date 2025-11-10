@@ -13,6 +13,7 @@ import msprime
 import pandas as pd
 
 import sc2ts
+from sc2ts import info
 import util
 
 
@@ -626,7 +627,7 @@ class TestRealData:
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
             deletions_as_missing=deletions_as_missing,
         )
-        ti = sc2ts.TreeInfo(ts, show_progress=False)
+        ti = info.TreeInfo(ts, show_progress=False)
         expected = 0 if deletions_as_missing else 4
         assert np.sum(ti.mutations_derived_state == "-") == expected
 
