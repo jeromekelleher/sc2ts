@@ -184,6 +184,22 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
     return d
 
 
+@pytest.fixture
+def fx_final_ts(fx_data_cache, fx_ts_map):
+    cache_path = fx_data_cache / "2020-02-15_min.ts"
+    if not cache_path.exists():
+        field_mapping = {
+            "strain": "sample_id",
+            "Viridian_pangolin": "pango",
+            "Viridian_scorpio": "scorpio",
+        }
+        ts = si.minimise_metadata(fx_ts_map["2020-02-15"], field_mapping)
+        ts.dump(cache_path)
+    else:
+        ts = tskit.load(cache_path)
+    return ts
+
+
 def recombinant_alignments(dataset):
     """
     Generate some recombinant alignments from existing haplotypes

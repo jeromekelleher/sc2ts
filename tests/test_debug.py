@@ -28,14 +28,8 @@ def fx_ti_2020_02_15(fx_ts_map):
 
 
 @pytest.fixture
-def fx_ts_min_2020_02_15(fx_ts_map):
-    ts = fx_ts_map["2020-02-15"]
-    field_mapping = {
-        "strain": "sample_id",
-        "Viridian_pangolin": "pango",
-        "Viridian_scorpio": "scorpio",
-    }
-    return si.minimise_metadata(ts, field_mapping)
+def fx_ts_min_2020_02_15(fx_final_ts):
+    return fx_final_ts
 
 
 @pytest.fixture
@@ -268,7 +262,7 @@ class TestSampleGroupInfo:
         assert svg.startswith("<svg")
 
 
-class TestDataFuncs:
+class TestDataFuncsEquivalant:
 
     def test_example_node(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
