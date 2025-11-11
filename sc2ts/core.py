@@ -1,8 +1,6 @@
 import dataclasses
-import json
 
 import tskit
-import numpy as np
 
 __version__ = "undefined"
 try:
@@ -18,6 +16,13 @@ REFERENCE_STRAIN = "Wuhan/Hu-1/2019"
 REFERENCE_DATE = "2019-12-26"
 REFERENCE_GENBANK = "MN908947"
 REFERENCE_SEQUENCE_LENGTH = 29904
+
+# We omit N here as it's mapped to -1. Make "-" the 5th allele
+# as this is a valid allele for us.
+# NOTE!! This string is also used in the jit module where it's
+# hard-coded into a numba function, so if this ever changes
+# it needs to be updated there also!
+IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
 
 NODE_IS_MUTATION_OVERLAP = 1 << 21
 NODE_IS_REVERSION_PUSH = 1 << 22
@@ -90,8 +95,3 @@ def decode_flags(f):
 
 def flags_summary(f):
     return "".join([v.short if (v.value & f) > 0 else "_" for v in flag_values])
-
-
-# We omit N here as it's mapped to -1. Make "-" the 5th allele
-# as this is a valid allele for us.
-IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
