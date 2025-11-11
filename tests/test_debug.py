@@ -18,13 +18,13 @@ from sc2ts import inference as si
 @pytest.fixture
 def fx_ti_2020_02_13(fx_ts_map):
     ts = fx_ts_map["2020-02-13"]
-    return debug.TreeInfo(ts, show_progress=False)
+    return debug.ArgInfo(ts, show_progress=False)
 
 
 @pytest.fixture
 def fx_ti_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
-    return debug.TreeInfo(ts, show_progress=False)
+    return debug.ArgInfo(ts, show_progress=False)
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def fx_ts_min_2020_02_15(fx_ts_map):
 
 @pytest.fixture
 def fx_ti_recombinant_example_1(fx_recombinant_example_1):
-    return debug.TreeInfo(fx_recombinant_example_1, show_progress=False)
+    return debug.ArgInfo(fx_recombinant_example_1, show_progress=False)
 
 
 def test_get_gene_coordinates():
@@ -62,7 +62,7 @@ class TestCopyingTable:
         assert ct_via_ti == ct_via_ts
 
 
-class TestTreeInfo:
+class TestArgInfo:
     def test_tree_info_values(self, fx_ti_2020_02_13):
         ti = fx_ti_2020_02_13
         assert list(ti.nodes_num_missing_sites[:5]) == [0, 0, 121, 693, 667]
@@ -73,7 +73,7 @@ class TestTreeInfo:
         "method",
         [
             func
-            for (name, func) in inspect.getmembers(debug.TreeInfo)
+            for (name, func) in inspect.getmembers(debug.ArgInfo)
             if name.startswith("plot")
         ],
     )
@@ -206,7 +206,7 @@ class TestTreeInfo:
         assert row2.max_run_length == 0
 
     def test_recombinants_summary_example_2(self, fx_recombinant_example_2):
-        ti = debug.TreeInfo(fx_recombinant_example_2, show_progress=False)
+        ti = debug.ArgInfo(fx_recombinant_example_2, show_progress=False)
         df = ti.recombinants_summary(characterise_copying=True, show_progress=False)
         assert df.shape[0] == 1
         row = df.iloc[0]
@@ -237,9 +237,9 @@ class TestTreeInfo:
         md["sc2ts"]["breakpoint_intervals"] = [[114, 29825]]
         tables.nodes[sample] = row.replace(metadata=md)
         ts = tables.tree_sequence()
-        ti = debug.TreeInfo(ts, show_progress=False)
+        ti = debug.ArgInfo(ts, show_progress=False)
         df1 = ti.recombinants_summary(characterise_copying=True, show_progress=False)
-        ti = debug.TreeInfo(fx_recombinant_example_2, show_progress=False)
+        ti = debug.ArgInfo(fx_recombinant_example_2, show_progress=False)
         df2 = ti.recombinants_summary(characterise_copying=True, show_progress=False)
         pd.testing.assert_frame_equal(df1, df2)
 
@@ -253,7 +253,7 @@ class TestTreeInfo:
         md["sc2ts"]["breakpoint_intervals"] = [[29827, 29825]]
         tables.nodes[sample] = row.replace(metadata=md)
         ts = tables.tree_sequence()
-        ti = debug.TreeInfo(ts, show_progress=False)
+        ti = debug.ArgInfo(ts, show_progress=False)
         df1 = ti.recombinants_summary(show_progress=False)
         nt.assert_array_equal(df1.interval_left.values, [29824])
         nt.assert_array_equal(df1.interval_right.values, [29825])

@@ -630,7 +630,7 @@ class TestRealData:
             match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             deletions_as_missing=deletions_as_missing,
         )
-        ti = debug.TreeInfo(ts, show_progress=False)
+        ti = debug.ArgInfo(ts, show_progress=False)
         expected = 0 if deletions_as_missing else 4
         assert np.sum(ti.mutations_derived_state == "-") == expected
 
