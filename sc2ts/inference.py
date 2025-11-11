@@ -28,6 +28,7 @@ import humanize
 import pandas as pd
 
 from . import core
+from . import data_import
 from . import jit
 from . import stats
 from . import tree_ops
@@ -270,7 +271,7 @@ def mirror_ts_coordinates(ts):
 
 
 def initial_ts(problematic_sites=list()):
-    reference = core.get_reference_sequence()
+    reference = data_import.get_reference_sequence()
     L = core.REFERENCE_SEQUENCE_LENGTH
     assert L == len(reference)
     problematic_sites = set(problematic_sites)
@@ -1243,8 +1244,8 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
     ts = insert_vestigial_root_edge(ts)
 
     # Convert arrays for numba compatibility
-    ancestral_state = core.encode_alignment(np.asarray(ts.sites_ancestral_state, dtype='U1'))
-    derived_state = core.encode_alignment(np.asarray(ts.mutations_derived_state, dtype='U1'))
+    ancestral_state = jit.encode_alignment(np.asarray(ts.sites_ancestral_state, dtype='U1'))
+    derived_state = jit.encode_alignment(np.asarray(ts.mutations_derived_state, dtype='U1'))
 
     tsb = _tsinfer.TreeSequenceBuilder(
         num_alleles=np.full(ts.num_sites, num_alleles, dtype=np.uint64),

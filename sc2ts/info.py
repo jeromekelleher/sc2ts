@@ -25,6 +25,7 @@ from IPython.display import Markdown, HTML
 from . import jit
 from . import core
 from . import inference
+from . import data_import
 
 logger = logging.getLogger(__name__)
 
@@ -1339,7 +1340,7 @@ class TreeInfo:
         return collections.Counter(x)
 
     def _add_genes_to_axis(self, ax):
-        genes = core.get_gene_coordinates()
+        genes = data_import.get_gene_coordinates()
         mids = []
         for j, (gene, (left, right)) in enumerate(genes.items()):
             mids.append(left + (right - left) / 2)

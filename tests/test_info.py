@@ -43,7 +43,7 @@ def fx_ti_recombinant_example_1(fx_recombinant_example_1):
 
 
 def test_get_gene_coordinates():
-    d = sc2ts.get_gene_coordinates()
+    d = sc2ts.data_import.get_gene_coordinates()
     assert len(d) == 11
     assert d["S"] == (21563, 25385)
 

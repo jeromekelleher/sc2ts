@@ -14,6 +14,7 @@ import pandas as pd
 
 import sc2ts
 from sc2ts import info
+from sc2ts import jit
 import util
 
 
@@ -150,7 +151,7 @@ class TestInitialTs:
     def test_reference_sequence(self):
         ts = sc2ts.initial_ts()
         assert ts.reference_sequence.metadata["genbank_id"] == "MN908947"
-        assert ts.reference_sequence.data == sc2ts.core.get_reference_sequence()
+        assert ts.reference_sequence.data == sc2ts.data_import.get_reference_sequence()
 
     def test_reference_node(self):
         ts = sc2ts.initial_ts()
@@ -183,9 +184,9 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
+        alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
-        a = sc2ts.encode_alignment(alignment)
+        a = jit.encode_alignment(alignment)
         h = a[ts.sites_position.astype(int)]
         samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
@@ -200,9 +201,9 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
+        alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
-        a = sc2ts.encode_alignment(alignment)
+        a = jit.encode_alignment(alignment)
         h = a[ts.sites_position.astype(int)]
         samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
         # Mutate to gap
@@ -226,9 +227,9 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
+        alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
-        a = sc2ts.encode_alignment(alignment)
+        a = jit.encode_alignment(alignment)
         ref = a[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
         samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]

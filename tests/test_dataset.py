@@ -7,6 +7,8 @@ import xarray.testing as xt
 import sgkit
 
 import sc2ts
+from sc2ts import jit
+from sc2ts import data_import
 
 
 def assert_datasets_equal(ds1, ds2):
@@ -231,8 +233,8 @@ class TestDatasetFasta:
         with open(path, "w") as f:
             fx_dataset.write_fasta(f)
 
-        fr1 = sc2ts.FastaReader(fx_alignments_fasta)
-        fr2 = sc2ts.FastaReader(path)
+        fr1 = data_import.FastaReader(fx_alignments_fasta)
+        fr2 = data_import.FastaReader(path)
         for k, a1 in fr1.items():
             a2 = fr2[k]
             nt.assert_array_equal(a1, a2)
@@ -277,8 +279,8 @@ class TestDatasetFasta:
         with open(path, "w") as f:
             fx_dataset.write_fasta(f, sample_id)
 
-        fr1 = sc2ts.FastaReader(fx_alignments_fasta)
-        fr2 = sc2ts.FastaReader(path)
+        fr1 = data_import.FastaReader(fx_alignments_fasta)
+        fr2 = data_import.FastaReader(path)
         for k in sample_id:
             a1 = fr1[k]
             a2 = fr2[k]
@@ -404,7 +406,7 @@ class TestDatasetAlignments:
         assert a[-1] == -1
 
     def test_compare_fasta(self, fx_dataset, fx_alignments_fasta):
-        fr = sc2ts.FastaReader(fx_alignments_fasta)
+        fr = data_import.FastaReader(fx_alignments_fasta)
         for k, a1 in fr.items():
             h = fx_dataset.haplotypes[k]
             a2 = sc2ts.decode_alignment(h)
@@ -549,14 +551,14 @@ class TestEncodeAlignment:
     )
     def test_examples(self, hap, expected):
         h = np.array(list(hap), dtype="U1")
-        a = sc2ts.encode_alignment(h)
+        a = jit.encode_alignment(h)
         nt.assert_array_equal(a, expected)
 
     @pytest.mark.parametrize("hap", "acgtXZxz")
     def test_other_error(self, hap):
         h = np.array(list(hap), dtype="U1")
         with pytest.raises(ValueError, match="not recognised"):
-            sc2ts.encode_alignment(h)
+            jit.encode_alignment(h)
 
 
 class TestMaskFlankingDeletions:
@@ -575,6 +577,6 @@ class TestMaskFlankingDeletions:
         ],
     )
     def test_examples(self, nucs, expected):
-        a = sc2ts.encode_alignment(np.array(list(nucs), dtype="U1"))
-        b = sc2ts.encode_alignment(np.array(list(expected), dtype="U1"))
+        a = jit.encode_alignment(np.array(list(nucs), dtype="U1"))
+        b = jit.encode_alignment(np.array(list(expected), dtype="U1"))
         nt.assert_array_equal(sc2ts.mask_flanking_deletions(a), b)
