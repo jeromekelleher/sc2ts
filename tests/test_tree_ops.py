@@ -6,6 +6,8 @@ import biotite.sequence.phylo as bsp
 import numpy.testing as nt
 
 import sc2ts
+from sc2ts import tree_ops
+from sc2ts import inference
 
 
 def all_trees_ts(n):
@@ -81,7 +83,7 @@ class TestSplitBranch:
         #     0         1
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         with pytest.raises(ValueError, match="root"):
-            sc2ts.split_branch(ts1, 6, [])
+            tree_ops.split_branch(ts1, 6, [])
 
     def test_wrong_mutations(self):
         # 2.00┊    6    ┊
@@ -96,7 +98,7 @@ class TestSplitBranch:
         tables.mutations.add_row(site=0, node=1, time=0, derived_state="T")
         ts = prepare(tables)
         with pytest.raises(ValueError, match="must be associated with"):
-            sc2ts.split_branch(ts, 0, [0])
+            tree_ops.split_branch(ts, 0, [0])
 
     def test_no_mutations(self):
         # 2.00┊    6    ┊
@@ -106,7 +108,7 @@ class TestSplitBranch:
         # 0.00┊ 0 1 2 3 ┊
         #     0         1
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
-        ts2 = sc2ts.split_branch(prepare(ts1.dump_tables()), 0, [])
+        ts2 = tree_ops.split_branch(prepare(ts1.dump_tables()), 0, [])
         assert ts2.num_nodes == 8
         assert ts2.nodes_time[7] == 0.5
         assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
@@ -125,7 +127,7 @@ class TestSplitBranch:
             tables.mutations.add_row(site=j, node=0, time=0, derived_state="T")
         ts = prepare(tables)
 
-        ts2 = sc2ts.split_branch(ts, 0, [0])
+        ts2 = tree_ops.split_branch(ts, 0, [0])
         assert ts2.num_nodes == 8
         assert ts2.nodes_time[7] == 0.5
         assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
@@ -149,7 +151,7 @@ class TestSplitBranch:
             tables.mutations.add_row(site=j, node=0, time=0, derived_state="T")
         ts = prepare(tables)
 
-        ts2 = sc2ts.split_branch(ts, 0, range(n))
+        ts2 = tree_ops.split_branch(ts, 0, range(n))
         assert ts2.num_nodes == 8
         assert ts2.nodes_time[7] == 0.5
         assert ts2.first().parent_dict == {0: 7, 1: 4, 2: 5, 3: 5, 4: 6, 5: 6, 7: 4}
@@ -169,7 +171,7 @@ class TestSplitBranch:
         for j in range(3):
             tables.mutations.add_row(site=0, node=j, time=0, derived_state="T")
         ts1 = prepare(tables)
-        ts2 = sc2ts.split_branch(ts1, 0, [0])
+        ts2 = tree_ops.split_branch(ts1, 0, [0])
 
         assert ts2.num_nodes == 6
         assert ts2.nodes_time[5] == 0.5
@@ -190,7 +192,7 @@ class TestCoalesceMutations:
         # 0.00┊ 0 1 2 3 ┊
         #     0         1
         ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
-        ts2 = sc2ts.coalesce_mutations(ts1)
+        ts2 = tree_ops.coalesce_mutations(ts1)
         ts1.tables.assert_equals(ts2.tables)
 
     def test_two_mutation_groups_one_parent(self):
@@ -207,12 +209,12 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="G")
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 7
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     def test_two_mutation_groups_two_parents(self):
@@ -232,12 +234,12 @@ class TestCoalesceMutations:
         tables.compute_mutation_times()
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 9
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     def test_internal_sib(self):
@@ -255,12 +257,12 @@ class TestCoalesceMutations:
         tables.compute_mutation_times()
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 1
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     def test_nested_mutation(self):
@@ -278,12 +280,12 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 2
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     def test_conflicting_nested_mutations(self):
@@ -302,12 +304,12 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=1, node=2, time=0, derived_state="G")
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 4
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     def test_node_in_multiple_mutation_sets(self):
@@ -329,12 +331,12 @@ class TestCoalesceMutations:
         tables.mutations.add_row(site=2, node=2, time=0, derived_state="T")
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 4
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
 
     # This test was broken as part of making the parsimony ops more scalable in #526
@@ -352,7 +354,7 @@ class TestCoalesceMutations:
         ts = prepare(tables)
 
         with pytest.raises(ValueError, match="Multiple mutations"):
-            sc2ts.coalesce_mutations(ts)
+            tree_ops.coalesce_mutations(ts)
 
     def test_mutation_parent(self):
         # 2.00┊   4   ┊
@@ -376,12 +378,12 @@ class TestCoalesceMutations:
 
         ts = prepare(tables)
 
-        ts2 = sc2ts.coalesce_mutations(ts)
+        ts2 = tree_ops.coalesce_mutations(ts)
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == 6
         assert ts2.num_nodes == 6
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(
+        ts3 = inference.apply_node_parsimony_heuristics(
             ts, push_reversions=False
         ).tree_sequence
         ts3.tables.assert_equals(ts2.tables, ignore_provenance=True)
@@ -393,16 +395,16 @@ class TestCoalesceMutations:
         tables = ts.dump_tables()
         # Only the first three mutations are necessary.
         tables.mutations.truncate(3)
-        ts2 = sc2ts.coalesce_mutations(tables.tree_sequence(), [0])
+        ts2 = tree_ops.coalesce_mutations(tables.tree_sequence(), [0])
         assert ts2.num_mutations == 2
 
 
 class TestPushUpReversions:
     def test_no_mutations(self):
         ts1 = tskit.Tree.generate_balanced(4, arity=4).tree_sequence
-        ts2 = sc2ts.push_up_reversions(ts1, [0, 1, 2, 3])
+        ts2 = tree_ops.push_up_reversions(ts1, [0, 1, 2, 3])
         ts1.tables.assert_equals(ts2.tables)
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts1).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts1).tree_sequence
         ts1.tables.assert_equals(ts3.tables, ignore_provenance=True)
 
     def test_one_site_simple_reversion(self):
@@ -421,12 +423,12 @@ class TestPushUpReversions:
         tables.mutations.add_row(site=0, node=3, time=0, derived_state="A")
         ts = prepare(tables)
 
-        ts2 = sc2ts.push_up_reversions(ts, [0, 1, 2, 3])
+        ts2 = tree_ops.push_up_reversions(ts, [0, 1, 2, 3])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables, ignore_provenance=True)
 
     def test_one_site_simple_reversion_internal(self):
@@ -446,12 +448,12 @@ class TestPushUpReversions:
         tables.mutations.add_row(site=0, node=6, time=2, derived_state="T")
         tables.mutations.add_row(site=0, node=5, time=1, derived_state="A")
         ts = prepare(tables)
-        ts2 = sc2ts.push_up_reversions(ts, [5])
+        ts2 = tree_ops.push_up_reversions(ts, [5])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables, ignore_provenance=True)
 
     def test_multiple_reversions_same_node(self):
@@ -474,16 +476,16 @@ class TestPushUpReversions:
         tables.mutations.add_row(site=1, node=6, time=2, derived_state="T")
         tables.mutations.add_row(site=1, node=5, time=1, derived_state="A")
         ts = prepare(tables)
-        ts2 = sc2ts.push_up_reversions(ts, [5, 6])
+        ts2 = tree_ops.push_up_reversions(ts, [5, 6])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
-        ts3 = sc2ts.push_up_reversions(ts2, [9])
+        ts3 = tree_ops.push_up_reversions(ts2, [9])
         assert_sequences_equal(ts, ts3)
         assert ts3.num_mutations == ts2.num_mutations - 1
         assert ts3.num_nodes == ts2.num_nodes + 1
 
-        ts4 = sc2ts.apply_node_parsimony_heuristics(
+        ts4 = inference.apply_node_parsimony_heuristics(
             ts, coalesce_mutations=False
         ).tree_sequence
         ts3.tables.assert_equals(ts4.tables, ignore_provenance=True)
@@ -508,12 +510,12 @@ class TestPushUpReversions:
 
         ts = prepare(tables)
 
-        ts2 = sc2ts.push_up_reversions(ts, [0, 1, 2, 3])
+        ts2 = tree_ops.push_up_reversions(ts, [0, 1, 2, 3])
         assert_sequences_equal(ts, ts2)
         assert ts2.num_mutations == ts.num_mutations - 1
         assert ts2.num_nodes == ts.num_nodes + 1
 
-        ts3 = sc2ts.apply_node_parsimony_heuristics(ts).tree_sequence
+        ts3 = inference.apply_node_parsimony_heuristics(ts).tree_sequence
         ts2.tables.assert_equals(ts3.tables, ignore_provenance=True)
 
 
@@ -533,7 +535,7 @@ class TestTrimBranches:
         tables.mutations.add_row(site=0, node=5, derived_state="T")
         ts1 = tables.tree_sequence()
 
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         # 3.00┊   5     ┊
         #     ┊ ┏━┻━┓   ┊
         # 2.00┊ ┃   4   ┊
@@ -557,7 +559,7 @@ class TestTrimBranches:
         tables = ts.dump_tables()
         ts1 = tables.tree_sequence()
 
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         assert ts2.num_trees == 1
         assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
         assert_variants_equal(ts1, ts2)
@@ -577,7 +579,7 @@ class TestTrimBranches:
         tables.mutations.add_row(site=0, node=6, derived_state="T")
         ts1 = tables.tree_sequence()
 
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         assert ts2.num_trees == 1
         assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
         assert_variants_equal(ts1, ts2)
@@ -597,7 +599,7 @@ class TestTrimBranches:
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         ts1 = tables.tree_sequence()
 
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         # Tree is also flat because this mutation is private
         assert ts2.num_trees == 1
         assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
@@ -619,7 +621,7 @@ class TestTrimBranches:
             tables.mutations.add_row(site=0, node=j, derived_state="T")
         ts1 = tables.tree_sequence()
 
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         # Tree is also flat because all mutations are private
         assert ts2.num_trees == 1
         assert ts2.first().parent_dict == {0: 4, 1: 4, 2: 4, 3: 4}
@@ -641,7 +643,7 @@ class TestTrimBranches:
             tables.mutations.add_row(site=j, node=j, derived_state="T")
         ts1 = tables.tree_sequence()
 
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         assert ts2.num_trees == 1
         assert ts2.first().parent_dict == ts1.first().parent_dict
         assert_variants_equal(ts1, ts2)
@@ -651,7 +653,7 @@ class TestTrimBranches:
     def test_simulation(self, n, mutation_rate):
         ts1 = msprime.sim_ancestry(n, sequence_length=100, ploidy=1, random_seed=3)
         ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
-        ts2 = sc2ts.trim_branches(ts1)
+        ts2 = tree_ops.trim_branches(ts1)
         assert_variants_equal(ts1, ts2)
 
 
@@ -677,7 +679,7 @@ class TestFullSpanSibs:
         # 0.00┊ 0 1 2 3 ┊
         #     0         1
         ts = tskit.Tree.generate_comb(4, span=10).tree_sequence
-        result = sc2ts.full_span_sibs(ts, nodes)
+        result = tree_ops.full_span_sibs(ts, nodes)
         nt.assert_array_equal(result, sibs)
 
     @pytest.mark.parametrize(
@@ -700,7 +702,7 @@ class TestFullSpanSibs:
         #     0       1       2       3       4
         # index   0       1       2       3
         ts = all_trees_ts(3)
-        result = sc2ts.full_span_sibs(ts, nodes)
+        result = tree_ops.full_span_sibs(ts, nodes)
         assert len(result) == 0
 
 
@@ -726,7 +728,7 @@ class TestInferBinary:
             tables.mutations.add_row(0, derived_state=f"{j}", node=u)
         tables.nodes.add_row(time=1)
         ts1 = tables.tree_sequence()
-        ts2 = sc2ts.infer_binary(ts1)
+        ts2 = tree_ops.infer_binary(ts1)
         assert ts2.num_mutations == n
         assert_sequences_equal(ts1, ts2)
         self.check_properties(ts2)
@@ -743,7 +745,7 @@ class TestInferBinary:
         tables.sites.add_row(0, "A")
         tables.mutations.add_row(0, derived_state="T", node=0)
         ts1 = tables.tree_sequence()
-        ts2 = sc2ts.infer_binary(ts1)
+        ts2 = tree_ops.infer_binary(ts1)
         assert ts2.num_mutations == 1
         assert_sequences_equal(ts1, ts2)
         self.check_properties(ts2)
@@ -753,7 +755,7 @@ class TestInferBinary:
     def test_simulation(self, n, mutation_rate):
         ts1 = msprime.sim_ancestry(n, sequence_length=100, ploidy=1, random_seed=3)
         ts1 = msprime.sim_mutations(ts1, rate=mutation_rate, random_seed=3234)
-        ts2 = sc2ts.infer_binary(ts1)
+        ts2 = tree_ops.infer_binary(ts1)
         assert_variants_equal(ts1, ts2, allele_shuffle=True)
         self.check_properties(ts2)
 
@@ -767,7 +769,7 @@ class TestInferBinary:
             tables.sites.add_row(j, "A")
             tables.mutations.add_row(site=j, node=root, derived_state="T")
         ts1 = tables.tree_sequence()
-        ts2 = sc2ts.infer_binary(ts1)
+        ts2 = tree_ops.infer_binary(ts1)
         assert_variants_equal(ts1, ts2)
         root = ts2.first().root
         assert np.all(ts2.mutations_node == root)
@@ -780,7 +782,7 @@ class TestFromBiotite:
         node_labels = {u: f"{u}" for u in tsk_tree.tree_sequence.samples()}
         nwk = tsk_tree.as_newick(node_labels=node_labels)
         biotite_tree = bsp.Tree.from_newick(nwk)
-        converted = sc2ts.biotite_to_tskit(biotite_tree)
+        converted = tree_ops.biotite_to_tskit(biotite_tree)
         assert converted.tree_sequence.num_trees == 1
         assert converted.rank() == tsk_tree.rank()
 
@@ -822,7 +824,7 @@ class TestRerooting:
         # 0.00┊ 0 ┊
         #     0   1
         ts1 = tskit.Tree.generate_balanced(2, arity=2).tree_sequence
-        ts2 = sc2ts.reroot_ts(ts1, 1)
+        ts2 = tree_ops.reroot_ts(ts1, 1)
         self.check_properties(ts1, ts2, 1)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [2, -1, 1, -1])
@@ -847,7 +849,7 @@ class TestRerooting:
 
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         root = 5
-        ts2 = sc2ts.reroot_ts(ts1, root)
+        ts2 = tree_ops.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [4, 4, 5, 5, 6, -1, 5, -1])
@@ -873,7 +875,7 @@ class TestRerooting:
         #     0       1
         ts1 = tskit.Tree.generate_balanced(4, arity=2).tree_sequence
         root = 2
-        ts2 = sc2ts.reroot_ts(ts1, root)
+        ts2 = tree_ops.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [4, 4, -1, 5, 6, 2, 5, -1])
@@ -899,7 +901,7 @@ class TestRerooting:
         #     0           1
         ts1 = tskit.Tree.generate_balanced(6, arity=3).tree_sequence
         root = 3
-        ts2 = sc2ts.reroot_ts(ts1, root)
+        ts2 = tree_ops.reroot_ts(ts1, root)
         self.check_properties(ts1, ts2, root)
         tree = ts2.first()
         nt.assert_array_equal(tree.parent_array, [6, 6, 7, -1, 8, 8, 9, 3, 9, 7, -1])
@@ -916,6 +918,50 @@ class TestRerooting:
         #  0.00┊ 0 1 ┊
         #      0     1
         ts1 = tskit.Tree.generate_balanced(2, arity=2).tree_sequence
-        ts2 = sc2ts.reroot_ts(ts1, new_root=2)
+        ts2 = tree_ops.reroot_ts(ts1, new_root=2)
         self.check_properties(before=ts1, after=ts2, root=2)
         ts1.tables.assert_equals(ts2.tables)
+
+
+class TestDropVestigialRootEdge:
+
+    def test_example(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        e = ts.edge(-1)
+        assert e.left == 0
+        assert e.right == ts.sequence_length
+        assert e.parent == 0
+        assert e.child == 1
+        tsp = tree_ops.drop_vestigial_root_edge(ts)
+        assert tsp.num_edges == ts.num_edges - 1
+        assert tsp.edge(-1) == ts.edge(-2)
+
+    def test_dropped_fails(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        ts = tree_ops.drop_vestigial_root_edge(ts)
+        with pytest.raises(ValueError, match="expected vestigial"):
+            tree_ops.drop_vestigial_root_edge(ts)
+
+    def test_msprime_input_fails(self):
+        ts = msprime.sim_ancestry(2)
+        with pytest.raises(ValueError, match="expected vestigial"):
+            tree_ops.drop_vestigial_root_edge(ts)
+
+
+class TestInsertVestigialRootEdge:
+    def test_example_already_exists(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = tree_ops.insert_vestigial_root_edge(ts)
+        ts.tables.assert_equals(tsp.tables)
+
+    def test_example_drop_insert_recovers(self, fx_ts_map):
+        ts = fx_ts_map["2020-02-13"]
+        tsp = tree_ops.drop_vestigial_root_edge(ts)
+        assert tsp.num_edges == ts.num_edges - 1
+        tsp = tree_ops.insert_vestigial_root_edge(tsp)
+        ts.tables.assert_equals(tsp.tables)
+
+    def test_msprime_input_fails(self):
+        ts = msprime.sim_ancestry(2)
+        with pytest.raises(ValueError, match="Oldest edge"):
+            tree_ops.insert_vestigial_root_edge(ts)

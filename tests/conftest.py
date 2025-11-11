@@ -12,6 +12,7 @@ import sc2ts
 from sc2ts import cli
 from sc2ts import data_import
 from sc2ts import jit
+from sc2ts import inference as si
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def fx_encoded_alignments(fx_alignments_fasta):
 
 def read_metadata_df(tsv_path):
     df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
-    return sc2ts.massage_viridian_metadata(df)
+    return data_import.massage_viridian_metadata(df)
 
 
 @pytest.fixture
@@ -114,8 +115,8 @@ def fx_dataset(tmp_path, fx_data_cache, fx_alignments_fasta, fx_metadata_df):
 def fx_match_db(fx_data_cache):
     cache_path = fx_data_cache / "match.db"
     if not cache_path.exists():
-        sc2ts.MatchDb.initialise(cache_path)
-    return sc2ts.MatchDb(cache_path)
+        si.MatchDb.initialise(cache_path)
+    return si.MatchDb(cache_path)
 
 
 # TODO make this a session fixture cacheing the tree sequences.
@@ -148,7 +149,7 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
     if not cache_path.exists():
         # These sites are masked out in all alignments in the initial data
         # anyway; https://github.com/jeromekelleher/sc2ts/issues/282
-        last_ts = sc2ts.initial_ts([56, 57, 58, 59, 60])
+        last_ts = si.initial_ts([56, 57, 58, 59, 60])
         cache_path = fx_data_cache / "initial.ts"
         last_ts.dump(cache_path)
         for date in dates:
@@ -162,7 +163,7 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
                 }
 
             last_ts = tskit.load(cache_path)
-            last_ts = sc2ts.extend(
+            last_ts = si.extend(
                 dataset=fx_dataset.path,
                 base_ts=cache_path,
                 date=date,
@@ -209,9 +210,9 @@ def make_recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, info):
     alignments = recombinant_alignments(fx_dataset)
 
     date = "2020-02-15"
-    ds = sc2ts.tmp_dataset(tmp_path / "dataset.zarr", alignments, date=date)
-    mdb = sc2ts.MatchDb.initialise(tmp_path / "match.db")
-    ts = sc2ts.extend(
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "dataset.zarr", alignments, date=date)
+    mdb = si.MatchDb.initialise(tmp_path / "match.db")
+    ts = si.extend(
         dataset=ds.path,
         base_ts=info.base_ts,
         date=date,
@@ -243,13 +244,13 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
 
     date = "2020-03-01"
     alignments = {"left": left_a, "right": right_a}
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
-    ts = sc2ts.extend(
+    ts = si.extend(
         dataset=ds.path,
         base_ts=base_ts.path,
         date=date,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+        match_db=si.MatchDb.initialise(tmp_path / "match.db").path,
     )
     samples_strain = ts.metadata["sc2ts"]["samples_strain"]
     assert samples_strain[-2:] == ["left", "right"]
@@ -277,14 +278,14 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
     date = "2020-03-02"
     left = start + 3 + 1
     right = end - 3 + 1
-    ds = sc2ts.tmp_dataset(
+    ds = sc2ts.dataset.tmp_dataset(
         tmp_path / "tmp.zarr", {f"recombinant_{left}:{right}": a}, date=date
     )
-    rts = sc2ts.extend(
+    rts = si.extend(
         dataset=ds.path,
         base_ts=ts_path,
         date=date,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+        match_db=si.MatchDb.initialise(tmp_path / "match.db").path,
     )
     return rts
 
@@ -316,14 +317,14 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
 
     date = "2020-03-01"
     alignments = {"left": left_a, "mid": mid_a, "right": right_a}
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
-    ts = sc2ts.extend(
+    ts = si.extend(
         dataset=ds.path,
         base_ts=base_ts.path,
         date=date,
         hmm_cost_threshold=15,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+        match_db=si.MatchDb.initialise(tmp_path / "match.db").path,
     )
     samples_strain = ts.metadata["sc2ts"]["samples_strain"]
     assert samples_strain[-3:] == ["left", "mid", "right"]
@@ -356,13 +357,13 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     left = start + 3 + 1
     right = end - 3 + 1
     name = f"recombinant_{left}:{mid_start + 1}:{mid_end + 1}:{right}"
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", {name: a}, date=date)
-    rts = sc2ts.extend(
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", {name: a}, date=date)
+    rts = si.extend(
         dataset=ds.path,
         base_ts=ts_path,
         date=date,
         hmm_cost_threshold=15,
-        match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db").path,
+        match_db=si.MatchDb.initialise(tmp_path / "match.db").path,
     )
     assert rts.num_samples == ts.num_samples + 1
     return rts

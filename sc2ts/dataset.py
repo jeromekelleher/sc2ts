@@ -29,43 +29,24 @@ def decode_alignment(a):
     return alleles[a]
 
 
-def massage_viridian_metadata(df):
-    """
-    Takes a pandas dataframe indexex by sample ID and massages it
-    so that the returned dataframe has consistent types:
+DELETION = core.IUPAC_ALLELES.index("-")
 
-    - bool T/F columns encoded as booleans
-    - integer columns encoded with -1 as N/A
-    """
-    # print(df)
-    bool_cols = [name for name in df if name.startswith("In")]
-    N = df.shape[0]
-    for name in bool_cols:
-        data = df[name]
-        assert set(data.unique()) <= set(["F", "T"])
-        a = np.zeros(N, dtype=bool)
-        a[data == "T"] = 1
-        df[name] = a
-    int_fields = [
-        "Genbank_N",
-        "Viridian_N",
-        "Run_count",
-        "Viridian_cons_len",
-        "Viridian_cons_het",
-    ]
-    for name in int_fields:
-        try:
-            data = df[name]
-        except KeyError:
-            continue
-        if str(data.dtype) == "int64":
-            continue
-        a = np.zeros(N, dtype=int)
-        missing = data == "."
-        a[missing] = -1
-        a[~missing] = np.array(data[~missing], dtype=int)
-        df[name] = a
-    return df
+
+def mask_ambiguous(a):
+    a = a.copy()
+    a[a > DELETION] = -1
+    return a
+
+
+def mask_flanking_deletions(a):
+    a = a.copy()
+    non_dels = np.nonzero(a != DELETION)[0]
+    if len(non_dels) == 0:
+        a[:] = -1
+    else:
+        a[: non_dels[0]] = -1
+        a[non_dels[-1] + 1 :] = -1
+    return a
 
 
 def readahead_retrieve(array, blocks):

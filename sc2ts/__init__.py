@@ -1,14 +1,6 @@
 from .core import __version__
 
-
-from .dataset import decode_alignment, Dataset
-
-from .stats import *
-
-# FIXME
+# star imports are fine here as it's just a bunch of constants
 from .core import *
-from .dataset import *
-
-from .inference import *
-from .validation import *
-from .tree_ops import *
+from .dataset import mask_ambiguous, mask_flanking_deletions, decode_alignment, Dataset
+from .stats import node_data, mutation_data

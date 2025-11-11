@@ -15,13 +15,15 @@ import pandas as pd
 import sc2ts
 from sc2ts import info
 from sc2ts import jit
-import util
+from sc2ts import tree_ops
+from sc2ts import validation
+from sc2ts import inference as si
 
 
 @pytest.fixture
 def fx_ts_min_2020_02_15(fx_ts_map):
     ts = fx_ts_map["2020-02-15"]
-    return sc2ts.minimise_metadata(ts)
+    return si.minimise_metadata(ts)
 
 
 def assert_sequences_equal(ts1, ts2):
@@ -37,7 +39,7 @@ def assert_sequences_equal(ts1, ts2):
 
 
 def run_extend(dataset, base_ts, date, match_db, **kwargs):
-    return sc2ts.extend(
+    return si.extend(
         dataset=dataset.path,
         base_ts=base_ts.path,
         date=date,
@@ -67,13 +69,13 @@ def recombinant_example_1(ts_map):
     h = H[0].copy().astype(np.int8)
     h[bp:] = H[1][bp:]
 
-    s = sc2ts.Sample("frankentype", "2020-02-14", haplotype=h)
+    s = si.Sample("frankentype", "2020-02-14", haplotype=h)
     return ts, s
 
 
 def test_get_group_strains(fx_ts_map):
     ts = fx_ts_map["2020-02-13"]
-    groups = sc2ts.get_group_strains(ts)
+    groups = si.get_group_strains(ts)
     assert len(groups) > 0
     for group_id, strains in groups.items():
         m = hashlib.md5()
@@ -85,15 +87,15 @@ def test_get_group_strains(fx_ts_map):
 class TestRecombinantHandling:
 
     def test_get_recombinant_strains_ex1(self, fx_recombinant_example_1):
-        d = sc2ts.get_recombinant_strains(fx_recombinant_example_1)
+        d = si.get_recombinant_strains(fx_recombinant_example_1)
         assert d == {55: ["recombinant_example_1_0", "recombinant_example_1_1"]}
 
     def test_get_recombinant_strains_ex2(self, fx_recombinant_example_2):
-        d = sc2ts.get_recombinant_strains(fx_recombinant_example_2)
+        d = si.get_recombinant_strains(fx_recombinant_example_2)
         assert d == {56: ["recombinant_114:29825"]}
 
     def test_get_recombinant_strains_ex4(self, fx_recombinant_example_4):
-        d = sc2ts.get_recombinant_strains(fx_recombinant_example_4)
+        d = si.get_recombinant_strains(fx_recombinant_example_4)
         assert d == {56: ["recombinant_114:29825"]}
 
     def test_recombinant_example_1(self, fx_recombinant_example_1):
@@ -142,19 +144,19 @@ class TestSolveNumMismatches:
         [(2, 0.0001904), (3, 2.50582e-06), (4, 3.297146e-08), (1000, 0)],
     )
     def test_examples(self, k, expected_rho):
-        mu, rho = sc2ts.solve_num_mismatches(k)
+        mu, rho = si.solve_num_mismatches(k)
         assert mu == 0.0125
         nt.assert_almost_equal(rho, expected_rho)
 
 
 class TestInitialTs:
     def test_reference_sequence(self):
-        ts = sc2ts.initial_ts()
+        ts = si.initial_ts()
         assert ts.reference_sequence.metadata["genbank_id"] == "MN908947"
         assert ts.reference_sequence.data == sc2ts.data_import.get_reference_sequence()
 
     def test_reference_node(self):
-        ts = sc2ts.initial_ts()
+        ts = si.initial_ts()
         assert ts.num_samples == 0
         node = ts.node(1)
         assert node.time == 0
@@ -168,7 +170,7 @@ class TestInitialTs:
 
 class TestMatchTsinfer:
     def match_tsinfer(self, samples, ts, mirror_coordinates=False, **kwargs):
-        sc2ts.inference.match_tsinfer(
+        si.match_tsinfer(
             samples=samples,
             ts=ts,
             num_mismatches=3,
@@ -180,7 +182,7 @@ class TestMatchTsinfer:
 
     @pytest.mark.parametrize("mirror", [False, True])
     def test_match_reference(self, mirror):
-        ts = sc2ts.initial_ts()
+        ts = si.initial_ts()
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
@@ -188,7 +190,7 @@ class TestMatchTsinfer:
         alignment[0] = "A"
         a = jit.encode_alignment(alignment)
         h = a[ts.sites_position.astype(int)]
-        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
+        samples = [si.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -197,7 +199,7 @@ class TestMatchTsinfer:
     @pytest.mark.parametrize("mirror", [False, True])
     @pytest.mark.parametrize("site_id", [0, 10, 19])
     def test_match_reference_one_mutation(self, mirror, site_id):
-        ts = sc2ts.initial_ts()
+        ts = si.initial_ts()
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
@@ -205,7 +207,7 @@ class TestMatchTsinfer:
         alignment[0] = "A"
         a = jit.encode_alignment(alignment)
         h = a[ts.sites_position.astype(int)]
-        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
+        samples = [si.Sample("test", "2020-01-01", haplotype=h)]
         # Mutate to gap
         h[site_id] = sc2ts.IUPAC_ALLELES.index("-")
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
@@ -223,7 +225,7 @@ class TestMatchTsinfer:
     @pytest.mark.parametrize("mirror", [False, True])
     @pytest.mark.parametrize("allele", range(5))
     def test_match_reference_all_same(self, mirror, allele):
-        ts = sc2ts.initial_ts()
+        ts = si.initial_ts()
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
@@ -232,7 +234,7 @@ class TestMatchTsinfer:
         a = jit.encode_alignment(alignment)
         ref = a[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
-        samples = [sc2ts.Sample("test", "2020-01-01", haplotype=h)]
+        samples = [si.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
         assert matches[0].breakpoints == [0, ts.sequence_length]
         assert matches[0].parents == [ts.num_nodes - 1]
@@ -355,7 +357,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map[self.dates[0]],
             date="2020-01-19",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         # 25.00┊ 0 ┊
         #      ┊ ┃ ┊
@@ -400,7 +402,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-01-24"],
             date="2020-01-25",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 4
         assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
@@ -417,7 +419,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map[self.dates[0]],
             date="2020-06-16",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             date_field="Collection_date",
             hmm_cost_threshold=25,
         )
@@ -431,7 +433,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             num_threads=num_threads,
         )
         assert ts.num_samples == 21
@@ -457,7 +459,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             include_samples=include_samples,
         )
         assert ts.metadata["sc2ts"]["cumulative_stats"]["exact_matches"]["pango"] == {
@@ -482,7 +484,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_samples == 21
         node = ts.node(27)
@@ -502,7 +504,7 @@ class TestRealData:
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
             max_daily_samples=max_samples,
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         new_samples = min(4, max_samples)
         assert ts.num_samples == 17 + new_samples
@@ -520,7 +522,7 @@ class TestRealData:
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
             max_missing_sites=max_missing_sites,
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         new_samples = 2
         assert ts.num_samples == 17 + new_samples
@@ -550,7 +552,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             deletions_as_missing=deletions_as_missing,
         )
         u = ts.samples()[ts.metadata["sc2ts"]["samples_strain"].index(strain)]
@@ -580,7 +582,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=base_ts,
             date="2020-02-03",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             deletions_as_missing=deletions_as_missing,
         )
         ts.tables.assert_equals(fx_ts_map["2020-02-03"].tables, ignore_provenance=True)
@@ -625,7 +627,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-01"],
             date="2020-02-02",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
             deletions_as_missing=deletions_as_missing,
         )
         ti = info.TreeInfo(ts, show_progress=False)
@@ -637,7 +639,7 @@ class TestRealData:
             dataset=fx_dataset,
             base_ts=fx_ts_map["2020-02-07"],
             date="2020-02-08",
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
 
         # SRR11597163 has a reversion (4923, 'C')
@@ -818,7 +820,7 @@ class TestRealData:
     @pytest.mark.parametrize("date", dates)
     def test_date_validate(self, fx_ts_map, fx_dataset, date):
         ts = fx_ts_map[date]
-        sc2ts.validate(ts, fx_dataset)
+        validation.validate(ts, fx_dataset)
 
     def test_mutation_type_metadata(self, fx_ts_map):
         ts = fx_ts_map[self.dates[-1]]
@@ -987,14 +989,14 @@ class TestSyntheticAlignments:
             name: fx_dataset.haplotypes[s] for name, s in zip(fake_strains, strains)
         }
         date = "2020-03-01"
-        ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+        ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
         base_ts = fx_ts_map["2020-02-13"]
         ts = run_extend(
             dataset=ds,
             base_ts=base_ts,
             date=date,
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         assert ts.num_nodes == base_ts.num_nodes
 
@@ -1114,10 +1116,12 @@ class TestSyntheticAlignments:
         date = "2020-03-01"
         base_ts = fx_ts_map["2020-02-13"]
         ts = run_extend(
-            dataset=sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date),
+            dataset=sc2ts.dataset.tmp_dataset(
+                tmp_path / "tmp.zarr", alignments, date=date
+            ),
             base_ts=base_ts,
             date=date,
-            match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),
+            match_db=si.MatchDb.initialise(tmp_path / "match.db"),
         )
         # Super high HMM cost means we don't add it in.
         assert ts.num_nodes == base_ts.num_nodes
@@ -1144,10 +1148,10 @@ class TestMatchingDetails:
         ts = fx_ts_map["2020-02-10"]
         ts_path = tmp_path / "ts.trees"
         if drop_vestigial:
-            ts = sc2ts.drop_vestigial_root_edge(ts)
+            ts = tree_ops.drop_vestigial_root_edge(ts)
         ts.dump(ts_path)
 
-        runs = sc2ts.run_hmm(
+        runs = si.run_hmm(
             fx_dataset.path,
             ts_path,
             [strain],
@@ -1180,7 +1184,7 @@ class TestMatchingDetails:
         num_mismatches,
     ):
         ts = fx_ts_map["2020-02-10"]
-        runs = sc2ts.run_hmm(
+        runs = si.run_hmm(
             fx_dataset.path,
             ts.path,
             [strain],
@@ -1205,7 +1209,7 @@ class TestMatchingDetails:
     ):
         strain = "SRR11597164"
         ts = fx_ts_map["2020-02-01"]
-        runs = sc2ts.run_hmm(
+        runs = si.run_hmm(
             fx_dataset.path,
             ts.path,
             [strain],
@@ -1226,7 +1230,7 @@ class TestMatchingDetails:
 
     def test_match_recombinant(self, fx_ts_map):
         ts, s = recombinant_example_1(fx_ts_map)
-        sc2ts.match_tsinfer(
+        si.match_tsinfer(
             samples=[s],
             ts=ts,
             num_mismatches=2,
@@ -1254,7 +1258,7 @@ class TestRunHmm:
         strain = "SRR11597164"
         ts = fx_ts_map["2020-02-01"]
         with pytest.raises(ValueError, match="Direction must be one of"):
-            sc2ts.run_hmm(
+            si.run_hmm(
                 fx_dataset.path,
                 ts.path,
                 [strain],
@@ -1264,7 +1268,7 @@ class TestRunHmm:
 
     def test_no_strains(self, fx_dataset, fx_ts_map):
         ts = fx_ts_map["2020-02-01"]
-        assert len(sc2ts.run_hmm(fx_dataset.path, ts.path, [], num_mismatches=3)) == 0
+        assert len(si.run_hmm(fx_dataset.path, ts.path, [], num_mismatches=3)) == 0
 
 
 class TestCharacteriseRecombinants:
@@ -1277,7 +1281,7 @@ class TestCharacteriseRecombinants:
         left_parent = 31
         right_parent = 46
 
-        sc2ts.match_tsinfer(
+        si.match_tsinfer(
             samples=[s],
             ts=ts,
             num_mismatches=2,
@@ -1293,10 +1297,10 @@ class TestCharacteriseRecombinants:
         assert m.path[1].left == interval_right
         assert m.path[1].right == ts.sequence_length
 
-        sc2ts.characterise_recombinants(ts, [s])
+        si.characterise_recombinants(ts, [s])
         assert s.breakpoint_intervals == [(interval_left, interval_right)]
 
-        sc2ts.match_tsinfer(
+        si.match_tsinfer(
             samples=[s],
             ts=ts,
             num_mismatches=2,
@@ -1327,21 +1331,21 @@ class TestCharacteriseRecombinants:
         tables.sort()
         base_ts = tables.tree_sequence()
 
-        s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
-        sc2ts.match_tsinfer(
+        s = si.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
+        si.match_tsinfer(
             samples=[s],
             ts=base_ts,
             num_mismatches=2,
             mismatch_threshold=10,
             mirror_coordinates=False,
         )
-        sc2ts.characterise_recombinants(ts, [s])
+        si.characterise_recombinants(ts, [s])
         m = s.hmm_match
         assert m.parents == [53, 54, 55]
         assert m.breakpoints == [0, 15001, 29825, 29904]
         assert s.breakpoint_intervals == [(114, 15001), (15010, 29825)]
         # Verify that these breakpoints correspond to the reverse-direction HMM
-        sc2ts.match_tsinfer(
+        si.match_tsinfer(
             samples=[s],
             ts=base_ts,
             num_mismatches=2,
@@ -1366,8 +1370,8 @@ class TestCharacteriseRecombinants:
         tables.sort()
         base_ts = tables.tree_sequence()
 
-        s = sc2ts.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
-        sc2ts.match_tsinfer(
+        s = si.Sample("3way", "2020-02-14", haplotype=h.astype(np.int8))
+        si.match_tsinfer(
             samples=[s],
             ts=base_ts,
             num_mismatches=2,
@@ -1377,7 +1381,7 @@ class TestCharacteriseRecombinants:
         # Force back to the same parent so we can check that we're robust to
         # same parent
         s.hmm_match.path[0] = dataclasses.replace(s.hmm_match.path[0], parent=55)
-        sc2ts.characterise_recombinants(ts, [s])
+        si.characterise_recombinants(ts, [s])
 
         m = s.hmm_match
         assert m.parents == [55, 54, 55]
@@ -1413,13 +1417,13 @@ class TestExtractHaplotypes:
 
         tables.mutations.add_row(site=0, node=3, derived_state="T")
         ts = tables.tree_sequence()
-        nt.assert_array_equal(sc2ts.extract_haplotypes(ts, samples), result)
+        nt.assert_array_equal(si.extract_haplotypes(ts, samples), result)
 
 
 @pytest.fixture
 def fx_ts_exact_matches(fx_ts_map, fx_match_db):
     ts = fx_ts_map["2020-02-13"]
-    tsp = sc2ts.append_exact_matches(ts, fx_match_db)
+    tsp = si.append_exact_matches(ts, fx_match_db)
     return tsp
 
 
@@ -1427,7 +1431,7 @@ class TestMapParsimony:
     def test_example(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         sites = [1547, 3951, 3952, 3953]
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
+        result = si.map_parsimony(ts, fx_dataset, sites)
         report = result.report
         assert list(report.site.values) == sites
         assert np.all(report.old == 1)
@@ -1443,7 +1447,7 @@ class TestMapParsimony:
     def test_example_minimised_md(self, fx_ts_min_2020_02_15, fx_dataset):
         ts = fx_ts_min_2020_02_15
         sites = [1547, 3951, 3952, 3953]
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
+        result = si.map_parsimony(ts, fx_dataset, sites)
         report = result.report
         assert list(report.site.values) == sites
         assert np.all(report.old == 1)
@@ -1459,7 +1463,7 @@ class TestMapParsimony:
     def test_example_minimised_zero_sites(self, fx_ts_min_2020_02_15, fx_dataset):
         ts = fx_ts_min_2020_02_15
         sites = []
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
+        result = si.map_parsimony(ts, fx_dataset, sites)
         report = result.report
         assert report.shape[0] == 0
         ts.tables.assert_equals(
@@ -1468,7 +1472,7 @@ class TestMapParsimony:
 
     def test_empty(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        result = sc2ts.map_parsimony(ts, fx_dataset, [])
+        result = si.map_parsimony(ts, fx_dataset, [])
         ts.tables.assert_equals(
             result.tree_sequence.tables, ignore_metadata=True, ignore_provenance=True
         )
@@ -1476,7 +1480,7 @@ class TestMapParsimony:
 
     def test_empty_all_sites(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
-        result = sc2ts.map_parsimony(ts, fx_dataset)
+        result = si.map_parsimony(ts, fx_dataset)
         assert result.report.shape[0] == ts.num_sites
 
     def test_missing_sites(self, fx_ts_map, fx_dataset):
@@ -1484,7 +1488,7 @@ class TestMapParsimony:
         missing_positions = [56, 57, 58, 59, 60]
         assert len(set(missing_positions) & set(ts.sites_position.astype(int))) == 0
 
-        result = sc2ts.map_parsimony(ts, fx_dataset, missing_positions)
+        result = si.map_parsimony(ts, fx_dataset, missing_positions)
         assert (
             len(
                 set(missing_positions)
@@ -1503,7 +1507,7 @@ class TestMapParsimony:
         assert len(site.mutations) == 1
         ts_del = ts.delete_sites([site.id])
 
-        result = sc2ts.map_parsimony(ts_del, fx_dataset, [site.position])
+        result = si.map_parsimony(ts_del, fx_dataset, [site.position])
         new_site = result.tree_sequence.site(position=site.position)
         assert new_site.ancestral_state == site.ancestral_state
         assert new_site.position == site.position
@@ -1520,8 +1524,8 @@ class TestMapParsimony:
     def test_example_exact_matches(self, fx_ts_exact_matches, fx_dataset):
         ts = fx_ts_exact_matches
         sites = [1547, 3951, 3952, 3953]
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
+        result = si.map_parsimony(ts, fx_dataset, sites)
+        result = si.map_parsimony(ts, fx_dataset, sites)
         report = result.report
         assert list(report.site.values) == sites
         assert np.all(report.old == 1)
@@ -1531,13 +1535,15 @@ class TestMapParsimony:
     def test_validate(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         sites = [1547, 3951, 3952, 3953]
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
-        sc2ts.validate(result.tree_sequence, fx_dataset, deletions_as_missing=False)
+        result = si.map_parsimony(ts, fx_dataset, sites)
+        validation.validate(
+            result.tree_sequence, fx_dataset, deletions_as_missing=False
+        )
 
     def test_provenance(self, fx_ts_map, fx_dataset):
         ts = fx_ts_map["2020-02-13"]
         sites = [1547, 3951, 3952, 3953]
-        result = sc2ts.map_parsimony(ts, fx_dataset, sites)
+        result = si.map_parsimony(ts, fx_dataset, sites)
         tsp = result.tree_sequence
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
@@ -1550,7 +1556,7 @@ class TestMapParsimony:
 
 class TestAppendExactMatches:
     def test_validate(self, fx_ts_exact_matches, fx_dataset):
-        sc2ts.validate(fx_ts_exact_matches, fx_dataset)
+        validation.validate(fx_ts_exact_matches, fx_dataset)
 
     def test_example_properties(self, fx_ts_exact_matches):
         ts = fx_ts_exact_matches
@@ -1598,7 +1604,7 @@ class TestAppendExactMatches:
 
     def test_provenance(self, fx_ts_map, fx_match_db):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.append_exact_matches(ts, fx_match_db)
+        tsp = si.append_exact_matches(ts, fx_match_db)
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
         assert json.loads(prov.record)["parameters"] == {
@@ -1611,14 +1617,14 @@ class TestMinimiseMetadata:
 
     def test_equivalent(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts)
+        tsp = si.minimise_metadata(ts)
         ts.tables.assert_equals(
             tsp.tables, ignore_metadata=True, ignore_provenance=True
         )
 
     def test_properties(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tables = sc2ts.minimise_metadata(ts).dump_tables()
+        tables = si.minimise_metadata(ts).dump_tables()
         assert tables.metadata == {"time_zero_date": "2020-02-13"}
         assert len(tables.sites.metadata) == 0
         assert len(tables.mutations.metadata) == 0
@@ -1626,7 +1632,7 @@ class TestMinimiseMetadata:
     @pytest.mark.parametrize("pango_field", ["Viridian_pangolin", "Viridian_scorpio"])
     def test_fields(self, fx_ts_map, pango_field):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts, {"strain": "sample_id", pango_field: "pango"})
+        tsp = si.minimise_metadata(ts, {"strain": "sample_id", pango_field: "pango"})
         for u in tsp.samples():
             md_old = ts.node(u).metadata
             md_new = tsp.node(u).metadata
@@ -1638,7 +1644,7 @@ class TestMinimiseMetadata:
 
     def test_dataframe_access(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(
+        tsp = si.minimise_metadata(
             ts, {"strain": "sample_id", "Viridian_pangolin": "pango"}
         )
         data = tsp.nodes_metadata
@@ -1656,7 +1662,7 @@ class TestMinimiseMetadata:
 
     def test_provenance(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.minimise_metadata(ts)
+        tsp = si.minimise_metadata(ts)
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
         assert json.loads(prov.record)["parameters"] == {
@@ -1669,22 +1675,22 @@ class TestPushUpRecombinantMutations:
 
     def test_no_recombinants(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        tsp = si.push_up_unary_recombinant_mutations(ts)
         ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1):
         ts = fx_recombinant_example_1
-        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        tsp = si.push_up_unary_recombinant_mutations(ts)
         ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_2(self, fx_recombinant_example_2):
         ts = fx_recombinant_example_2
-        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        tsp = si.push_up_unary_recombinant_mutations(ts)
         ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_3(self, fx_recombinant_example_3):
         ts = fx_recombinant_example_3
-        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        tsp = si.push_up_unary_recombinant_mutations(ts)
         ts.tables.assert_equals(tsp.tables, ignore_provenance=True)
 
     def test_recombinant_example_4(self, fx_recombinant_example_4):
@@ -1692,13 +1698,13 @@ class TestPushUpRecombinantMutations:
         site = 2500
         mut = ts.site(site).mutations[0]
         assert mut.node == 55
-        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        tsp = si.push_up_unary_recombinant_mutations(ts)
         mut = tsp.site(site).mutations[0]
         assert mut.node == 56
 
     def test_provenance(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.push_up_unary_recombinant_mutations(ts)
+        tsp = si.push_up_unary_recombinant_mutations(ts)
         assert tsp.num_provenances == ts.num_provenances + 1
         prov = tsp.provenance(-1)
         assert json.loads(prov.record)["parameters"] == {
@@ -1706,58 +1712,14 @@ class TestPushUpRecombinantMutations:
         }
 
 
-class TestDropVestigialRootEdge:
-
-    def test_example(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        e = ts.edge(-1)
-        assert e.left == 0
-        assert e.right == ts.sequence_length
-        assert e.parent == 0
-        assert e.child == 1
-        tsp = sc2ts.drop_vestigial_root_edge(ts)
-        assert tsp.num_edges == ts.num_edges - 1
-        assert tsp.edge(-1) == ts.edge(-2)
-
-    def test_dropped_fails(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        ts = sc2ts.drop_vestigial_root_edge(ts)
-        with pytest.raises(ValueError, match="expected vestigial"):
-            sc2ts.drop_vestigial_root_edge(ts)
-
-    def test_msprime_input_fails(self):
-        ts = msprime.sim_ancestry(2)
-        with pytest.raises(ValueError, match="expected vestigial"):
-            sc2ts.drop_vestigial_root_edge(ts)
-
-
-class TestInsertVestigialRootEdge:
-    def test_example_already_exists(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.insert_vestigial_root_edge(ts)
-        ts.tables.assert_equals(tsp.tables)
-
-    def test_example_drop_insert_recovers(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.drop_vestigial_root_edge(ts)
-        assert tsp.num_edges == ts.num_edges - 1
-        tsp = sc2ts.insert_vestigial_root_edge(tsp)
-        ts.tables.assert_equals(tsp.tables)
-
-    def test_msprime_input_fails(self):
-        ts = msprime.sim_ancestry(2)
-        with pytest.raises(ValueError, match="Oldest edge"):
-            sc2ts.insert_vestigial_root_edge(ts)
-
-
 class TestRematchRecombinantJsonRoundTrip:
     def assert_round_trip(self, result):
-        assert isinstance(result, sc2ts.RematchRecombinantsResult)
+        assert isinstance(result, si.RematchRecombinantsResult)
         d = result.asdict()
-        rt = sc2ts.RematchRecombinantsResult.fromdict(d)
+        rt = si.RematchRecombinantsResult.fromdict(d)
         assert rt == result
         d2 = json.loads(json.dumps(d))
-        rt = sc2ts.RematchRecombinantsResult.fromdict(d2)
+        rt = si.RematchRecombinantsResult.fromdict(d2)
         assert rt == result
 
     def test_ba2_recombinant(self):
@@ -1769,7 +1731,7 @@ class TestRematchRecombinantJsonRoundTrip:
             update_sample_flags=False,
             filter_sites=False,
         )
-        result = sc2ts.rematch_recombinant(base_ts, ts, re_node, num_mismatches=4)
+        result = si.rematch_recombinant(base_ts, ts, re_node, num_mismatches=4)
         self.assert_round_trip(result)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1_info):
@@ -1777,31 +1739,31 @@ class TestRematchRecombinantJsonRoundTrip:
         base_ts = tskit.load(info.base_ts)
         recomb_ts = tskit.load(info.recomb_ts)
 
-        result = sc2ts.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
+        result = si.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
         self.assert_round_trip(result)
 
 
 class TestRematchRecombinantLbsJsonRoundTrip:
     def assert_round_trip(self, result):
-        assert isinstance(result, sc2ts.RematchRecombinantsLbsResult)
+        assert isinstance(result, si.RematchRecombinantsLbsResult)
         d = result.asdict()
-        rt = sc2ts.RematchRecombinantsLbsResult.fromdict(d)
+        rt = si.RematchRecombinantsLbsResult.fromdict(d)
         assert rt == result
         d2 = json.loads(json.dumps(d))
-        rt = sc2ts.RematchRecombinantsLbsResult.fromdict(d2)
+        rt = si.RematchRecombinantsLbsResult.fromdict(d2)
         assert rt == result
 
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
         re_node = 15
-        result = sc2ts.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
+        result = si.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
         self.assert_round_trip(result)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1_info):
         info = fx_recombinant_example_1_info
         recomb_ts = tskit.load(info.recomb_ts)
 
-        result = sc2ts.rematch_recombinant_lbs(recomb_ts, 55, num_mismatches=2)
+        result = si.rematch_recombinant_lbs(recomb_ts, 55, num_mismatches=2)
         self.assert_round_trip(result)
 
 
@@ -1811,14 +1773,14 @@ class TestRematchRecombinants:
         base_ts = tskit.load(info.base_ts)
         recomb_ts = tskit.load(info.recomb_ts)
         with pytest.raises(ValueError, match="not a recombinant"):
-            sc2ts.rematch_recombinant(base_ts, recomb_ts, 0, num_mismatches=2)
+            si.rematch_recombinant(base_ts, recomb_ts, 0, num_mismatches=2)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1_info):
         info = fx_recombinant_example_1_info
         base_ts = tskit.load(info.base_ts)
         recomb_ts = tskit.load(info.recomb_ts)
 
-        result = sc2ts.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
+        result = si.rematch_recombinant(base_ts, recomb_ts, 55, num_mismatches=2)
         assert result.recombinant == 55
         assert result.original_match.parents == [31, 46]
         assert len(result.original_match.mutations) == 1
@@ -1839,7 +1801,7 @@ class TestRematchRecombinants:
             filter_sites=False,
         )
 
-        result = sc2ts.rematch_recombinant(base_ts, ts, re_node, num_mismatches=4)
+        result = si.rematch_recombinant(base_ts, ts, re_node, num_mismatches=4)
         assert result.recombinant == re_node
         assert result.original_match.parents == [8, 14]
         assert len(result.original_match.mutations) == 31
@@ -1855,14 +1817,14 @@ class TestRematchRecombinantsLbs:
         base_ts = tskit.load(info.base_ts)
         recomb_ts = tskit.load(info.recomb_ts)
         with pytest.raises(ValueError, match="not a recombinant"):
-            sc2ts.rematch_recombinant_lbs(recomb_ts, 0, num_mismatches=2)
+            si.rematch_recombinant_lbs(recomb_ts, 0, num_mismatches=2)
 
     def test_recombinant_example_1(self, fx_recombinant_example_1_info):
         info = fx_recombinant_example_1_info
         base_ts = tskit.load(info.base_ts)
         recomb_ts = tskit.load(info.recomb_ts)
 
-        result = sc2ts.rematch_recombinant_lbs(recomb_ts, 55, num_mismatches=2)
+        result = si.rematch_recombinant_lbs(recomb_ts, 55, num_mismatches=2)
         assert result.recombinant == 55
         assert result.original_match.parents == [31, 46]
         assert len(result.original_match.mutations) == 1
@@ -1877,14 +1839,14 @@ class TestRematchRecombinantsLbs:
         assert lbs.asdict() == result.asdict()["long_branch_split"]
 
         with pytest.raises(ValueError, match="Proposed rewire path is recomb"):
-            sc2ts.rewire_long_branch_splits(recomb_ts, [result])
+            si.rewire_long_branch_splits(recomb_ts, [result])
 
     def test_ba2_recombinant(self):
         ts = tskit.load("tests/data/ba2_recomb.ts")
 
         re_node = 15
 
-        result = sc2ts.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
+        result = si.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
         assert result.recombinant == re_node
         assert result.original_match.parents == [8, 14]
         assert len(result.original_match.mutations) == 31
@@ -1901,7 +1863,7 @@ class TestRematchRecombinantsLbs:
         assert lbs.new_node == ts.num_nodes
         assert lbs.target_node == lbs_node
 
-        rewired_ts = sc2ts.rewire_long_branch_splits(ts, [result])
+        rewired_ts = si.rewire_long_branch_splits(ts, [result])
         assert rewired_ts.num_mutations == ts.num_mutations - 5
         assert rewired_ts.num_nodes == ts.num_nodes + 1
         assert rewired_ts.num_trees == 1

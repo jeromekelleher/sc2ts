@@ -24,7 +24,10 @@ import pandas as pd
 import sc2ts
 from . import core
 from . import data_import
+from . import tree_ops
 from . import jit
+from . import validation
+from . import inference as si  # sc2ts inference
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +189,7 @@ def import_metadata(dataset, metadata, field_descriptions, viridian, verbose):
     df_in = pd.read_csv(metadata, sep="\t", dtype=dtype)
     index_field = "Run"
     if viridian:
-        df_in = sc2ts.massage_viridian_metadata(df_in)
+        df_in = data_import.massage_viridian_metadata(df_in)
     df = df_in.set_index(index_field)
     d = {}
     if field_descriptions is not None:
@@ -232,7 +235,7 @@ def info_matches(match_db, all_matches, verbose):
     Information about matches in the MatchDB
     """
     setup_logging(verbose)
-    with sc2ts.MatchDb(match_db) as db:
+    with si.MatchDb(match_db) as db:
         if all_matches:
             list_all_matches(db)
         else:
@@ -261,7 +264,7 @@ def info_dataset(dataset, verbose, zarr_details):
 def _run_extend(out_path, verbose, log_file, **params):
     date = params["date"]
     setup_logging(verbose, log_file, date=date)
-    ts = sc2ts.extend(show_progress=True, **params)
+    ts = si.extend(show_progress=True, **params)
     ts.dump(out_path)
     resource_usage = summarise_usage(ts)
     logger.info(resource_usage)
@@ -317,15 +320,15 @@ def infer(config_file, start, stop, force):
                 f"Do you want to overwrite MatchDB at {match_db}",
                 abort=True,
             )
-        init_ts = sc2ts.initial_ts(exclude_sites)
-        sc2ts.MatchDb.initialise(match_db)
+        init_ts = si.initial_ts(exclude_sites)
+        si.MatchDb.initialise(match_db)
         base_ts = results_dir / f"{run_id}_init.ts"
         init_ts.dump(base_ts)
         start = "2000"
     else:
         base_ts = find_previous_date_path(start, ts_file_pattern)
         print(f"Starting from {base_ts}")
-        with sc2ts.MatchDb(match_db) as mdb:
+        with si.MatchDb(match_db) as mdb:
             newer_matches = mdb.count_newer(start)
             if newer_matches > 0:
                 if not force:
@@ -430,9 +433,9 @@ def validate(
         dataset, date_field=date_field, chunk_cache_size=chunk_cache_size
     )
     if genotypes:
-        sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
+        validation.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:
-        sc2ts.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
+        validation.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
 
 
 @click.command()
@@ -481,7 +484,7 @@ def run_hmm(
     """
     setup_logging(verbose, log_file)
 
-    runs = sc2ts.run_hmm(
+    runs = si.run_hmm(
         dataset,
         ts_path,
         strains=strains,
@@ -517,14 +520,14 @@ def postprocess(
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
     if match_db is not None:
-        with sc2ts.MatchDb(match_db) as db:
-            ts = sc2ts.append_exact_matches(ts, db, show_progress=progress)
+        with si.MatchDb(match_db) as db:
+            ts = si.append_exact_matches(ts, db, show_progress=progress)
 
-    ts = sc2ts.push_up_unary_recombinant_mutations(ts)
+    ts = si.push_up_unary_recombinant_mutations(ts)
     # See if we can remove some of the reversions in a straightforward way.
-    mutations_is_reversion = sc2ts.find_reversions(ts)
+    mutations_is_reversion = si.find_reversions(ts)
     mutations_before = ts.num_mutations
-    ts = sc2ts.push_up_reversions(
+    ts = tree_ops.push_up_reversions(
         ts, ts.mutations_node[mutations_is_reversion], date=None
     )
     ts.dump(ts_out)
@@ -569,9 +572,9 @@ def minimise_metadata(
         field_mapping = dict(field_mapping)
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
-    ts = sc2ts.minimise_metadata(ts, field_mapping, show_progress=progress)
+    ts = si.minimise_metadata(ts, field_mapping, show_progress=progress)
     if drop_vestigial_root:
-        ts = sc2ts.drop_vestigial_root_edge(ts)
+        ts = tree_ops.drop_vestigial_root_edge(ts)
     ts.dump(ts_out)
 
 
@@ -602,7 +605,7 @@ def map_parsimony(
     ts = tszip.load(ts_in)
     if sites is not None:
         sites = np.loadtxt(sites, dtype=int)
-    result = sc2ts.map_parsimony(ts, ds, sites, show_progress=progress)
+    result = si.map_parsimony(ts, ds, sites, show_progress=progress)
     if report is not None:
         result.report.to_csv(report)
     result.tree_sequence.dump(ts_out)
@@ -630,7 +633,7 @@ def apply_node_parsimony(
     setup_logging(verbose, log_file)
     ts = tszip.load(ts_in)
 
-    result = sc2ts.apply_node_parsimony_heuristics(ts, show_progress=progress)
+    result = si.apply_node_parsimony_heuristics(ts, show_progress=progress)
     if report is not None:
         result.report.to_csv(report)
     result.tree_sequence.dump(ts_out)
@@ -667,7 +670,7 @@ def rematch_recombinant(
 
     base_ts = tszip.load(base_ts)
     recomb_ts = tszip.load(recomb_ts)
-    result = sc2ts.rematch_recombinant(
+    result = si.rematch_recombinant(
         base_ts, recomb_ts, node_id, num_mismatches=num_mismatches
     )
     print(json.dumps(result.asdict()))
@@ -687,7 +690,7 @@ def rematch_recombinant_lbs(ts, node_id, num_mismatches, verbose, log_file):
     setup_logging(verbose, log_file)
 
     ts = tszip.load(ts)
-    result = sc2ts.rematch_recombinant_lbs(ts, node_id, num_mismatches=num_mismatches)
+    result = si.rematch_recombinant_lbs(ts, node_id, num_mismatches=num_mismatches)
     print(json.dumps(result.asdict()))
 
 
@@ -709,7 +712,7 @@ def rewire_lbs(ts_in, rematch_data, ts_out, verbose, log_file):
     records = []
     with open(rematch_data) as f:
         for d in json.load(f):
-            records.append(sc2ts.RematchRecombinantsLbsResult.fromdict(d))
+            records.append(si.RematchRecombinantsLbsResult.fromdict(d))
 
     recombs_to_rewire = []
     rewire_existing = 0
@@ -729,8 +732,8 @@ def rewire_lbs(ts_in, rematch_data, ts_out, verbose, log_file):
         f"(existing={rewire_existing} lbs={rewire_lbs})"
     )
 
-    ts = sc2ts.push_up_unary_recombinant_mutations(ts)
-    ts = sc2ts.rewire_long_branch_splits(ts, recombs_to_rewire)
+    ts = si.push_up_unary_recombinant_mutations(ts)
+    ts = si.rewire_long_branch_splits(ts, recombs_to_rewire)
     ts.dump(ts_out)
 
 
