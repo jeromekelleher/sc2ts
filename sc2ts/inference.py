@@ -474,23 +474,6 @@ def check_base_ts(ts):
     return sc2ts_md["date"]
 
 
-def mask_ambiguous(a):
-    a = a.copy()
-    a[a > DELETION] = -1
-    return a
-
-
-def mask_flanking_deletions(a):
-    a = a.copy()
-    non_dels = np.nonzero(a != DELETION)[0]
-    if len(non_dels) == 0:
-        a[:] = -1
-    else:
-        a[: non_dels[0]] = -1
-        a[non_dels[-1] + 1 :] = -1
-    return a
-
-
 def preprocess(
     strains,
     dataset,
@@ -507,12 +490,12 @@ def preprocess(
     bar = get_progress(strains, progress_title, "preprocess", show_progress)
     for strain in bar:
         alignment = dataset.haplotypes[strain]
-        alignment = mask_flanking_deletions(alignment)
+        alignment = _dataset.mask_flanking_deletions(alignment)
         sample = Sample(strain)
         # No padding zero site in the alignment
         a = alignment[keep_sites - 1]
         # Do we need to do this here? Would be easier to do later, maybe
-        sample.haplotype = mask_ambiguous(a)
+        sample.haplotype = _dataset.mask_ambiguous(a)
         counts = collections.Counter(a)
         sample.alignment_composition = {
             alleles[k]: count for k, count in counts.items()
@@ -2424,7 +2407,7 @@ def map_parsimony(ts, ds, sites=None, *, show_progress=False):
             site = tables.sites[site_id]
             old_mutations = set()
 
-        g = mask_ambiguous(var.genotypes)
+        g = _dataset.mask_ambiguous(var.genotypes)
 
         if np.all(g == -1):
             mutations = []

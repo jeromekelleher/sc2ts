@@ -13,6 +13,7 @@ import pandas as pd
 import sc2ts
 from sc2ts import __main__ as main
 from sc2ts import cli
+from sc2ts import inference as si
 
 
 class TestImportAlignments:
@@ -202,10 +203,10 @@ class TestInfer:
         assert result.exit_code == 0
         init_ts_path = tmp_path / "results" / "test" / "test_init.ts"
         init_ts = tskit.load(init_ts_path)
-        other_ts = sc2ts.initial_ts()
+        other_ts = si.initial_ts()
         other_ts.tables.assert_equals(init_ts.tables)
         match_db_path = tmp_path / "matches" / "test.matches.db"
-        match_db = sc2ts.MatchDb(match_db_path)
+        match_db = si.MatchDb(match_db_path)
         assert len(match_db) == 0
 
     @pytest.mark.parametrize("problematic", [[100], [100, 200]])
@@ -220,10 +221,10 @@ class TestInfer:
         assert result.exit_code == 0
         init_ts_path = tmp_path / "results" / "test" / "test_init.ts"
         init_ts = tskit.load(init_ts_path)
-        other_ts = sc2ts.initial_ts(problematic_sites=problematic)
+        other_ts = si.initial_ts(problematic_sites=problematic)
         other_ts.tables.assert_equals(init_ts.tables)
         match_db_path = tmp_path / "matches" / "test.matches.db"
-        match_db = sc2ts.MatchDb(match_db_path)
+        match_db = si.MatchDb(match_db_path)
         assert len(match_db) == 0
 
     def test_first_day(self, tmp_path, fx_ts_map, fx_dataset):
@@ -576,7 +577,7 @@ class TestRewireLbs:
         ts_path = "tests/data/ba2_recomb.ts"
         ts = tskit.load(ts_path)
         re_node = 15
-        result = sc2ts.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
+        result = si.rematch_recombinant_lbs(ts, re_node, num_mismatches=4)
         json_path = tmp_path / "data.json"
         out_path = tmp_path / "out.trees"
         with open(json_path, "w") as f:
