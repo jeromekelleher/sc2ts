@@ -1,0 +1,47 @@
+dataset="viridian_mafft_2024-10-14_v1.vcz.zip"
+date_field="Date_tree"
+
+run_id="ex1"
+# Configure where the result files are stored. For simplicity
+# we put them all in the "example_inference" directory.
+# It can be good idea to store the match_db on fast storage
+# as it gets updated and synced a lot, which can be slow
+# on shared file systems
+results_dir = "example_inference/"
+log_dir = "example_inference/"
+matches_dir= "example_inference/"
+# This is full debug output, which is verbose (but useful!)
+log_level = 2
+
+# Dates to exclude from inference. This one is a large outlier in terms of the 
+# numbers of samples, and enriched for incorrectly assigned dates.
+exclude_dates = ["2020-12-31"]
+
+# The set of site positions to mask during inference (list of integers).
+# Real inferences will almost certainly want to mask some sites, although 
+# it's not clear which sites exactly.
+exclude_sites = []
+
+[extend_parameters]
+num_mismatches=4
+hmm_cost_threshold=7
+max_missing_sites=500
+deletions_as_missing=true
+# max_daily_samples=1000
+
+# Knobs for tuning retro group insertion
+min_group_size=10
+min_root_mutations=2
+max_recurrent_mutations=2
+max_mutations_per_sample=5
+retrospective_window=7
+
+num_threads=-1
+memory_limit=32
+
+include_samples=[]
+
+[[override]]
+start = "2020-01-01"
+stop = "2020-03-01"
+parameters.max_missing_sites = 10000
