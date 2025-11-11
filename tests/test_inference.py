@@ -1144,7 +1144,7 @@ class TestMatchingDetails:
         ts = fx_ts_map["2020-02-10"]
         ts_path = tmp_path / "ts.trees"
         if drop_vestigial:
-            ts = sc2ts.drop_vestigial_root_edge(ts)
+            ts = tree_ops.drop_vestigial_root_edge(ts)
         ts.dump(ts_path)
 
         runs = sc2ts.run_hmm(
@@ -1706,48 +1706,6 @@ class TestPushUpRecombinantMutations:
         }
 
 
-class TestDropVestigialRootEdge:
-
-    def test_example(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        e = ts.edge(-1)
-        assert e.left == 0
-        assert e.right == ts.sequence_length
-        assert e.parent == 0
-        assert e.child == 1
-        tsp = sc2ts.drop_vestigial_root_edge(ts)
-        assert tsp.num_edges == ts.num_edges - 1
-        assert tsp.edge(-1) == ts.edge(-2)
-
-    def test_dropped_fails(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        ts = sc2ts.drop_vestigial_root_edge(ts)
-        with pytest.raises(ValueError, match="expected vestigial"):
-            sc2ts.drop_vestigial_root_edge(ts)
-
-    def test_msprime_input_fails(self):
-        ts = msprime.sim_ancestry(2)
-        with pytest.raises(ValueError, match="expected vestigial"):
-            sc2ts.drop_vestigial_root_edge(ts)
-
-
-class TestInsertVestigialRootEdge:
-    def test_example_already_exists(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.insert_vestigial_root_edge(ts)
-        ts.tables.assert_equals(tsp.tables)
-
-    def test_example_drop_insert_recovers(self, fx_ts_map):
-        ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.drop_vestigial_root_edge(ts)
-        assert tsp.num_edges == ts.num_edges - 1
-        tsp = sc2ts.insert_vestigial_root_edge(tsp)
-        ts.tables.assert_equals(tsp.tables)
-
-    def test_msprime_input_fails(self):
-        ts = msprime.sim_ancestry(2)
-        with pytest.raises(ValueError, match="Oldest edge"):
-            sc2ts.insert_vestigial_root_edge(ts)
 
 
 class TestRematchRecombinantJsonRoundTrip:

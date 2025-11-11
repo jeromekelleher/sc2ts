@@ -1,7 +1,10 @@
 """
-Miscellanous tree operations we need for sc2ts inference.
+Miscellanous tree operations we need for sc2ts inference. These are all simple functions
+with well defined inputs and outputs in terms of tskit tree sequences, or related
+objects.
 """
 
+import time
 import collections
 import logging
 import dataclasses
@@ -640,5 +643,38 @@ def split_branch(ts, node, mutations):
     # and squash these later.
     tables.edges.squash()
     tables.sort()
+    tables.build_index()
+    return tables.tree_sequence()
+
+
+
+
+def drop_vestigial_root_edge(ts):
+    """
+    Drop the edge joining 1 (the reference) to the vestigial root, needed
+    for matching in the tsinfer engine.
+    """
+    if not (ts.edges_parent[-1] == 0 and ts.edges_child[-1] == 1):
+        raise ValueError("Input does not have expected vestigial root edge")
+    tables = ts.dump_tables()
+    tables.edges.truncate(ts.num_edges - 1)
+    tables.build_index()
+    return tables.tree_sequence()
+
+
+def insert_vestigial_root_edge(ts):
+    """
+    Insert an edge between node 0 and 1 at the end of the edge table, if
+    it doesn't exist.
+    """
+    e = ts.edge(-1)
+    if e.parent == 0 and e.child == 1 and e.left == 0 and e.right == ts.sequence_length:
+        # We already have a vestigial root edge so return
+        return ts
+    if e.parent != 1 or e.left != 0 or e.right != ts.sequence_length:
+        raise ValueError("Oldest edge not of the expected form")
+
+    tables = ts.dump_tables()
+    tables.edges.add_row(left=0, right=ts.sequence_length, parent=0, child=1)
     tables.build_index()
     return tables.tree_sequence()

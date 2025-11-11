@@ -24,6 +24,7 @@ import pandas as pd
 import sc2ts
 from . import core
 from . import data_import
+from . import tree_ops
 from . import jit
 
 logger = logging.getLogger(__name__)
@@ -524,7 +525,7 @@ def postprocess(
     # See if we can remove some of the reversions in a straightforward way.
     mutations_is_reversion = sc2ts.find_reversions(ts)
     mutations_before = ts.num_mutations
-    ts = sc2ts.push_up_reversions(
+    ts = tree_ops.push_up_reversions(
         ts, ts.mutations_node[mutations_is_reversion], date=None
     )
     ts.dump(ts_out)
@@ -571,7 +572,7 @@ def minimise_metadata(
     ts = tszip.load(ts_in)
     ts = sc2ts.minimise_metadata(ts, field_mapping, show_progress=progress)
     if drop_vestigial_root:
-        ts = sc2ts.drop_vestigial_root_edge(ts)
+        ts = tree_ops.drop_vestigial_root_edge(ts)
     ts.dump(ts_out)
 
 

@@ -1241,11 +1241,15 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
 
     # Note: this is inefficient here as we're rebuilding indexes etc for no
     # real reason. Could inline here if we want.
-    ts = insert_vestigial_root_edge(ts)
+    ts = tree_ops.insert_vestigial_root_edge(ts)
 
     # Convert arrays for numba compatibility
-    ancestral_state = jit.encode_alignment(np.asarray(ts.sites_ancestral_state, dtype='U1'))
-    derived_state = jit.encode_alignment(np.asarray(ts.mutations_derived_state, dtype='U1'))
+    ancestral_state = jit.encode_alignment(
+        np.asarray(ts.sites_ancestral_state, dtype="U1")
+    )
+    derived_state = jit.encode_alignment(
+        np.asarray(ts.mutations_derived_state, dtype="U1")
+    )
 
     tsb = _tsinfer.TreeSequenceBuilder(
         num_alleles=np.full(ts.num_sites, num_alleles, dtype=np.uint64),
@@ -1331,7 +1335,7 @@ class MatchingManager:
             recombination=np.full(num_sites, work.rho),
             mismatch=np.full(num_sites, work.mu),
             likelihood_threshold=work.likelihood_threshold,
-            weight_by_n=False
+            weight_by_n=False,
         )
         with self.matchers_lock:
             assert self.matchers[thread_index] is None
@@ -1663,7 +1667,9 @@ def characterise_match_mutations(ts, samples):
             mutation.is_reversion = False
             mutation.is_immediate_reversion = False
             if closest_mutation is not None:
-                mutation.is_reversion = closest_mutation.inherited_state == mutation.derived_state
+                mutation.is_reversion = (
+                    closest_mutation.inherited_state == mutation.derived_state
+                )
                 if mutation.is_reversion:
                     mutation.is_immediate_reversion = (
                         closest_mutation.node == seg.parent
@@ -2718,35 +2724,4 @@ def push_up_unary_recombinant_mutations(ts):
     tables.sort()
     prov = get_provenance_dict("push_up_unary_recombinant_mutations", {}, start_time)
     tables.provenances.add_row(json.dumps(prov))
-    return tables.tree_sequence()
-
-
-def drop_vestigial_root_edge(ts):
-    """
-    Drop the edge joining 1 (the reference) to the vestigial root, needed
-    for matching in the tsinfer engine.
-    """
-    if not (ts.edges_parent[-1] == 0 and ts.edges_child[-1] == 1):
-        raise ValueError("Input does not have expected vestigial root edge")
-    tables = ts.dump_tables()
-    tables.edges.truncate(ts.num_edges - 1)
-    tables.build_index()
-    return tables.tree_sequence()
-
-
-def insert_vestigial_root_edge(ts):
-    """
-    Insert an edge between node 0 and 1 at the end of the edge table, if
-    it doesn't exist.
-    """
-    e = ts.edge(-1)
-    if e.parent == 0 and e.child == 1 and e.left == 0 and e.right == ts.sequence_length:
-        # We already have a vestigial root edge so return
-        return ts
-    if e.parent != 1 or e.left != 0 or e.right != ts.sequence_length:
-        raise ValueError("Oldest edge not of the expected form")
-
-    tables = ts.dump_tables()
-    tables.edges.add_row(left=0, right=ts.sequence_length, parent=0, child=1)
-    tables.build_index()
     return tables.tree_sequence()
