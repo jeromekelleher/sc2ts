@@ -12,6 +12,7 @@ import tskit
 
 import sc2ts
 from sc2ts import info
+from sc2ts import inference as si
 
 
 @pytest.fixture
@@ -34,7 +35,7 @@ def fx_ts_min_2020_02_15(fx_ts_map):
         "Viridian_pangolin": "pango",
         "Viridian_scorpio": "scorpio",
     }
-    return sc2ts.minimise_metadata(ts, field_mapping)
+    return si.minimise_metadata(ts, field_mapping)
 
 
 @pytest.fixture
