@@ -28,6 +28,7 @@ import humanize
 import pandas as pd
 
 from . import core
+from . import data_import
 from . import jit
 from . import stats
 from . import tree_ops
@@ -270,7 +271,7 @@ def mirror_ts_coordinates(ts):
 
 
 def initial_ts(problematic_sites=list()):
-    reference = core.get_reference_sequence()
+    reference = data_import.get_reference_sequence()
     L = core.REFERENCE_SEQUENCE_LENGTH
     assert L == len(reference)
     problematic_sites = set(problematic_sites)

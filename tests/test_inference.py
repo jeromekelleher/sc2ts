@@ -151,7 +151,7 @@ class TestInitialTs:
     def test_reference_sequence(self):
         ts = sc2ts.initial_ts()
         assert ts.reference_sequence.metadata["genbank_id"] == "MN908947"
-        assert ts.reference_sequence.data == sc2ts.core.get_reference_sequence()
+        assert ts.reference_sequence.data == sc2ts.data_import.get_reference_sequence()
 
     def test_reference_node(self):
         ts = sc2ts.initial_ts()
@@ -184,7 +184,7 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
+        alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
         a = jit.encode_alignment(alignment)
         h = a[ts.sites_position.astype(int)]
@@ -201,7 +201,7 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
+        alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
         a = jit.encode_alignment(alignment)
         h = a[ts.sites_position.astype(int)]
@@ -227,7 +227,7 @@ class TestMatchTsinfer:
         tables = ts.dump_tables()
         tables.sites.truncate(20)
         ts = tables.tree_sequence()
-        alignment = sc2ts.core.get_reference_sequence(as_array=True)
+        alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
         a = jit.encode_alignment(alignment)
         ref = a[ts.sites_position.astype(int)]

@@ -23,6 +23,7 @@ import pandas as pd
 
 import sc2ts
 from . import core
+from . import data_import
 from . import jit
 
 logger = logging.getLogger(__name__)
@@ -142,7 +143,7 @@ def import_alignments(dataset, fastas, initialise, progress, verbose):
 
     f_bar = tqdm.tqdm(sorted(fastas), desc="Files", disable=not progress, position=0)
     for fasta_path in f_bar:
-        reader = core.FastaReader(fasta_path, add_zero_base=False)
+        reader = data_import.FastaReader(fasta_path, add_zero_base=False)
         logger.info(f"Reading {len(reader)} alignments from {fasta_path}")
         alignments = {}
         a_bar = tqdm.tqdm(

@@ -10,6 +10,7 @@ import pytest
 
 import sc2ts
 from sc2ts import cli
+from sc2ts import data_import
 from sc2ts import jit
 
 
@@ -42,7 +43,7 @@ def fx_alignments_mafft_fasta(fx_data_cache):
 
 
 def encoded_alignments(path):
-    fr = sc2ts.FastaReader(path)
+    fr = data_import.FastaReader(path)
     alignments = {}
     for k, v in fr.items():
         alignments[k] = jit.encode_alignment(v[1:])
