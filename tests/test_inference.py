@@ -987,7 +987,7 @@ class TestSyntheticAlignments:
             name: fx_dataset.haplotypes[s] for name, s in zip(fake_strains, strains)
         }
         date = "2020-03-01"
-        ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+        ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
         base_ts = fx_ts_map["2020-02-13"]
         ts = run_extend(
@@ -1114,7 +1114,7 @@ class TestSyntheticAlignments:
         date = "2020-03-01"
         base_ts = fx_ts_map["2020-02-13"]
         ts = run_extend(
-            dataset=sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date),
+            dataset=sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date),
             base_ts=base_ts,
             date=date,
             match_db=sc2ts.MatchDb.initialise(tmp_path / "match.db"),

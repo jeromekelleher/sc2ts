@@ -186,7 +186,7 @@ def import_metadata(dataset, metadata, field_descriptions, viridian, verbose):
     df_in = pd.read_csv(metadata, sep="\t", dtype=dtype)
     index_field = "Run"
     if viridian:
-        df_in = sc2ts.massage_viridian_metadata(df_in)
+        df_in = data_import.massage_viridian_metadata(df_in)
     df = df_in.set_index(index_field)
     d = {}
     if field_descriptions is not None:

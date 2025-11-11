@@ -62,7 +62,7 @@ def fx_encoded_alignments(fx_alignments_fasta):
 
 def read_metadata_df(tsv_path):
     df = pd.read_csv(tsv_path, sep="\t", index_col="Run")
-    return sc2ts.massage_viridian_metadata(df)
+    return data_import.massage_viridian_metadata(df)
 
 
 @pytest.fixture
