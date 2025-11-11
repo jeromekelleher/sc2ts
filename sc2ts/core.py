@@ -92,8 +92,6 @@ def flags_summary(f):
     return "".join([v.short if (v.value & f) > 0 else "_" for v in flag_values])
 
 
-
-
 def get_masked_sites(ts):
     """
     Return the set of sites not used in the sequence.
@@ -102,32 +100,6 @@ def get_masked_sites(ts):
     unused[ts.sites_position.astype(int)] = False
     unused[0] = False
     return np.where(unused)[0]
-
-
-@dataclasses.dataclass
-class CovLineage:
-    name: str
-    earliest_date: str
-    latest_date: str
-    description: str
-
-
-def get_cov_lineages_data():
-    with open(data_path / "lineages.json") as f:
-        data = json.load(f)
-    ret = {}
-    for record in data:
-        lineage = CovLineage(
-            record["Lineage"],
-            record["Earliest date"],
-            record["Latest date"],
-            record["Description"],
-        )
-        assert lineage.name not in ret
-        ret[lineage.name] = lineage
-    return ret
-
-
 
 
 # We omit N here as it's mapped to -1. Make "-" the 5th allele
