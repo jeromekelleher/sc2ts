@@ -364,7 +364,7 @@ class CopyingTable:
         return html + "</table>"
 
 
-class TreeInfo:
+class ArgInfo:
     def __init__(
         self,
         ts,

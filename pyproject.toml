@@ -8,20 +8,16 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-  "tsinfer>=0.5",
   "tskit==1.0.0b3",
-  "pyfaidx",
   "tszip",
   "pandas",
-  "numba",
   "tqdm",
-  "scipy",
-  "click>=8.2",
-  "tomli",
   "zarr<3",
+  "click>=8.2",
+  # Not strictly needed for base functionality, but easier to include
+  # as imported by the CLI
+  "tomli",
   "humanize",
-  "resource",
-  "biotite",
 ]
 dynamic = ["version"]
 
@@ -35,6 +31,13 @@ dev = [
   "pytest",
   "pytest-coverage",
   "tomli-w",
+]
+inference = [
+  "scipy",
+  "biotite",
+  "tsinfer>=0.5",
+  "pyfaidx",
+  "numba",
 ]
 debug = [
   "matplotlib",
