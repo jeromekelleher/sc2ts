@@ -1,7 +1,6 @@
 import dataclasses
 import logging
 
-
 import numpy as np
 import numba
 import tskit.jit.numba as tskit_numba
@@ -94,8 +93,6 @@ def get_path_mrca(path1, path2, node_time):
     )
 
 
-
-
 @dataclasses.dataclass
 class ArgCounts:
     nodes_max_descendant_samples: np.ndarray
@@ -127,7 +124,9 @@ def _compute_inheritance_counts(
     edges_child = numba_ts.edges_child
     mutations_node = numba_ts.mutations_node
     mutations_parent = numba_ts.mutations_parent
-    mutations_position = numba_ts.sites_position[numba_ts.mutations_site].astype(np.int32)
+    mutations_position = numba_ts.sites_position[numba_ts.mutations_site].astype(
+        np.int32
+    )
     nodes_flags = numba_ts.nodes_flags
 
     parent = np.zeros(num_nodes, dtype=np.int32) - 1
@@ -202,7 +201,7 @@ def count(ts):
     )
 
 
-# FIXME make cache optional
+# FIXME make cache optional.
 @numba.njit(cache=True)
 def encode_alignment(h):
     # Just so numba knows this is a constant string.
@@ -220,4 +219,3 @@ def encode_alignment(h):
                 raise ValueError(f"Allele {h[j]} not recognised")
             a[j] = k
     return a
-

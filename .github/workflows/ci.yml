@@ -86,6 +86,25 @@ jobs:
         run: |
           sc2ts info-matches testrun/test.matches.db
 
+  bare_api:
+    name: Bare API tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.'
+          python -m pip install pytest
+      - name: Run tests
+        run: |
+          # We are careful to pull in the minimum dependencies here
+          # and only operate on files stored in the repo
+          python -m pytest -v -c /dev/null -p no:sc2ts_fixtures tests/test_api.py
+
   packaging:
     name: Packaging tests
     runs-on: ubuntu-latest
