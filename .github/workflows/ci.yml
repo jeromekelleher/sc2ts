@@ -87,6 +87,7 @@ jobs:
           sc2ts info-matches testrun/test.matches.db
 
   bare_api:
+    needs: unit # Creates the input file required
     name: Bare API tests
     runs-on: ubuntu-latest
     steps:
