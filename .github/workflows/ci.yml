@@ -103,7 +103,7 @@ jobs:
         run: |
           # We are careful to pull in the minimum dependencies here
           # and only operate on files stored in the repo
-          python -m pytest -c /dev/null -p no:sc2ts_fixtures tests/test_api.py
+          python -m pytest -v -c /dev/null -p no:sc2ts_fixtures tests/test_api.py
 
   packaging:
     name: Packaging tests
