@@ -103,7 +103,7 @@ jobs:
         run: |
           # We are careful to pull in the minimum dependencies here
           # and only operate on files stored in the repo
-          python -m pytest -p no:tests/conftest.py tests/test_api.py
+          python -m pytest tests/test_api.py
 
   packaging:
     name: Packaging tests
