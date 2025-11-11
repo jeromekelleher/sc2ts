@@ -92,16 +92,6 @@ def flags_summary(f):
     return "".join([v.short if (v.value & f) > 0 else "_" for v in flag_values])
 
 
-def get_masked_sites(ts):
-    """
-    Return the set of sites not used in the sequence.
-    """
-    unused = np.ones(int(ts.sequence_length), dtype=bool)
-    unused[ts.sites_position.astype(int)] = False
-    unused[0] = False
-    return np.where(unused)[0]
-
-
 # We omit N here as it's mapped to -1. Make "-" the 5th allele
 # as this is a valid allele for us.
 IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
