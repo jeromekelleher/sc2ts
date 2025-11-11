@@ -1,3 +1,9 @@
+"""
+Collection of debug utilities for inspecting the raw-output
+of sc2ts inference. These are developer tools and are only
+included if the "debug"] option is included with the sc2ts
+install.
+"""
 import collections
 import logging
 import json
@@ -21,117 +27,6 @@ from . import core
 from . import inference
 
 logger = logging.getLogger(__name__)
-
-
-@dataclasses.dataclass
-class LineageDetails:
-    """
-    Details about major known lineages that we can use for QC purposes.
-
-    https://github.com/jeromekelleher/sc2ts/issues/290
-
-    The month and year of the first detected sample are taken from
-    https://www.ecdc.europa.eu/en/covid-19/variants-concern
-    """
-
-    pango_lineage: str
-    nextstrain_clade: str
-    who_label: str
-    date: str
-    mutations: list
-
-
-# TODO reduce precision on these dates to month
-major_lineages = [
-    LineageDetails(
-        "B.1.1.7",
-        "20I",
-        "Alpha",
-        "2020-09",
-        ["C5388A", "C3267T"],
-    ),
-    LineageDetails(
-        "B.1.351",
-        "20H",
-        "Beta",
-        "2020-09",
-        None,  # TODO: From which source?
-    ),
-    LineageDetails(
-        "B.1.617.2",
-        "21A",
-        "Delta",
-        "2020-12",
-        [
-            "C23012G",
-            "T26767C",
-            "A28461G",
-            "C22995A",
-            "C27752T",
-        ],
-    ),
-    LineageDetails(
-        "P.1",
-        "20J",
-        "Gamma",
-        "2020-12",
-        None,  # TODO: From which source?
-    ),
-    LineageDetails(
-        "BA.1",
-        "21K",
-        "Omicron",
-        "2021-11",
-        [
-            "C21762T",
-            "C2790T",
-            "A11537G",
-            "A26530G",
-            "T22673C",
-            "G23048A",
-            "C24130A",
-            "C23202A",
-            "C24503T",
-            "T13195C",
-            "C25584T",
-            "C15240T",
-            "G8393A",
-            "C25000T",
-        ],
-    ),
-    LineageDetails(
-        "BA.2",
-        "21L",
-        "Omicron",
-        "2021-11",
-        [
-            "C10198T",
-            "T22200G",
-            "C17410T",
-            "A22786C",
-            "C21618T",
-            "C19955T",
-            "A20055G",
-            "C25584T",
-            "A22898G",
-            "C25000T",
-        ],
-    ),
-    LineageDetails(
-        "BA.4",
-        "22A",
-        "Omicron",
-        "2022-01",
-        ["C28724T"],
-    ),
-    LineageDetails(
-        "BA.5",
-        "22B",
-        "Omicron",
-        "2022-02",
-        ["T27383A", "C27382G"],
-    ),
-]
 
 
 # https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065

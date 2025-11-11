@@ -23,7 +23,6 @@ import pandas as pd
 
 import sc2ts
 from . import core
-from . import info
 
 logger = logging.getLogger(__name__)
 
@@ -255,37 +254,6 @@ def info_dataset(dataset, verbose, zarr_details):
         for array in ds.root.values():
             print(str(array.info).strip())
             print("----")
-
-
-@click.command()
-@click.argument("ts_path", type=click.Path(exists=True, dir_okay=False))
-@click.option("-R", "--recombinants", is_flag=True)
-@verbose
-def info_ts(ts_path, recombinants, verbose):
-    """
-    Information about a sc2ts inferred ARG
-    """
-    setup_logging(verbose)
-    ts = tszip.load(ts_path)
-
-    ti = sc2ts.TreeInfo(ts, quick=False)
-    # print("info", ti.node_counts())
-    # TODO output these as TSVs rather than using pandas display?
-    pd.set_option("display.max_rows", 500)
-    pd.set_option("display.max_columns", 500)
-    pd.set_option("display.width", 1000)
-    print(ti.summary())
-    # TODO more
-    if recombinants:
-        print(ti.recombinants_summary())
-
-
-def summarise_base(ts, date, progress):
-    ti = sc2ts.TreeInfo(ts, quick=True)
-    node_info = "; ".join(f"{k}:{v}" for k, v in ti.node_counts().items())
-    logger.info(f"Loaded {node_info}")
-    if progress:
-        print(f"{date} Start base: {node_info}", file=sys.stderr)
 
 
 def _run_extend(out_path, verbose, log_file, **params):
@@ -794,7 +762,6 @@ cli.add_command(import_metadata)
 
 cli.add_command(info_dataset)
 cli.add_command(info_matches)
-cli.add_command(info_ts)
 
 cli.add_command(infer)
 cli.add_command(validate)
