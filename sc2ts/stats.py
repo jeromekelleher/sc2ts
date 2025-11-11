@@ -1,5 +1,4 @@
 from . import core
-from . import jit
 
 import numpy as np
 import pandas as pd
@@ -15,7 +14,14 @@ def convert_date(ts, time_array):
     return time_zero_date - time_array.astype("timedelta64[D]")
 
 
-def node_data(ts, inheritance_stats=True):
+def run_count(ts):
+    # TODO Raise a friendly numba-error here
+    from . import jit
+
+    return jit.count(ts)
+
+
+def node_data(ts, inheritance_stats=False):
     """
     Return a pandas dataframe with one row for each node (in node ID order)
     from the specified tree sequence. This must be the output of
@@ -41,7 +47,7 @@ def node_data(ts, inheritance_stats=True):
     #         minlength=ts.num_edges)
 
     if inheritance_stats:
-        counter = jit.count(ts)
+        counter = run_count(ts)
         cols["max_descendant_samples"] = counter.nodes_max_descendant_samples
         dtype["max_descendant_samples"] = "int"
     if "time_zero_date" in ts.metadata:
@@ -50,7 +56,7 @@ def node_data(ts, inheritance_stats=True):
     return pd.DataFrame(cols).astype(dtype)
 
 
-def mutation_data(ts, inheritance_stats=True, parsimony_stats=False):
+def mutation_data(ts, inheritance_stats=False, parsimony_stats=False):
     """
     Return a pandas dataframe with one row for each mutation (in mutation ID order)
     from the specified tree sequence. This must be the output of
@@ -70,7 +76,7 @@ def mutation_data(ts, inheritance_stats=True, parsimony_stats=False):
     if not isinstance(ts.metadata, bytes) and "time_zero_date" in ts.metadata:
         cols["date"] = convert_date(ts, ts.mutations_time)
     if inheritance_stats:
-        counter = jit.count(ts)
+        counter = run_count(ts)
         cols["num_descendants"] = counter.mutations_num_descendants
         cols["num_inheritors"] = counter.mutations_num_inheritors
 

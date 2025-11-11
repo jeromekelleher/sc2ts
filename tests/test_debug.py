@@ -267,7 +267,7 @@ class TestDataFuncsEquivalant:
     def test_example_node(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
         ti = fx_ti_2020_02_15
-        df = sc2ts.node_data(ts)
+        df = sc2ts.node_data(ts, inheritance_stats=True)
         assert df.shape[0] == ti.ts.num_nodes
         nt.assert_array_equal(ti.nodes_num_mutations, df["num_mutations"])
         nt.assert_array_equal(np.arange(ti.ts.num_nodes), df["node_id"])
@@ -290,7 +290,9 @@ class TestDataFuncsEquivalant:
 
     def test_example_mutation(self, fx_ts_min_2020_02_15, fx_ti_2020_02_15):
         ts = fx_ts_min_2020_02_15
-        df = sc2ts.mutation_data(fx_ts_min_2020_02_15, parsimony_stats=True)
+        df = sc2ts.mutation_data(
+            fx_ts_min_2020_02_15, parsimony_stats=True, inheritance_stats=True
+        )
         ti = fx_ti_2020_02_15
         assert df.shape[0] == ti.ts.num_mutations
         nt.assert_array_equal(np.arange(ti.ts.num_mutations), df["mutation_id"])
@@ -311,5 +313,21 @@ class TestDataFuncsEquivalant:
         tables.metadata = {}
         df2 = sc2ts.mutation_data(tables.tree_sequence())
         assert set(df1) == set(df2) | {"date"}
+        for col in df2:
+            nt.assert_array_equal(df1[col].values, df2[col].values)
+
+
+class TestDataFuncsNoInheritance:
+    def test_node(self, fx_final_ts):
+        df1 = sc2ts.node_data(fx_final_ts, inheritance_stats=False)
+        df2 = sc2ts.node_data(fx_final_ts)
+        assert set(df1) == set(df2)
+        for col in df2:
+            nt.assert_array_equal(df1[col].values, df2[col].values)
+
+    def test_mutation(self, fx_final_ts):
+        df1 = sc2ts.mutation_data(fx_final_ts, inheritance_stats=False)
+        df2 = sc2ts.mutation_data(fx_final_ts)
+        assert set(df1) == set(df2)
         for col in df2:
             nt.assert_array_equal(df1[col].values, df2[col].values)
