@@ -209,7 +209,7 @@ def make_recombinant_example_1(tmp_path, fx_ts_map, fx_dataset, info):
     alignments = recombinant_alignments(fx_dataset)
 
     date = "2020-02-15"
-    ds = sc2ts.tmp_dataset(tmp_path / "dataset.zarr", alignments, date=date)
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "dataset.zarr", alignments, date=date)
     mdb = sc2ts.MatchDb.initialise(tmp_path / "match.db")
     ts = sc2ts.extend(
         dataset=ds.path,
@@ -243,7 +243,7 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
 
     date = "2020-03-01"
     alignments = {"left": left_a, "right": right_a}
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
     ts = sc2ts.extend(
         dataset=ds.path,
@@ -277,7 +277,7 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
     date = "2020-03-02"
     left = start + 3 + 1
     right = end - 3 + 1
-    ds = sc2ts.tmp_dataset(
+    ds = sc2ts.dataset.tmp_dataset(
         tmp_path / "tmp.zarr", {f"recombinant_{left}:{right}": a}, date=date
     )
     rts = sc2ts.extend(
@@ -316,7 +316,7 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
 
     date = "2020-03-01"
     alignments = {"left": left_a, "mid": mid_a, "right": right_a}
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", alignments, date=date)
 
     ts = sc2ts.extend(
         dataset=ds.path,
@@ -356,7 +356,7 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     left = start + 3 + 1
     right = end - 3 + 1
     name = f"recombinant_{left}:{mid_start + 1}:{mid_end + 1}:{right}"
-    ds = sc2ts.tmp_dataset(tmp_path / "tmp.zarr", {name: a}, date=date)
+    ds = sc2ts.dataset.tmp_dataset(tmp_path / "tmp.zarr", {name: a}, date=date)
     rts = sc2ts.extend(
         dataset=ds.path,
         base_ts=ts_path,

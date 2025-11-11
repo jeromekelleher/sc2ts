@@ -951,7 +951,7 @@ class TestDropVestigialRootEdge:
 class TestInsertVestigialRootEdge:
     def test_example_already_exists(self, fx_ts_map):
         ts = fx_ts_map["2020-02-13"]
-        tsp = sc2ts.insert_vestigial_root_edge(ts)
+        tsp = tree_ops.insert_vestigial_root_edge(ts)
         ts.tables.assert_equals(tsp.tables)
 
     def test_example_drop_insert_recovers(self, fx_ts_map):

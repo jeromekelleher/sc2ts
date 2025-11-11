@@ -15,7 +15,7 @@ import pandas as pd
 import sc2ts
 from sc2ts import info
 from sc2ts import jit
-import util
+from sc2ts import tree_ops
 
 
 @pytest.fixture
