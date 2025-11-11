@@ -26,6 +26,7 @@ from . import core
 from . import data_import
 from . import tree_ops
 from . import jit
+from . import validation
 
 logger = logging.getLogger(__name__)
 
@@ -431,9 +432,9 @@ def validate(
         dataset, date_field=date_field, chunk_cache_size=chunk_cache_size
     )
     if genotypes:
-        sc2ts.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
+        validation.validate_genotypes(ts, ds, deletions_as_missing, show_progress=True)
     if metadata:
-        sc2ts.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
+        validation.validate_metadata(ts, ds, skip_fields=set(skip), show_progress=True)
 
 
 @click.command()
