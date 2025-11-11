@@ -200,3 +200,24 @@ def count(ts):
             numba_ts,
         )
     )
+
+
+# FIXME make cache optional
+@numba.njit(cache=True)
+def encode_alignment(h):
+    # Just so numba knows this is a constant string.
+    alleles = "ACGT-RYSWKMBDHV."
+    n = h.shape[0]
+    a = np.full(n, -1, dtype=np.int8)
+    for j in range(n):
+        if h[j] == "N":
+            a[j] = -1
+        else:
+            for k, c in enumerate(alleles):
+                if c == h[j]:
+                    break
+            else:
+                raise ValueError(f"Allele {h[j]} not recognised")
+            a[j] = k
+    return a
+

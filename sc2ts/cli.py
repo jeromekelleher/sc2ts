@@ -23,6 +23,7 @@ import pandas as pd
 
 import sc2ts
 from . import core
+from . import jit
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ def import_alignments(dataset, fastas, initialise, progress, verbose):
             position=1,
         )
         for k, v in a_bar:
-            alignments[k] = sc2ts.encode_alignment(v)
+            alignments[k] = jit.encode_alignment(v)
         sc2ts.Dataset.append_alignments(dataset, alignments)
 
 

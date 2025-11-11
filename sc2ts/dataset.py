@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7, shuffle=0)
 
 
+def decode_alignment(a):
+    alleles = np.array(tuple(core.IUPAC_ALLELES + "N"), dtype=str)
+    return alleles[a]
+
+
 def massage_viridian_metadata(df):
     """
     Takes a pandas dataframe indexex by sample ID and massages it
@@ -325,7 +330,7 @@ class Dataset(collections.abc.Mapping):
 
         for sid in sample_id:
             h = self.haplotypes[sid]
-            a = core.decode_alignment(h)
+            a = decode_alignment(h)
             print(f">{sid}", file=out)
             # FIXME this is probably a terrible way to write a large numpy string to
             # a file

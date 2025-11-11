@@ -10,6 +10,7 @@ import pytest
 
 import sc2ts
 from sc2ts import cli
+from sc2ts import jit
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def encoded_alignments(path):
     fr = sc2ts.FastaReader(path)
     alignments = {}
     for k, v in fr.items():
-        alignments[k] = sc2ts.encode_alignment(v[1:])
+        alignments[k] = jit.encode_alignment(v[1:])
     return alignments
 
 

@@ -7,6 +7,7 @@ import xarray.testing as xt
 import sgkit
 
 import sc2ts
+from sc2ts import jit
 
 
 def assert_datasets_equal(ds1, ds2):
@@ -549,14 +550,14 @@ class TestEncodeAlignment:
     )
     def test_examples(self, hap, expected):
         h = np.array(list(hap), dtype="U1")
-        a = sc2ts.encode_alignment(h)
+        a = jit.encode_alignment(h)
         nt.assert_array_equal(a, expected)
 
     @pytest.mark.parametrize("hap", "acgtXZxz")
     def test_other_error(self, hap):
         h = np.array(list(hap), dtype="U1")
         with pytest.raises(ValueError, match="not recognised"):
-            sc2ts.encode_alignment(h)
+            jit.encode_alignment(h)
 
 
 class TestMaskFlankingDeletions:
@@ -575,6 +576,6 @@ class TestMaskFlankingDeletions:
         ],
     )
     def test_examples(self, nucs, expected):
-        a = sc2ts.encode_alignment(np.array(list(nucs), dtype="U1"))
-        b = sc2ts.encode_alignment(np.array(list(expected), dtype="U1"))
+        a = jit.encode_alignment(np.array(list(nucs), dtype="U1"))
+        b = jit.encode_alignment(np.array(list(expected), dtype="U1"))
         nt.assert_array_equal(sc2ts.mask_flanking_deletions(a), b)
