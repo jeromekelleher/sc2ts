@@ -36,7 +36,7 @@ python -m pip install sc2ts[inference]
 The sc2ts API provides two convenience functions to compute summary
 dataframes for the nodes and mutations in a sc2ts-output ARG.
 
-To see some examples, first download the sc2ts inferred ARG
+To see some examples, first download the (31MB) sc2ts inferred ARG
 from [Zenodo](https://zenodo.org/records/17558489/):
 
 ```
@@ -109,7 +109,7 @@ python -m pip install sc2ts[inference]
 **This is essential! The base install of sc2ts contains the minimal
 dependencies required to access the analysis utilities outlined above.**
 
-Then, download the Viridian dataset in
+Then, download the (401MB) Viridian dataset in
 [VCF Zarr format](https://doi.org/10.1093/gigascience/giaf049) from
 [Zenodo](https://zenodo.org/records/16314739):
 
@@ -137,7 +137,7 @@ for little while to see how things work:
 python3 -m sc2ts infer example_config.toml --stop=2020-02-02
 ```
 
-Once this finishes (it should take a few minutes), the results of the
+Once this finishes (it should take a few minutes and requires ~5GB RAM), the results of the
 inference will be in the ``example_inference`` directory (as specified in the
 config file) and look something like this:
 
@@ -270,7 +270,7 @@ The tree sequences files output during primary inference have a lot
 of debugging metadata, and there are some developer tools for inspecting
 this in the ``sc2ts.debug`` package. In particular, the ``ArgInfo``
 class has a lot of useful utilities designed to be used in a Jupyter
-notebook. Use it like
+notebook. Note that ``matplotlib`` is required for these. Use it like:
 
 ```python
 import sc2ts.debug as sd
