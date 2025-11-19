@@ -14,7 +14,7 @@ launch_buttons:
   binderhub_url: ""
 
 repository:
-  url: https://github.com/jeromekelleher/sc2ts
+  url: https://github.com/tskit-dev/sc2ts
   branch: main
   path_to_book: docs
 
@@ -50,7 +50,7 @@ sphinx:
       - deflist
       - substitution
 
-    issues_github_path: jeromekelleher/sc2ts
+    issues_github_path: tskit-dev/sc2ts
     todo_include_todos: true
 
     intersphinx_mapping:

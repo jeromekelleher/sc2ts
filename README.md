@@ -67,7 +67,7 @@ alignments and metadata stored in
 
 Resources:
 
-- See this [notebook](https://github.com/jeromekelleher/sc2ts-paper/blob/main/notebooks/example_data_processing.ipynb)
+- See this [notebook](https://github.com/tskit-dev/sc2ts-paper/blob/main/notebooks/example_data_processing.ipynb)
 for an example in which we access the data variant-by-variant and
 which explains the low-level data encoding
 - See the [VCF Zarr publication](https://doi.org/10.1093/gigascience/giaf049)

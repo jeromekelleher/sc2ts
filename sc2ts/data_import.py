@@ -70,7 +70,7 @@ def get_problematic_regions():
     These regions have been reported to have highly recurrent or unusual
     patterns of deletions.
 
-    https://github.com/jeromekelleher/sc2ts/issues/231#issuecomment-2401405355
+    https://github.com/tskit-dev/sc2ts/issues/231#issuecomment-2401405355
 
     Region: NTD domain
     Coords: [21602-22472)
