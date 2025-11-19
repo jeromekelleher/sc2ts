@@ -3,13 +3,13 @@
 Sc2ts stands for "SARS-CoV-2 to tree sequence" (pronounced "scoots" optionally)
 and consists of
 
-1. A method fo infer Ancestral Recombination Graphs (ARGs) from SARS-CoV-2
+1. A method to infer Ancestral Recombination Graphs (ARGs) from SARS-CoV-2
 data at pandemic scale
 2. A lightweight wrapper around [tskit Python APIs](https://tskit.dev/tskit/docs/stable/python-api.html) specialised for the output of sc2ts which enables efficient node metadata
 access.
 3. A lightweight wrapper around [Zarr Python](https://zarr.dev) which enables
 convenient and efficient access to the full Viridian dataset (alignments and metadata)
-in a single file using [VCF Zarr specification](https://doi.org/10.1093/gigascience/giaf049).
+in a single file using the [VCF Zarr specification](https://doi.org/10.1093/gigascience/giaf049).
 
 Please see the [preprint](https://www.biorxiv.org/content/10.1101/2023.06.08.544212v2)
 for details.
@@ -130,8 +130,8 @@ python -m sc2ts --help
 Primary inference is performed using the ``infer`` subcommand of the CLI,
 and all parameters are specified using a toml file.
 
-Then inference under the [example config](example_config.toml)
-for little while to see how things work:
+The [example config file](example_config.toml) can be used to perform
+inference over a short period, to demonstrate how sc2ts works:
 
 ```
 python3 -m sc2ts infer example_config.toml --stop=2020-02-02
@@ -161,9 +161,9 @@ example_inference
 └── ex1.matches.db
 ```
 
-Here we've run inference for all dates in January 2020 for which we have data
-and Feb 01. The results of inference for each day is stored in the
-``example_inference/ex1`` directory as a tskit file representing the ARG
+Here we've run inference for all dates in January 2020 for which we have data, plus the 1st Feb.
+The results of inference for each day are stored in the
+``example_inference/ex1`` directory as tskit files representing the ARG
 inferred up to that day. There is a lot of redundancy in keeping all these
 daily files lying around, but it is useful to be able to go back to the
 state of the ARG at a particular date and they don't take up much space.
@@ -200,7 +200,7 @@ into the final ARG.
 
 ### Generating final analysis file
 
-To generate the final analysis ready file (used as input to the analysis
+To generate the final analysis-ready file (used as input to the analysis
 APIs above) we need to run ``minimise-metadata``. This removes all but
 the most necessary metadata from the ARG, and recodes node metadata
 using the [struct codec](https://tskit.dev/tskit/docs/stable/metadata.html#structured-array-metadata)
@@ -266,7 +266,7 @@ and rerun tests as above.
 
 ### Debug utilities
 
-The tree sequences files output during primary inference have a lot
+The tree sequence files output during primary inference have a lot
 of debugging metadata, and there are some developer tools for inspecting
 this in the ``sc2ts.debug`` package. In particular, the ``ArgInfo``
 class has a lot of useful utilities designed to be used in a Jupyter
