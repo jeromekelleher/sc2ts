@@ -1,0 +1,7 @@
+format: jb-book
+root: intro
+parts:
+  - caption: Interfaces
+    chapters:
+      - file: cli
+      - file: api

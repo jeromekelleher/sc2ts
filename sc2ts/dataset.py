@@ -25,6 +25,17 @@ DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7, shuffle=0)
 
 
 def decode_alignment(a):
+    """
+    Decode an array of integer-encoded alleles into their IUPAC string values.
+
+    The input should use the encoding defined by ``core.IUPAC_ALLELES``,
+    with ``-1`` representing missing data; a trailing ``\"N\"`` allele is
+    added here for convenience when working with masked arrays.
+
+    :param numpy.ndarray a: Integer-encoded alignment array.
+    :return: Array of single-character IUPAC allele codes.
+    :rtype: numpy.ndarray
+    """
     alleles = np.array(tuple(core.IUPAC_ALLELES + "N"), dtype=str)
     return alleles[a]
 
@@ -33,12 +44,34 @@ DELETION = core.IUPAC_ALLELES.index("-")
 
 
 def mask_ambiguous(a):
+    """
+    Mask all ambiguous and non-standard alleles in an encoded alignment array.
+
+    Values corresponding to ambiguous IUPAC codes (and other values beyond the
+    deletion code) are replaced with ``-1`` in a copy of ``a``, leaving the
+    original array unchanged.
+
+    :param numpy.ndarray a: Integer-encoded alignment array.
+    :return: Copy of ``a`` with ambiguous alleles replaced by ``-1``.
+    :rtype: numpy.ndarray
+    """
     a = a.copy()
     a[a > DELETION] = -1
     return a
 
 
 def mask_flanking_deletions(a):
+    """
+    Mask sites flanking the first and last non-deletion allele in an alignment.
+
+    Positions before the first non-deletion and after the last non-deletion
+    in the encoded alignment are set to ``-1`` in a copy of ``a``. If the
+    alignment consists entirely of deletions, all sites are masked.
+
+    :param numpy.ndarray a: Integer-encoded alignment array.
+    :return: Copy of ``a`` with flanking sites masked to ``-1``.
+    :rtype: numpy.ndarray
+    """
     a = a.copy()
     non_dels = np.nonzero(a != DELETION)[0]
     if len(non_dels) == 0:
@@ -200,8 +233,22 @@ class Variant:
 
 
 class Dataset(collections.abc.Mapping):
-
     def __init__(self, path, chunk_cache_size=1, date_field=None):
+        """
+        Open a sc2ts VCF Zarr dataset for convenient access to alignments and metadata.
+
+        The dataset is opened read-only from ``path``, which may be either a
+        directory store or a consolidated ``.zip`` file. The ``date_field``
+        argument specifies which metadata field should be interpreted as the
+        sample date when constructing :attr:`metadata`.
+
+        :param str path: Path to a directory or ``.zip`` Zarr store.
+        :param int chunk_cache_size: Maximum number of chunks to cache for
+            haplotypes and metadata. Defaults to 1.
+        :param str date_field: Name of the metadata field to use as the
+            sample date, or ``None`` to disable date handling. Defaults
+            to ``None``.
+        """
         logger.info(f"Loading dataset @{path} using {date_field} as date field")
         self.date_field = date_field
         self.path = pathlib.Path(path)
@@ -263,6 +310,19 @@ class Dataset(collections.abc.Mapping):
         return str(self)
 
     def variants(self, sample_id=None, position=None):
+        """
+        Iterate over variants at the specified positions for the given samples.
+
+        Yields Variant objects containing the genomic position, encoded
+        genotypes, and allele labels for each requested site.
+
+        :param sample_id: Iterable of sample IDs to include; if ``None``,
+            all samples are used.
+        :param position: Iterable of genomic positions to extract; if
+            ``None``, all variant positions are used.
+        :return: Generator over Variant records for the requested sites.
+        :rtype: collections.abc.Iterator
+        """
         variant_position = self["variant_position"][:]
         variant_alleles = self["variant_allele"][:]
         call_genotype = self["call_genotype"]
@@ -354,6 +414,20 @@ class Dataset(collections.abc.Mapping):
         Dataset.add_metadata(path, df)
 
     def reorder(self, path, additional_fields=list(), show_progress=False):
+        """
+        Write a copy of this dataset reordered by date and optional metadata fields.
+
+        Samples are sorted primarily by the dataset's ``date_field`` and then
+        by any ``additional_fields`` provided, and written to a new dataset at
+        ``path``.
+
+        :param str path: Output path for the reordered dataset.
+        :param list additional_fields: Metadata field names to use as
+            secondary sort keys after ``date_field``. Defaults to an
+            empty list.
+        :param bool show_progress: If True, show a progress bar while
+            copying samples. Defaults to False.
+        """
         sample_id = self.metadata.sample_id_array[:]
         sort_key = [self.date_field] + list(additional_fields)
         logger.info(f"Reorder sort key = {sort_key})")
@@ -362,7 +436,19 @@ class Dataset(collections.abc.Mapping):
 
     @staticmethod
     def new(path, samples_chunk_size=None, variants_chunk_size=None):
+        """
+        Create an empty sc2ts dataset at the specified path.
 
+        The resulting Zarr store is initialised with variant coordinates and
+        empty sample/genotype arrays, ready for use with
+        :meth:`Dataset.append_alignments` and :meth:`Dataset.add_metadata`.
+
+        :param str path: Path at which to create the new dataset.
+        :param int samples_chunk_size: Chunk size for the samples dimension;
+            if ``None``, a reasonable default is used.
+        :param int variants_chunk_size: Chunk size for the variants
+            dimension; if ``None``, a reasonable default is used.
+        """
         if samples_chunk_size is None:
             samples_chunk_size = 10_000
         if variants_chunk_size is None:
@@ -481,7 +567,7 @@ class Dataset(collections.abc.Mapping):
     def add_metadata(path, df, field_descriptions=dict()):
         """
         Add metadata from the specified dataframe, indexed by sample ID.
-        Each column will be added as a new array with prefix "sample_"
+        Each column will be added as a new array with prefix ``sample_``.
         """
         store = zarr.DirectoryStore(path)
         root = zarr.open(store, mode="a")
@@ -522,7 +608,15 @@ class Dataset(collections.abc.Mapping):
 
     @staticmethod
     def create_zip(in_path, out_path):
+        """
+        Create a zipped version of a directory-backed dataset.
 
+        The contents of ``in_path`` are written into a ZIP file at
+        ``out_path`` in a form suitable for use with :class:`Dataset`.
+
+        :param str in_path: Path to an existing directory-backed dataset.
+        :param str out_path: Path to the output ``.zip`` file.
+        """
         # Based on https://github.com/python/cpython/blob/3.13/Lib/zipfile/__init__.py
         def add_to_zip(zf, path, zippath):
             if os.path.isfile(path):
