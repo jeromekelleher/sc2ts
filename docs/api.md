@@ -1,3 +1,5 @@
+(sec_python_api)=
+
 # Python API
 
 This page documents the public Python API exposed by ``sc2ts``.
