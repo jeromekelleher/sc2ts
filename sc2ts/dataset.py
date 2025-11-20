@@ -184,11 +184,12 @@ class CachedMetadataMapping(collections.abc.Mapping):
                 d[key] = bool(d[key])
             else:
                 d[key] = str(d[key])
-        if self.date_field is None:
-            raise ValueError("No date field set, cannot get metadata items")
-        # For compatibility in the short term:
-        d["date"] = self.sample_date[j]
-        d["strain"] = self.sample_id[j]
+        if self.date_field is not None:
+            # For compatibility in the short term:
+            d["date"] = self.sample_date[j]
+            # NOTE 'strain' will be removed
+            # https://github.com/tskit-dev/sc2ts/issues/574
+            d["strain"] = self.sample_id[j]
         return d
 
     def __getitem__(self, key):
