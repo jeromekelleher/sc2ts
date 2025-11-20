@@ -21,6 +21,13 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.urls]
+Homepage = "https://tskit.dev/sc2ts"
+Documentation = "https://tskit.dev/sc2ts/docs/"
+"Bug Tracker" = "https://github.com/tskit-dev/sc2ts/issues"
+GitHub = "https://github.com/tskit-dev/sc2ts/"
+
+
 [project.scripts]
 sc2ts = "sc2ts.cli:cli"
 

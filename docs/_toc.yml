@@ -13,3 +13,6 @@ parts:
     chapters:
       - file: cli
       - file: api
+  - caption: Misc
+    chapters:
+      - file: development
