@@ -23,7 +23,7 @@ def run_count(ts):
 
 def node_data(ts, inheritance_stats=False):
     """
-    Return a dataframe of per-node statistics for an sc2ts tree sequence.
+    Return a dataframe of per-node statistics for a sc2ts tree sequence.
 
     The input ``ts`` must be the output of the ``sc2ts minimise-metadata``
     CLI command (debug metadata from raw inference runs is not supported).
@@ -31,12 +31,17 @@ def node_data(ts, inheritance_stats=False):
     ID and includes basic metadata, flags and mutation counts, with optional
     inheritance statistics.
 
+    .. warning::
+        Computing inheritance_stats requires numba, which is not installed
+        in the minimal version of sc2ts for portability reasons. You will
+        need to install the full "inference" build of sc2ts, or install
+        numba manually to access this feature.
+
     :param tskit.TreeSequence ts: Tree sequence produced by the
         ``sc2ts minimise-metadata`` CLI command.
     :param bool inheritance_stats: If True, include additional statistics
-        summarising the inheritance patterns of each node. Defaults to
-        False.
-    :return: Per-node statistics indexed by implicit node ID.
+        summarising the inheritance patterns of each node. Defaults to False.
+    :return: A dataframe of per-node statistics
     :rtype: pandas.DataFrame
     """
     md = ts.nodes_metadata
@@ -69,20 +74,26 @@ def node_data(ts, inheritance_stats=False):
 
 def mutation_data(ts, inheritance_stats=False, parsimony_stats=False):
     """
-    Return a dataframe of per-mutation statistics for an sc2ts tree sequence.
+    Return a dataframe of per-mutation statistics for a sc2ts tree sequence.
 
     The input ``ts`` must be the output of the ``sc2ts minimise-metadata``
     CLI command. Each row in the returned :class:`pandas.DataFrame`
     corresponds to a mutation ID and includes positional information, states,
     and optional inheritance and parsimony statistics.
 
+    .. warning::
+        Computing inheritance_stats requires numba, which is not installed
+        in the minimal version of sc2ts for portability reasons. You will
+        need to install the full "inference" build of sc2ts, or install
+        numba manually to access this feature.
+
     :param tskit.TreeSequence ts: Tree sequence produced by the
         ``sc2ts minimise-metadata`` CLI command.
     :param bool inheritance_stats: If True, include descendant and
         inheritor counts for each mutation. Defaults to False.
     :param bool parsimony_stats: If True, compute additional parsimony-based
-        diagnostics such as immediate reversions. Defaults to False.
-    :return: Per-mutation statistics indexed by implicit mutation ID.
+        diagnostics such as flagging immediate reversions. Defaults to False.
+    :return: Dataframe of per-mutation statistics
     :rtype: pandas.DataFrame
     """
     cols = {}
