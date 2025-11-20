@@ -1,6 +1,14 @@
 format: jb-book
 root: intro
 parts:
+  - caption: Getting started
+    chapters:
+      - file: installation
+  - caption: Usage
+    chapters:
+      - file: inference
+      - file: arg_analysis
+      - file: alignments_analysis
   - caption: Interfaces
     chapters:
       - file: cli
