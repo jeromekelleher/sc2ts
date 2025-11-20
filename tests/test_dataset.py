@@ -469,9 +469,8 @@ class TestDatasetMetadata:
 
     def test_known_no_date_field(self, fx_dataset):
         ds = sc2ts.Dataset(fx_dataset.path)
-
-        with pytest.raises(ValueError, match="No date field set"):
-            ds.metadata["SRR11772659"]
+        d = ds.metadata["SRR11772659"]
+        assert "strain" not in d
 
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
