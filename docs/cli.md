@@ -1,20 +1,22 @@
-.. _sc2ts_sec_cli:
 
-Command line interface
-======================
+(sc2ts_sec_cli)=
+
+# Command line interface
 
 The ``sc2ts`` package provides a command line interface for running
 inference and working with sc2ts datasets. After installation, the
-``sc2ts`` entry point should be available::
+``sc2ts`` entry point should be available
 
-    $ sc2ts --help
+```
+$ sc2ts --help
+```
 
 You can also invoke the CLI via the module::
+```
+$ python -m sc2ts --help
+```
 
-    $ python -m sc2ts --help
-
-Order of high-level commands
-----------------------------
+## Order of high-level commands
 
 In a typical end-to-end workflow, the main subcommands are used in the
 following order:
@@ -28,11 +30,22 @@ following order:
 4. ``minimise-metadata`` to generate an analysis-ready ARG with compact
    metadata suitable for use with the Python analysis APIs.
 
-Below we list all subcommands and options provided by the CLI. This
-output is generated directly from the Click definitions in
-``sc2ts.cli`` using the ``sphinx-click`` extension, and so stays in
-sync with the implementation.
 
-.. click:: sc2ts.cli:cli
-   :prog: sc2ts
-   :nested: full
+## CLI reference
+
+<!-- Below we list all subcommands and options provided by the CLI. This -->
+<!-- output is generated directly from the Click definitions in -->
+<!-- ``sc2ts.cli`` using the ``sphinx-click`` extension, and so stays in -->
+<!-- sync with the implementation. -->
+
+:::{todo}
+Add the sphinx-click output here somehow.
+:::
+
+<!-- ```{eval-rst} -->
+<!-- .. click:: sc2ts.cli:cli -->
+<!--    :prog: sc2ts infer -->
+<!--    :nested: full -->
+<!-- ``` -->
+
+
