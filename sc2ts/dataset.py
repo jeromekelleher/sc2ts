@@ -294,10 +294,18 @@ class Dataset(collections.abc.Mapping):
 
     @property
     def num_samples(self):
+        """
+        Return the number of samples in this dataset.
+        """
         return self.root.call_genotype.shape[1]
 
     @property
     def num_variants(self):
+        """
+        Return the number of variants in this dataset. Note that this does not mean that
+        there's necessarily variation at each site; the terminology is borrowed from
+        VCF Zarr.
+        """
         return self.root.call_genotype.shape[0]
 
     def __str__(self):
