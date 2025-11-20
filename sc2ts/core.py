@@ -90,8 +90,29 @@ flag_values = [
 
 
 def decode_flags(f):
+    """
+    Return the list of FlagValue records set in the given flag mask.
+
+    The input ``f`` is interpreted as a bitmask of tskit and sc2ts-specific
+    node flags. Each returned FlagValue describes a single flag,
+    including its integer value, short code, long name, and text description.
+
+    :param int f: Integer bitmask of node flags to decode.
+    :return: A list of flag descriptors corresponding to the bits set in ``f``.
+    :rtype: list
+    """
     return [v for v in flag_values if (v.value & f) > 0]
 
 
 def flags_summary(f):
+    """
+    Return a compact string summarising the flags set in the given mask.
+
+    Each character in the returned string corresponds to a known flag; set
+    flags are shown using their short code and unset flags as ``\"_\"``.
+
+    :param int f: Integer bitmask of node flags to summarise.
+    :return: Summary string showing short codes for set flags.
+    :rtype: str
+    """
     return "".join([v.short if (v.value & f) > 0 else "_" for v in flag_values])

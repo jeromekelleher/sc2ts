@@ -23,11 +23,22 @@ def run_count(ts):
 
 def node_data(ts, inheritance_stats=False):
     """
-    Return a pandas dataframe with one row for each node (in node ID order)
-    from the specified tree sequence. This must be the output of
-    ``sc2ts.minimise_metadata``, and will not work on the raw output of sc2ts.
-    """
+    Return a dataframe of per-node statistics for an sc2ts tree sequence.
 
+    The input ``ts`` must be the output of the ``sc2ts minimise-metadata``
+    CLI command (debug metadata from raw inference runs is not supported).
+    Each row in the returned :class:`pandas.DataFrame` corresponds to a node
+    ID and includes basic metadata, flags and mutation counts, with optional
+    inheritance statistics.
+
+    :param tskit.TreeSequence ts: Tree sequence produced by the
+        ``sc2ts minimise-metadata`` CLI command.
+    :param bool inheritance_stats: If True, include additional statistics
+        summarising the inheritance patterns of each node. Defaults to
+        False.
+    :return: Per-node statistics indexed by implicit node ID.
+    :rtype: pandas.DataFrame
+    """
     md = ts.nodes_metadata
     cols = {k: md[k].astype(str) for k in md.dtype.names}
     dtype = {k: pd.StringDtype() for k in md.dtype.names}
@@ -58,9 +69,21 @@ def node_data(ts, inheritance_stats=False):
 
 def mutation_data(ts, inheritance_stats=False, parsimony_stats=False):
     """
-    Return a pandas dataframe with one row for each mutation (in mutation ID order)
-    from the specified tree sequence. This must be the output of
-    ``sc2ts.minimise_metadata``, and will not work on the raw output of sc2ts.
+    Return a dataframe of per-mutation statistics for an sc2ts tree sequence.
+
+    The input ``ts`` must be the output of the ``sc2ts minimise-metadata``
+    CLI command. Each row in the returned :class:`pandas.DataFrame`
+    corresponds to a mutation ID and includes positional information, states,
+    and optional inheritance and parsimony statistics.
+
+    :param tskit.TreeSequence ts: Tree sequence produced by the
+        ``sc2ts minimise-metadata`` CLI command.
+    :param bool inheritance_stats: If True, include descendant and
+        inheritor counts for each mutation. Defaults to False.
+    :param bool parsimony_stats: If True, compute additional parsimony-based
+        diagnostics such as immediate reversions. Defaults to False.
+    :return: Per-mutation statistics indexed by implicit mutation ID.
+    :rtype: pandas.DataFrame
     """
     cols = {}
     inherited_state = ts.mutations_inherited_state

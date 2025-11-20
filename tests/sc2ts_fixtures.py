@@ -148,7 +148,7 @@ def fx_ts_map(tmp_path, fx_data_cache, fx_dataset, fx_match_db):
     cache_path = fx_data_cache / f"{dates[-1]}.ts"
     if not cache_path.exists():
         # These sites are masked out in all alignments in the initial data
-        # anyway; https://github.com/jeromekelleher/sc2ts/issues/282
+        # anyway; https://github.com/tskit-dev/sc2ts/issues/282
         last_ts = si.initial_ts([56, 57, 58, 59, 60])
         cache_path = fx_data_cache / "initial.ts"
         last_ts.dump(cache_path)

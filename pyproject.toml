@@ -43,6 +43,15 @@ debug = [
   "matplotlib",
   "IPython",
 ]
+docs = [
+  "jupyter-book==1.0.4.post1",
+  "sphinx-book-theme",
+  "sphinx-copybutton",
+  "sphinx-click",
+  "sphinx-argparse==0.5.2",
+  "sphinx-issues==5.0.1",
+  "IPython",
+]
 
 [build-system]
 requires = [

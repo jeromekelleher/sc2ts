@@ -717,7 +717,7 @@ class ArgInfo:
                     strain = "debug missing"
             elif "group_id" in md:
                 # FIXME clipping this artificially for now
-                # see https://github.com/jeromekelleher/sc2ts/issues/434
+                # see https://github.com/tskit-dev/sc2ts/issues/434
                 strain = md["group_id"][:8]
 
         pango = md.get(self.pango_source, None)
