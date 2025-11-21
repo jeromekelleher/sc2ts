@@ -30,7 +30,7 @@ notebooks.
 .. autofunction:: mutation_data
 ```
 
-## Dataset access
+## Alignment and metadata analysis
 
 ```{eval-rst}
 .. autosummary::
@@ -42,6 +42,9 @@ notebooks.
 
 ```{eval-rst}
 .. autoclass:: Dataset
+   :members:
+
+.. autoclass:: Variant
    :members:
 
 .. autofunction:: decode_alleles

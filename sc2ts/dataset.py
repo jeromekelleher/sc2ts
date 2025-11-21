@@ -232,29 +232,27 @@ class CachedMetadataMapping(collections.abc.Mapping):
 
 @dataclasses.dataclass
 class Variant:
+    """
+    Represents a single variant, including the genomic position and the integer encoded
+    genotypes.
+    """
     position: int
     genotypes: np.ndarray
     alleles: list
 
 
 class Dataset(collections.abc.Mapping):
+    """
+    Open a sc2ts VCF Zarr dataset for convenient access to alignments and metadata.
 
+    The dataset is opened read-only from ``path``, which may be either a
+    directory store or a consolidated ``.zip`` file.
+
+    :param str path: Path to a directory or ``.zip`` Zarr store.
+    :param int chunk_cache_size: Maximum number of chunks to cache for
+        alignments and metadata. Defaults to 1.
+    """
     def __init__(self, path, chunk_cache_size=1, date_field=None):
-        """
-        Open a sc2ts VCF Zarr dataset for convenient access to alignments and metadata.
-
-        The dataset is opened read-only from ``path``, which may be either a
-        directory store or a consolidated ``.zip`` file. The ``date_field``
-        argument specifies which metadata field should be interpreted as the
-        sample date when constructing :attr:`metadata`.
-
-        :param str path: Path to a directory or ``.zip`` Zarr store.
-        :param int chunk_cache_size: Maximum number of chunks to cache for
-            alignments and metadata. Defaults to 1.
-        :param str date_field: Name of the metadata field to use as the
-            sample date, or ``None`` to disable date handling. Defaults
-            to ``None``.
-        """
         logger.info(f"Loading dataset @{path} using {date_field} as date field")
         self.date_field = date_field
         self.path = pathlib.Path(path)
@@ -310,6 +308,17 @@ class Dataset(collections.abc.Mapping):
         """
         return self._metadata
 
+    def metadata_dataframe(self, fields=None):
+        """
+        Returns the metadata in this dataset as a Pandas dataframe,
+        indexed by sample_id.
+
+        :param fields: List of metadata fields to include; if ``None``,
+            all fields are used.
+        :return: Pandas dataframe
+        """
+        return self.metadata.as_dataframe(fields)
+
     @property
     def sample_id(self):
         """
@@ -356,7 +365,7 @@ class Dataset(collections.abc.Mapping):
         """
         Iterate over variants at the specified positions for the given samples.
 
-        Yields Variant objects containing the genomic position, encoded
+        Yields :class:`.Variant` objects containing the genomic position, encoded
         genotypes, and allele labels for each requested site.
 
         :param sample_id: Iterable of sample IDs to include; if ``None``,
