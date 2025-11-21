@@ -157,7 +157,7 @@ def import_alignments(dataset, fastas, initialise, progress, verbose):
             position=1,
         )
         for k, v in a_bar:
-            alignments[k] = jit.encode_alignment(v)
+            alignments[k] = jit.encode_alleles(v)
         sc2ts.Dataset.append_alignments(dataset, alignments)
 
 

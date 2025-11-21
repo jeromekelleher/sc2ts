@@ -414,7 +414,7 @@ class Dataset(collections.abc.Mapping):
 
         for sid in sample_id:
             h = self.alignment[sid]
-            a = decode_alignment(h)
+            a = decode_alleles(h)
             print(f">{sid}", file=out)
             # FIXME this is probably a terrible way to write a large numpy string to
             # a file

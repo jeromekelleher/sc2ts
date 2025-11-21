@@ -35,7 +35,7 @@ notebooks.
 ```{eval-rst}
 .. autosummary::
    Dataset
-   decode_alignment
+   decode_alleles
    mask_ambiguous
    mask_flanking_deletions
 ```
@@ -44,7 +44,7 @@ notebooks.
 .. autoclass:: Dataset
    :members:
 
-.. autofunction:: decode_alignment
+.. autofunction:: decode_alleles
 
 .. autofunction:: mask_ambiguous
 

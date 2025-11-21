@@ -47,7 +47,7 @@ def encoded_alignments(path):
     fr = data_import.FastaReader(path)
     alignments = {}
     for k, v in fr.items():
-        alignments[k] = jit.encode_alignment(v[1:])
+        alignments[k] = jit.encode_alleles(v[1:])
     return alignments
 
 

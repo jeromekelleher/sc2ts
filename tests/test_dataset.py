@@ -550,14 +550,14 @@ class TestEncodeAlignment:
     )
     def test_examples(self, hap, expected):
         h = np.array(list(hap), dtype="U1")
-        a = jit.encode_alignment(h)
+        a = jit.encode_alleles(h)
         nt.assert_array_equal(a, expected)
 
     @pytest.mark.parametrize("hap", "acgtXZxz")
     def test_other_error(self, hap):
         h = np.array(list(hap), dtype="U1")
         with pytest.raises(ValueError, match="not recognised"):
-            jit.encode_alignment(h)
+            jit.encode_alleles(h)
 
 
 class TestDecodeAlleles:
@@ -609,6 +609,6 @@ class TestMaskFlankingDeletions:
         ],
     )
     def test_examples(self, nucs, expected):
-        a = jit.encode_alignment(np.array(list(nucs), dtype="U1"))
-        b = jit.encode_alignment(np.array(list(expected), dtype="U1"))
+        a = jit.encode_alleles(np.array(list(nucs), dtype="U1"))
+        b = jit.encode_alleles(np.array(list(expected), dtype="U1"))
         nt.assert_array_equal(sc2ts.mask_flanking_deletions(a), b)

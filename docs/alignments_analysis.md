@@ -146,10 +146,10 @@ The drawback of this is that it's not as easy to inspect and debug, and we must
 always be aware of the translation required.
 
 Sc2ts provides some utilities for doing this. The easiest way to get the string
-values is to use {func}`decode_alignment` function:
+values is to use {func}`decode_alleles` function:
 
 ```{code-cell}
-a = sc2ts.decode_alignment(ds.alignment["SRR11597146"])
+a = sc2ts.decode_alleles(ds.alignment["SRR11597146"])
 a
 ```
 This is a numpy string array, which can still be processed quite efficiently.
@@ -179,7 +179,6 @@ easily and handled correctly by downstream utilities.
 :::{warning}
 It is important to take this into account when translating the integer encoded data into
 strings, because -1 is interpreted as the last element of the list in Python. Please
-use the {func}`decode_alignment` function
-
+use the {func}`decode_alleles` function to avoid this tripwire.
 :::
 

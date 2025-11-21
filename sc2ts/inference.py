@@ -1227,10 +1227,10 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
     ts = tree_ops.insert_vestigial_root_edge(ts)
 
     # Convert arrays for numba compatibility
-    ancestral_state = jit.encode_alignment(
+    ancestral_state = jit.encode_alleles(
         np.asarray(ts.sites_ancestral_state, dtype="U1")
     )
-    derived_state = jit.encode_alignment(
+    derived_state = jit.encode_alleles(
         np.asarray(ts.mutations_derived_state, dtype="U1")
     )
 
