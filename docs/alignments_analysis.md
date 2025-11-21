@@ -53,9 +53,68 @@ and {attr}`Dataset.num_variants` attributes.
 
 To get information on the metadata fields that are present, we can use
 
-
 ```{code-cell}
 ds.metadata.field_descriptors()
 ```
+:::{warning}
+The ``description`` column is currently empty because of a bug in the
+data ingest pipeline for the Virian data. Later versions will include
+this information so that the dataset is self-describing.
+See [GitHub issue](https://github.com/tskit-dev/sc2ts/issues/579).
+:::
+
+
+
+## Accessing per-sample information
+
+The easiest way to get information about a single sample is through the
+the ``.metadata`` and ``.haplotypes`` interfaces. First, let's get
+the sample IDs for the first 10 samples:
+
+```{code-cell}
+ds.sample_id[:10]
+```
+Then, we can get the metadata for a given sample as a dictionary using
+the {attr}`Dataset.metadata` interface:
+
+```{code-cell}
+ds.metadata["SRR11597146"]
+```
+
+Similarly, we can get the integer encoded alignment for a sample using
+the {attr}`Dataset.alignment` interface:
+
+```{code-cell}
+ds.alignment["SRR11597146"]
+```
+
+:::{seealso}
+See the section {ref}`sec_alignments_analysis_data_encoding` for
+details on the integer encoding for alignment data used here.
+:::
+
+Both the ``.metadata`` and ``.aligments`` interfaces are **cached**
+(avoiding repeated decompression of the same underlying Zarr chunks)
+and support iteration, and so provide an efficient way of accessing
+data in bulk. For example, here we compute the mean number of
+gap ("-") characters per sample:
+
+```{code-cell}
+import numpy as np
+
+GAP = sc2ts.IUPAC_ALLELES.index("-")
+
+gap_count = np.zeros(ds.num_samples)
+for j, a in enumerate(ds.alignment.values()):
+    gap_count[j] = np.sum(a == GAP)
+np.mean(gap_count)
+```
+
+
+(sec_alignments_analysis_data_encoding)=
+
+## Alignment data encoding
+
+Stuff
 
 

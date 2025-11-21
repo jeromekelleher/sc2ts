@@ -246,7 +246,7 @@ class Dataset(collections.abc.Mapping):
 
         :param str path: Path to a directory or ``.zip`` Zarr store.
         :param int chunk_cache_size: Maximum number of chunks to cache for
-            haplotypes and metadata. Defaults to 1.
+            alignments and metadata. Defaults to 1.
         :param str date_field: Name of the metadata field to use as the
             sample date, or ``None`` to disable date handling. Defaults
             to ``None``.
@@ -265,10 +265,10 @@ class Dataset(collections.abc.Mapping):
         self.sample_id_map = {
             sample_id: k for k, sample_id in enumerate(self._sample_id)
         }
-        self.haplotypes = CachedHaplotypeMapping(
+        self._alignment = CachedHaplotypeMapping(
             self.root, self.sample_id_map, chunk_cache_size
         )
-        self.metadata = CachedMetadataMapping(
+        self._metadata = CachedMetadataMapping(
             self.root,
             self.sample_id_map,
             date_field,
@@ -283,6 +283,20 @@ class Dataset(collections.abc.Mapping):
 
     def __len__(self):
         return len(self.root)
+
+    @property
+    def alignment(self):
+        """
+        Efficient mapping of sample ID strings to integer encoded alignment data.
+        """
+        return self._alignment
+
+    @property
+    def metadata(self):
+        """
+        Efficient mapping of sample ID strings to metadata dictionaries.
+        """
+        return self._metadata
 
     @property
     def sample_id(self):
@@ -387,7 +401,7 @@ class Dataset(collections.abc.Mapping):
             sample_id = self.sample_id
 
         for sid in sample_id:
-            h = self.haplotypes[sid]
+            h = self.alignment[sid]
             a = decode_alignment(h)
             print(f">{sid}", file=out)
             # FIXME this is probably a terrible way to write a large numpy string to
@@ -416,7 +430,7 @@ class Dataset(collections.abc.Mapping):
         alignments = {}
         bar = tqdm.tqdm(sample_id, desc="Samples", disable=not show_progress)
         for s in bar:
-            alignments[s] = self.haplotypes[s]
+            alignments[s] = self.alignment[s]
             if len(alignments) == samples_chunk_size:
                 Dataset.append_alignments(path, alignments)
                 alignments = {}

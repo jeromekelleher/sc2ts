@@ -489,7 +489,7 @@ def preprocess(
     samples = []
     bar = get_progress(strains, progress_title, "preprocess", show_progress)
     for strain in bar:
-        alignment = dataset.haplotypes[strain]
+        alignment = dataset.alignment[strain]
         alignment = _dataset.mask_flanking_deletions(alignment)
         sample = Sample(strain)
         # No padding zero site in the alignment
