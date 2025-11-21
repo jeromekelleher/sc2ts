@@ -489,7 +489,7 @@ def preprocess(
     samples = []
     bar = get_progress(strains, progress_title, "preprocess", show_progress)
     for strain in bar:
-        alignment = dataset.haplotypes[strain]
+        alignment = dataset.alignment[strain]
         alignment = _dataset.mask_flanking_deletions(alignment)
         sample = Sample(strain)
         # No padding zero site in the alignment
@@ -1227,10 +1227,10 @@ def make_tsb(ts, num_alleles, mirror_coordinates=False):
     ts = tree_ops.insert_vestigial_root_edge(ts)
 
     # Convert arrays for numba compatibility
-    ancestral_state = jit.encode_alignment(
+    ancestral_state = jit.encode_alleles(
         np.asarray(ts.sites_ancestral_state, dtype="U1")
     )
-    derived_state = jit.encode_alignment(
+    derived_state = jit.encode_alleles(
         np.asarray(ts.mutations_derived_state, dtype="U1")
     )
 

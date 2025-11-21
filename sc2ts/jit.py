@@ -203,7 +203,7 @@ def count(ts):
 
 # FIXME make cache optional.
 @numba.njit(cache=True)
-def encode_alignment(h):
+def encode_alleles(h):
     # Just so numba knows this is a constant string.
     alleles = "ACGT-RYSWKMBDHV."
     n = h.shape[0]

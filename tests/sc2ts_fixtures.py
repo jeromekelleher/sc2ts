@@ -47,7 +47,7 @@ def encoded_alignments(path):
     fr = data_import.FastaReader(path)
     alignments = {}
     for k, v in fr.items():
-        alignments[k] = jit.encode_alignment(v[1:])
+        alignments[k] = jit.encode_alleles(v[1:])
     return alignments
 
 
@@ -205,8 +205,8 @@ def recombinant_alignments(dataset):
     Generate some recombinant alignments from existing haplotypes
     """
     strains = ["SRR11597188", "SRR11597163"]
-    left_a = dataset.haplotypes[strains[0]]
-    right_a = dataset.haplotypes[strains[1]]
+    left_a = dataset.alignment[strains[0]]
+    right_a = dataset.alignment[strains[1]]
     # Recombine in the middle
     bp = 9_999
     h = left_a.copy()
@@ -243,7 +243,7 @@ def recombinant_example_2(tmp_path, fx_ts_map, fx_dataset, ds_path):
     # Pick a distinct strain to be the root of our two new haplotypes added
     # on the first day.
     root_strain = "SRR11597116"
-    a = fx_dataset.haplotypes[root_strain]
+    a = fx_dataset.alignment[root_strain]
     base_ts = fx_ts_map["2020-02-13"]
     # This sequence has a bunch of Ns at the start, so we have to go inwards
     # from them to make sure we're not masking them out.
@@ -310,7 +310,7 @@ def recombinant_example_3(tmp_path, fx_ts_map, fx_dataset, ds_path):
     # Pick a distinct strain to be the root of our three new haplotypes added
     # on the first day.
     root_strain = "SRR11597116"
-    a = fx_dataset.haplotypes[root_strain]
+    a = fx_dataset.alignment[root_strain]
     base_ts = fx_ts_map["2020-02-13"]
     # This sequence has a bunch of Ns at the start, so we have to go inwards
     # from them to make sure we're not masking them out.

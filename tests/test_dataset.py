@@ -167,8 +167,8 @@ class TestCreateDataset:
 
         ds1 = sc2ts.Dataset(path)
         ds2 = sc2ts.Dataset(zip_path)
-        alignments1 = dict(ds1.haplotypes)
-        alignments2 = dict(ds2.haplotypes)
+        alignments1 = dict(ds1.alignment)
+        alignments2 = dict(ds2.alignment)
         assert alignments1.keys() == alignments2.keys()
         for k in alignments1.keys():
             nt.assert_array_equal(alignments1[k], alignments2[k])
@@ -388,9 +388,9 @@ class TestMafftAlignments:
         sc2ts.Dataset.new(path)
         sc2ts.Dataset.append_alignments(path, fx_encoded_alignments_mafft)
         ds = sc2ts.Dataset(path)
-        assert len(ds.haplotypes) == 19
+        assert len(ds.alignment) == 19
         for k, v in fx_encoded_alignments_mafft.items():
-            h = ds.haplotypes[k]
+            h = ds.alignment[k]
             nt.assert_array_equal(v, h)
             # The flanks are marked as deletions
             assert h[0] == 4
@@ -400,7 +400,7 @@ class TestMafftAlignments:
 class TestDatasetAlignments:
 
     def test_fetch_known(self, fx_dataset):
-        a = fx_dataset.haplotypes["SRR11772659"]
+        a = fx_dataset.alignment["SRR11772659"]
         assert a.shape == (sc2ts.REFERENCE_SEQUENCE_LENGTH - 1,)
         assert a[0] == -1
         assert a[-1] == -1
@@ -408,21 +408,21 @@ class TestDatasetAlignments:
     def test_compare_fasta(self, fx_dataset, fx_alignments_fasta):
         fr = data_import.FastaReader(fx_alignments_fasta)
         for k, a1 in fr.items():
-            h = fx_dataset.haplotypes[k]
-            a2 = sc2ts.decode_alignment(h)
+            h = fx_dataset.alignment[k]
+            a2 = sc2ts.decode_alleles(h)
             nt.assert_array_equal(a1[1:], a2)
 
     def test_len(self, fx_dataset):
-        assert len(fx_dataset.haplotypes) == 55
+        assert len(fx_dataset.alignment) == 55
 
     def test_keys(self, fx_dataset):
-        keys = list(fx_dataset.haplotypes.keys())
-        assert len(keys) == len(fx_dataset.haplotypes)
+        keys = list(fx_dataset.alignment.keys())
+        assert len(keys) == len(fx_dataset.alignment)
         assert "SRR11772659" in keys
 
     def test_in(self, fx_dataset):
-        assert "SRR11772659" in fx_dataset.haplotypes
-        assert "NOT_IN_STORE" not in fx_dataset.haplotypes
+        assert "SRR11772659" in fx_dataset.alignment
+        assert "NOT_IN_STORE" not in fx_dataset.alignment
 
     @pytest.mark.parametrize(
         ["chunk_size", "cache_size"],
@@ -445,7 +445,7 @@ class TestDatasetAlignments:
         sc2ts.Dataset.add_metadata(path, fx_metadata_df)
         ds = sc2ts.Dataset(path, chunk_cache_size=cache_size)
         for k, v in fx_encoded_alignments.items():
-            nt.assert_array_equal(v, ds.haplotypes[k])
+            nt.assert_array_equal(v, ds.alignment[k])
 
 
 class TestDatasetMetadata:
@@ -454,7 +454,7 @@ class TestDatasetMetadata:
         assert len(fx_dataset.metadata) == 55
 
     def test_keys(self, fx_dataset):
-        assert fx_dataset.metadata.keys() == fx_dataset.haplotypes.keys()
+        assert fx_dataset.metadata.keys() == fx_dataset.alignment.keys()
 
     def test_known(self, fx_dataset):
         d = fx_dataset.metadata["SRR11772659"]
@@ -550,14 +550,47 @@ class TestEncodeAlignment:
     )
     def test_examples(self, hap, expected):
         h = np.array(list(hap), dtype="U1")
-        a = jit.encode_alignment(h)
+        a = jit.encode_alleles(h)
         nt.assert_array_equal(a, expected)
 
     @pytest.mark.parametrize("hap", "acgtXZxz")
     def test_other_error(self, hap):
         h = np.array(list(hap), dtype="U1")
         with pytest.raises(ValueError, match="not recognised"):
-            jit.encode_alignment(h)
+            jit.encode_alleles(h)
+
+
+class TestDecodeAlleles:
+    @pytest.mark.parametrize(
+        ["a", "expected"],
+        [
+            ([], []),
+            ([0], ["A"]),
+            ([1], ["C"]),
+            ([2], ["G"]),
+            ([3], ["T"]),
+            ([4], ["-"]),
+            ([15], ["."]),
+            ([-1], ["N"]),
+            ([0, 1, 2, 3, 4, -1], list("ACGT-N")),
+            ([-1, 4, 3, 2, 1, 0], list("N-TGCA")),
+            ([0, 1, 0, 2, 3, 0, 1, 4, -1], list("ACAGTAC-N")),
+            (range(len(sc2ts.IUPAC_ALLELES)), list(sc2ts.IUPAC_ALLELES)),
+        ],
+    )
+    def test_examples(self, a, expected):
+        h = sc2ts.decode_alleles(np.array(a, dtype=int))
+        nt.assert_array_equal(h, expected)
+
+    @pytest.mark.parametrize("a", [-2, -3, -100])
+    def test_too_negative(self, a):
+        with pytest.raises(ValueError, match="Negative values"):
+            sc2ts.decode_alleles(np.array(a, dtype=int))
+
+    @pytest.mark.parametrize("a", [16, 17, 100])
+    def test_too_large(self, a):
+        with pytest.raises(ValueError, match="Unknown allele"):
+            sc2ts.decode_alleles(np.array(a, dtype=int))
 
 
 class TestMaskFlankingDeletions:
@@ -576,6 +609,6 @@ class TestMaskFlankingDeletions:
         ],
     )
     def test_examples(self, nucs, expected):
-        a = jit.encode_alignment(np.array(list(nucs), dtype="U1"))
-        b = jit.encode_alignment(np.array(list(expected), dtype="U1"))
+        a = jit.encode_alleles(np.array(list(nucs), dtype="U1"))
+        b = jit.encode_alleles(np.array(list(expected), dtype="U1"))
         nt.assert_array_equal(sc2ts.mask_flanking_deletions(a), b)
