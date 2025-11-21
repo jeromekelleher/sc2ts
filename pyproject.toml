@@ -55,6 +55,7 @@ docs = [
   "sphinx-book-theme",
   "sphinx-copybutton",
   "sphinx-click",
+  "setuptools_scm",
   "sphinx-argparse==0.5.2",
   "sphinx-issues==5.0.1",
   "IPython",
