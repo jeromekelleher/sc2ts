@@ -1,51 +1,69 @@
+---
+jupytext:
+  text_representation:
+    extension: .md
+    format_name: myst
+    format_version: 0.12
+    jupytext_version: 1.9.1
+kernelspec:
+  display_name: Python 3
+  language: python
+  name: python3
+---
+
+```{eval-rst}
+.. currentmodule:: sc2ts
+```
+
 (sec_arg_analysis)=
 # ARG analysis
 
-
-## ARG analysis API
-
-The sc2ts API provides two convenience functions to compute summary
+The sc2ts API provides some convenience functions to compute summary
 dataframes for the nodes and mutations in a sc2ts-output ARG.
 
-To see some examples, first download the (31MB) sc2ts inferred ARG
-from [Zenodo](https://zenodo.org/records/17558489/):
+
+## Prerequisites
+
+Download a subset of the [sc2ts Viridian ARG](https://zenodo.org/records/17558489/)
+with 1000 samples:
 
 ```
-curl -O https://zenodo.org/records/17558489/files/sc2ts_viridian_v1.2.trees.tsz
+curl -O https://raw.githubusercontent.com/tskit-dev/sc2ts/refs/heads/main/docs/sc2ts_viridian_v1.2_subset_1000.trees.tsz
 ```
 
-We can then use these like
+We'll use this small subset as an example throughout.
 
-```python
+## Loading
+
+
+```{code-cell}
 import sc2ts
 import tszip
 
-ts = tszip.load("sc2ts_viridian_v1.2.trees.tsz")
-
-df_node = sc2ts.node_data(ts)
-df_mutation = sc2ts.mutation_data(ts)
+ts = tszip.load("sc2ts_viridian_v1.2_subset_1000.trees.tsz")
 ```
 
-See the [live demo](https://tskit.dev/explore/lab/index.html?path=sc2ts.ipynb)
-for a browser based interactive demo of using these dataframes for
-real-time pandemic-scale analysis.
+You can then use the full [tskit](https://tskit.dev/tskit/docs/)
+Python API on this ARG.
 
-## Dataset API
+## Node data
 
-Sc2ts also provides a convenient API for accessing large-scale
-alignments and metadata stored in
-[VCF Zarr](https://doi.org/10.1093/gigascience/giaf049) format.
+The {func}`node_data` function returns a Pandas dataframe of data for each
+node in the ARG.
 
-Resources:
-
-- See this [notebook](https://github.com/jeromekelleher/sc2ts-paper/blob/main/notebooks/example_data_processing.ipynb)
-for an example in which we access the data variant-by-variant and
-which explains the low-level data encoding
-- See the [VCF Zarr publication](https://doi.org/10.1093/gigascience/giaf049)
-for more details on and benchmarks on this dataset.
+```{code-cell}
+dfn = sc2ts.node_data(ts)
+dfn
+```
 
 
-**TODO** Add some references to API documentation
+## Mutation data
 
+The {func}`mutation_data` function returns a Pandas dataframe of data for each
+mutation_in the ARG.
 
+```{code-cell}
+dfm = sc2ts.mutation_data(ts)
+dfm
+```
 
