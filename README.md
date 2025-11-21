@@ -1,4 +1,4 @@
-# sc2ts
+# sc2ts <img align="right" width="145" height="90" src="https://raw.githubusercontent.com/tskit-dev/sc2ts/main/docs/sc2ts.png">
 
 Sc2ts stands for "SARS-CoV-2 to tree sequence" (pronounced "scoots" optionally)
 and consists of
