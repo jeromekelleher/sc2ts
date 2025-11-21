@@ -24,18 +24,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_ZARR_COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=7, shuffle=0)
 
 
-def decode_alignment(a):
+def decode_alleles(a):
     """
-    Decode an array of integer-encoded alleles into their IUPAC string values.
+    Decode an array of integer-encoded alleles into their IUPAC string values
+    returned as a numpy array.
 
     The input should use the encoding defined by ``core.IUPAC_ALLELES``,
-    with ``-1`` representing missing data; a trailing ``\"N\"`` allele is
-    added here for convenience when working with masked arrays.
+    with ``-1`` representing missing data.
 
     :param numpy.ndarray a: Integer-encoded alignment array.
     :return: Array of single-character IUPAC allele codes.
     :rtype: numpy.ndarray
     """
+    if np.any(a < -1):
+        raise ValueError("Negative values < -1 not supported")
+    if np.any(a >= len(core.IUPAC_ALLELES)):
+        raise ValueError("Unknown allele value")
     alleles = np.array(tuple(core.IUPAC_ALLELES + "N"), dtype=str)
     return alleles[a]
 
@@ -288,6 +292,10 @@ class Dataset(collections.abc.Mapping):
     def alignment(self):
         """
         Efficient mapping of sample ID strings to integer encoded alignment data.
+
+        The returned object is dictionary-like implemening the Mapping protocol.
+        Access to the underlying Zarr store is mediated by a chunk cache, so that
+        chunks are not repeatedly decompressed.
         """
         return self._alignment
 
@@ -295,6 +303,10 @@ class Dataset(collections.abc.Mapping):
     def metadata(self):
         """
         Efficient mapping of sample ID strings to metadata dictionaries.
+
+        The returned object is dictionary-like implemening the Mapping protocol.
+        Access to the underlying Zarr store is mediated by a chunk cache, so that
+        chunks are not repeatedly decompressed.
         """
         return self._metadata
 

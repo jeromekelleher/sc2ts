@@ -110,11 +110,76 @@ for j, a in enumerate(ds.alignment.values()):
 np.mean(gap_count)
 ```
 
+:::{warning}
+The arrays returned by the ``alignment`` are **zero based** and you
+must compensate to use **one-based** coordinates.
+:::
+
+If you want to access
+specific slices of the array based on **one-based** coordinates, it's important
+to take the zero-based nature of this into account. Suppose we wanted to
+access the first 10 bases of Spike for a give sample. The first
+base of Spike is 21563 in standard one-based coordinates. While we could do
+some arithmetic to compensate, the simplest way to translate is to simply
+prepend some value to the alignment array:
+
+```{code-cell}
+a = np.append([-1], ds.alignment["SRR11597146"])
+spike_start = 21_563
+a[spike_start: spike_start + 10]
+```
+
 
 (sec_alignments_analysis_data_encoding)=
 
 ## Alignment data encoding
 
-Stuff
+A key element of processing data efficiently in [tskit](https://tskit.dev) and VCF
+Zarr is to use numpy
+arrays of integers to represent allelic states, instead of the classical
+approach of using strings. In sc2ts, alleles are given fixed integer
+representations, such that A=0, C=1, G=2, and T=3. So, to represent the DNA
+string "AACTG" we would use the numpy array [0, 0, 1, 3, 2] instead. This has
+many advantages and makes it much easier to write efficient code.
 
+The drawback of this is that it's not as easy to inspect and debug, and we must
+always be aware of the translation required.
+
+Sc2ts provides some utilities for doing this. The easiest way to get the string
+values is to use {func}`decode_alignment` function:
+
+```{code-cell}
+a = sc2ts.decode_alignment(ds.alignment["SRR11597146"])
+a
+```
+This is a numpy string array, which can still be processed quite efficiently.
+However, it is best to stay in native integer encoding where possible, as it
+is much more efficient.
+
+
+Sc2ts uses the [IUPAC](https://www.bioinformatics.org/sms/iupac.html)
+uncertainty codes to encode ambiguous bases, and the {attr}`sc2ts.IUPAC_ALLELES`
+variable stores the mapping from these values to their integer indexes.
+
+```{code-cell}
+sc2ts.IUPAC_ALLELES
+```
+
+Thus, "A" corresponds to 0, "-" to 4 and so on.
+
+
+### Missing data
+
+Missing data is an important element of the data model. Usually, missing data is
+encoded as an "N" character in the alignments. Howevever, there is no "N"
+in the ``IUPAC_ALLELES`` list above. This is because missing data is handled specially
+in VCF Zarr by mapping to the reserved ``-1`` value. Missing data can therefore be flagged
+easily and handled correctly by downstream utilities.
+
+:::{warning}
+It is important to take this into account when translating the integer encoded data into
+strings, because -1 is interpreted as the last element of the list in Python. Please
+use the {func}`decode_alignment` function
+
+:::
 

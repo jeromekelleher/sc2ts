@@ -409,7 +409,7 @@ class TestDatasetAlignments:
         fr = data_import.FastaReader(fx_alignments_fasta)
         for k, a1 in fr.items():
             h = fx_dataset.alignment[k]
-            a2 = sc2ts.decode_alignment(h)
+            a2 = sc2ts.decode_alleles(h)
             nt.assert_array_equal(a1[1:], a2)
 
     def test_len(self, fx_dataset):
@@ -558,6 +558,39 @@ class TestEncodeAlignment:
         h = np.array(list(hap), dtype="U1")
         with pytest.raises(ValueError, match="not recognised"):
             jit.encode_alignment(h)
+
+
+class TestDecodeAlleles:
+    @pytest.mark.parametrize(
+        ["a", "expected"],
+        [
+            ([], []),
+            ([0], ["A"]),
+            ([1], ["C"]),
+            ([2], ["G"]),
+            ([3], ["T"]),
+            ([4], ["-"]),
+            ([15], ["."]),
+            ([-1], ["N"]),
+            ([0, 1, 2, 3, 4, -1], list("ACGT-N")),
+            ([-1, 4, 3, 2, 1, 0], list("N-TGCA")),
+            ([0, 1, 0, 2, 3, 0, 1, 4, -1], list("ACAGTAC-N")),
+            (range(len(sc2ts.IUPAC_ALLELES)), list(sc2ts.IUPAC_ALLELES)),
+        ],
+    )
+    def test_examples(self, a, expected):
+        h = sc2ts.decode_alleles(np.array(a, dtype=int))
+        nt.assert_array_equal(h, expected)
+
+    @pytest.mark.parametrize("a", [-2, -3, -100])
+    def test_too_negative(self, a):
+        with pytest.raises(ValueError, match="Negative values"):
+            sc2ts.decode_alleles(np.array(a, dtype=int))
+
+    @pytest.mark.parametrize("a", [16, 17, 100])
+    def test_too_large(self, a):
+        with pytest.raises(ValueError, match="Unknown allele"):
+            sc2ts.decode_alleles(np.array(a, dtype=int))
 
 
 class TestMaskFlankingDeletions:
