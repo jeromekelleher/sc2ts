@@ -111,14 +111,14 @@ np.mean(gap_count)
 ```
 
 :::{warning}
-The arrays returned by the ``alignment`` are **zero based** and you
+The arrays returned by the ``alignment`` interface are **zero based** and you
 must compensate to use **one-based** coordinates.
 :::
 
 If you want to access
 specific slices of the array based on **one-based** coordinates, it's important
 to take the zero-based nature of this into account. Suppose we wanted to
-access the first 10 bases of Spike for a give sample. The first
+access the first 10 bases of Spike for a given sample. The first
 base of Spike is 21563 in standard one-based coordinates. While we could do
 some arithmetic to compensate, the simplest way to translate is to simply
 prepend some value to the alignment array:
@@ -128,7 +128,6 @@ a = np.append([-1], ds.alignment["SRR11597146"])
 spike_start = 21_563
 a[spike_start: spike_start + 10]
 ```
-
 
 (sec_alignments_analysis_data_encoding)=
 
@@ -180,5 +179,18 @@ easily and handled correctly by downstream utilities.
 It is important to take this into account when translating the integer encoded data into
 strings, because -1 is interpreted as the last element of the list in Python. Please
 use the {func}`decode_alleles` function to avoid this tripwire.
+:::
+
+
+## Accessing by variant
+
+A unique feature of the VCF Zarr encoding used here is that we can efficiently access
+the alignment data by sample **and** by site. The best way to access data by site
+is to use the {meth}`Dataset.variants` method.
+
+:::{note}
+The {meth}`Dataset.variants` method is deliberately designed to mirror the API
+of the corresponding [tskit](https://tskit.dev) function
+({meth}`tskit.TreeSequence.variants`).
 :::
 

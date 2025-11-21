@@ -188,7 +188,7 @@ class TestMatchTsinfer:
         ts = tables.tree_sequence()
         alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
-        a = jit.encode_alignment(alignment)
+        a = jit.encode_alleles(alignment)
         h = a[ts.sites_position.astype(int)]
         samples = [si.Sample("test", "2020-01-01", haplotype=h)]
         matches = self.match_tsinfer(samples, ts, mirror_coordinates=mirror)
@@ -205,7 +205,7 @@ class TestMatchTsinfer:
         ts = tables.tree_sequence()
         alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
-        a = jit.encode_alignment(alignment)
+        a = jit.encode_alleles(alignment)
         h = a[ts.sites_position.astype(int)]
         samples = [si.Sample("test", "2020-01-01", haplotype=h)]
         # Mutate to gap
@@ -231,7 +231,7 @@ class TestMatchTsinfer:
         ts = tables.tree_sequence()
         alignment = sc2ts.data_import.get_reference_sequence(as_array=True)
         alignment[0] = "A"
-        a = jit.encode_alignment(alignment)
+        a = jit.encode_alleles(alignment)
         ref = a[ts.sites_position.astype(int)]
         h = np.zeros_like(ref) + allele
         samples = [si.Sample("test", "2020-01-01", haplotype=h)]
