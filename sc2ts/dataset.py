@@ -259,11 +259,11 @@ class Dataset(collections.abc.Mapping):
         else:
             self.store = zarr.DirectoryStore(path)
         self.root = zarr.open(self.store, mode="r")
-        self.sample_id = self.root["sample_id"][:].astype(str)
+        self._sample_id = self.root["sample_id"][:].astype(str)
 
         # TODO we should be storing this mapping in the Zarr somehow.
         self.sample_id_map = {
-            sample_id: k for k, sample_id in enumerate(self.sample_id)
+            sample_id: k for k, sample_id in enumerate(self._sample_id)
         }
         self.haplotypes = CachedHaplotypeMapping(
             self.root, self.sample_id_map, chunk_cache_size
@@ -283,6 +283,13 @@ class Dataset(collections.abc.Mapping):
 
     def __len__(self):
         return len(self.root)
+
+    @property
+    def sample_id(self):
+        """
+        The sample IDs as a numpy string array.
+        """
+        return self._sample_id
 
     @property
     def samples_chunk_size(self):
