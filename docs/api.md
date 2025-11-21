@@ -60,6 +60,8 @@ that have already been generated.
 ```
 
 ```{eval-rst}
+.. data:: IUPAC_ALLELES
+
 .. autofunction:: decode_flags
 
 .. autofunction:: flags_summary

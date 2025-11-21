@@ -22,7 +22,11 @@ REFERENCE_SEQUENCE_LENGTH = 29904
 # NOTE!! This string is also used in the jit module where it's
 # hard-coded into a numba function, so if this ever changes
 # it needs to be updated there also!
+
 IUPAC_ALLELES = "ACGT-RYSWKMBDHV."
+"""
+The allele-integer encoding used by sc2ts.
+"""
 
 NODE_IS_MUTATION_OVERLAP = 1 << 21
 NODE_IS_REVERSION_PUSH = 1 << 22
