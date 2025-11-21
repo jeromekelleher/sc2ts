@@ -507,6 +507,14 @@ class TestDatasetMetadata:
         samples = fx_dataset.metadata.samples_for_date("2020-01-19")
         assert samples == ["SRR11772659"]
 
+    def test_metadata_dataframe(self, fx_dataset):
+        df1 = fx_dataset.metadata.as_dataframe()
+        df2 = fx_dataset.metadata_dataframe()
+        assert df1.shape[0] == df2.shape[0]
+        for col, data1 in df2.items():
+            data2 = df2[col]
+            nt.assert_array_equal(data1.to_numpy(), data2.to_numpy())
+
     def test_as_dataframe(self, fx_dataset, fx_metadata_df):
         df1 = fx_dataset.metadata.as_dataframe()
         df2 = fx_metadata_df.loc[df1.index]

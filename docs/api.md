@@ -8,9 +8,6 @@ Inference is driven via the command line interface (see the
 listed here are intended for working with tree sequences and datasets
 that have already been generated.
 
-The reference documentation is concise and exhaustive; for higher level
-discussion and worked examples, see the project README and example
-notebooks.
 
 ```{eval-rst}
 .. currentmodule:: sc2ts
@@ -30,7 +27,7 @@ notebooks.
 .. autofunction:: mutation_data
 ```
 
-## Dataset access
+## Alignment and metadata analysis
 
 ```{eval-rst}
 .. autosummary::
@@ -44,6 +41,9 @@ notebooks.
 .. autoclass:: Dataset
    :members:
 
+.. autoclass:: Variant
+   :members:
+
 .. autofunction:: decode_alleles
 
 .. autofunction:: mask_ambiguous
@@ -55,25 +55,12 @@ notebooks.
 
 ```{eval-rst}
 .. autosummary::
-   REFERENCE_STRAIN
-   REFERENCE_DATE
-   REFERENCE_GENBANK
-   REFERENCE_SEQUENCE_LENGTH
-   IUPAC_ALLELES
    decode_flags
    flags_summary
 ```
 
 ```{eval-rst}
-.. autodata:: REFERENCE_STRAIN
-
-.. autodata:: REFERENCE_DATE
-
-.. autodata:: REFERENCE_GENBANK
-
-.. autodata:: REFERENCE_SEQUENCE_LENGTH
-
-.. autodata:: IUPAC_ALLELES
+.. data:: IUPAC_ALLELES
 
 .. autofunction:: decode_flags
 

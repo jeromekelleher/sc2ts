@@ -189,8 +189,76 @@ the alignment data by sample **and** by site. The best way to access data by sit
 is to use the {meth}`Dataset.variants` method.
 
 :::{note}
-The {meth}`Dataset.variants` method is deliberately designed to mirror the API
+The {meth}`Dataset.variants` method is deliberately designed to follow the semantics
 of the corresponding [tskit](https://tskit.dev) function
-({meth}`tskit.TreeSequence.variants`).
+({meth}`tskit.TreeSequence.variants`), enabling straightforward joint analysis of the
+ARG and alignments.
 :::
+
+Here we use this interface to count the number of samples that carry the gap characters
+at each site along the genome:
+
+```{code-cell}
+GAP = sc2ts.IUPAC_ALLELES.index("-")
+
+gap_count = np.zeros(ds.num_variants)
+for j, var in enumerate(ds.variants()):
+    gap_count[j] = np.sum(var.genotypes == GAP)
+
+gap_count
+```
+
+Here, we can see that all 1000 samples in our small subset have flanking deletions called.
+
+We can use the ``position`` argument to supply a list of (**one-based**) site positions
+of interest:
+
+```{code-cell}
+spike_pos = np.arange(21_563, 25_385)
+gap_count = np.zeros_like(spike_pos)
+for j, var in enumerate(ds.variants(position=spike_pos)):
+    gap_count[j] = np.sum(var.genotypes == GAP)
+
+gap_count
+```
+
+We can also use the ``sample_id`` argument to specify subsets of samples.
+
+## Bulk metadata analysis
+
+Accessing the metadata row-by-row using the ``.metadata`` mapping above is
+inefficient when we want to look at large numbers of samples. In this case,
+it is much more convenient to export the metadata to a Pandas dataframe
+using the {meth}`Dataset.metadata_dataframe` and then work with this.
+
+```{code-cell}
+df = ds.metadata_dataframe()
+df
+```
+
+Then, suppose we want to find all samples from the USA:
+
+```{code-cell}
+usa_samples = df[df["Country"] == "USA"].index
+usa_samples
+```
+
+:::{important}
+For performance reasons it's a good idea to use the ``fields`` parameter to
+{meth}`Dataset.metadata_dataframe` to limit the amount of metadata decoded
+to what you actually need.
+:::
+
+
+## Getting FASTA output
+
+Getting FASTA output is straightforward using the {meth}`Dataset.write_fasta`
+method. Here, we use the ``sample_id`` argument to write the FASTA aligments
+of the USA samples found in the last example:
+
+```{code-cell}
+with open("/tmp/usa.fa", "w") as f:
+    ds.write_fasta(f, sample_id=usa_samples)
+```
+
 
