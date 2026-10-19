@@ -266,10 +266,13 @@ class CopyingTable:
                 )
 
                 child_col_idx = 0
-                for j in range(1, len(var.genotypes)):
-                    parent_allele = var.alleles[var.genotypes[j]]
-                    if parent_allele == child_allele:
-                        child_col_idx = j
+                if var.genotypes[parent_col] == var.genotypes[0]:
+                    child_col_idx = parent_col
+                else:
+                    # Find any matching parent taking the lowest if several available
+                    for j in reversed(range(1, len(var.genotypes))):
+                        if var.alleles[var.genotypes[j]] == var.genotypes[0]:
+                            child_col_idx = j
 
                 for j in range(1, len(var.genotypes)):
                     parent_allele = var.alleles[var.genotypes[j]]
